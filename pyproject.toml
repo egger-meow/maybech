@@ -1,0 +1,9 @@
+[project]
+name = "maybech"
+version = "0.1.0"
+description = "Crypto auto-trader with momentum detection and backtesting validation — OKX"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

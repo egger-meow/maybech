@@ -1,0 +1,24 @@
+# OKX SDK
+python-okx
+
+# Data & analysis
+pandas>=2.0
+numpy>=1.24
+
+# Technical indicators
+ta>=0.11
+
+# Visualization (backtesting reports)
+matplotlib>=3.7
+
+# Config
+python-dotenv>=1.0
+
+# Notifications
+line-bot-sdk>=3.0
+
+# Async support
+websockets>=12.0
+
+# Testing
+pytest>=7.0
