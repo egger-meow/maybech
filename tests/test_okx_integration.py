@@ -51,7 +51,6 @@ def dashboard(client):
     from src.monitor.dashboard import Dashboard
     return Dashboard(client)
 
-
 # ── Account Tests ────────────────────────────────────────────────────────────
 
 def test_get_balance(client):
@@ -164,3 +163,22 @@ def test_dashboard_summary(dashboard):
     print(f"  Available Equity: {summary['available_equity']}")
     if summary["currencies"]:
         print(f"  Currencies: {[c['ccy'] for c in summary['currencies']]}")
+
+
+def test_run_backtest(candle_manager):
+    """Run a short backtest on ETH-USDT-SWAP to verify engine mechanics."""
+    from src.strategies.momentum import MomentumStrategy
+    from src.backtesting.engine import BacktestEngine
+    
+    # Use SWAP since our strategy is tuned for it
+    strategy = MomentumStrategy()
+    engine = BacktestEngine(strategy, candle_manager)
+    
+    inst_id = "ETH-USDT-SWAP"
+    
+    print(f"\n  Running backtest on {inst_id}...")
+    result = engine.run(inst_id, bar="1m", days=1)
+    
+    print(f"  Backtest done. Trades: {result.total_trades}, Win Rate: {result.win_rate:.2f}")
+    assert result is not None
+    assert isinstance(result.trades, list)

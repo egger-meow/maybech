@@ -47,6 +47,21 @@ class Settings:
     MAX_POSITION_RATIO: float = field(
         default_factory=lambda: _get_float("MAX_POSITION_RATIO", 0.1)
     )
+    TRADE_QUANTITY_ETH: float = field(
+        default_factory=lambda: _get_float("TRADE_QUANTITY_ETH", 0.1)
+    )
+
+    # Momentum Strategy
+    MOMENTUM_K_LONG: float = field(
+        default_factory=lambda: _get_float("MOMENTUM_K_LONG", 10.0)
+    )
+    MOMENTUM_K_SHORT: float = field(
+        default_factory=lambda: _get_float("MOMENTUM_K_SHORT", 5.0)
+    )
+    PRICE_GAP_THRESHOLD: float = field(
+        default_factory=lambda: _get_float("PRICE_GAP_THRESHOLD", 3.0)
+    )
+
 
     # Risk management (bear-market bias)
     STOP_LOSS_LONG_PCT: float = field(

@@ -82,7 +82,7 @@ class OKXClient:
 
     def get_positions(
         self,
-        inst_type: str = "",
+        inst_type: str = "SWAP",
         inst_id: str = "",
     ) -> list[dict]:
         """Fetch all open positions."""
@@ -98,7 +98,7 @@ class OKXClient:
 
     def get_fee_rates(
         self,
-        inst_type: str = "SPOT",
+        inst_type: str = "SWAP",
         inst_id: str = "",
     ) -> list[dict]:
         """Fetch maker/taker fee rates."""
@@ -156,7 +156,7 @@ class OKXClient:
 
     def get_order_history(
         self,
-        inst_type: str = "SPOT",
+        inst_type: str = "SWAP",
         limit: str = "20",
     ) -> list[dict]:
         """Fetch completed order history (last 7 days)."""
@@ -173,7 +173,7 @@ class OKXClient:
         side: str,
         sz: str,
         px: str,
-        td_mode: str = "cash",
+        td_mode: str = "cross",
         *,
         tp_trigger_px: str = "",
         tp_ord_px: str = "",
