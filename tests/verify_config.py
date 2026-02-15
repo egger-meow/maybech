@@ -14,17 +14,20 @@ def test_config_loading():
     cfg = StrategyConfig.default()
     assert isinstance(cfg.momentum, MomentumConfig)
     assert cfg.momentum.stop_win_ratio == 1.0
+    assert cfg.active_strategy == "momentum"
     print("   Defaults OK:", cfg)
 
     # Test Save and Load
     print("2. Testing Save and Load...")
     cfg.momentum.k_long = 99.9
     cfg.momentum.stop_win_ratio = 2.5
+    cfg.active_strategy = "custom_strat"
     cfg.save()
     
     loaded_cfg = StrategyConfig.load()
     assert loaded_cfg.momentum.k_long == 99.9
     assert loaded_cfg.momentum.stop_win_ratio == 2.5
+    assert loaded_cfg.active_strategy == "custom_strat"
     print("   Save/Load OK:", loaded_cfg)
     
     # Test MomentumStrategy Instantiation

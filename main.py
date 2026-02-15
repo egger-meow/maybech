@@ -13,7 +13,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import (
-    Button, DataTable, Footer, Header, Input, Label, Static
+    Button, DataTable, Footer, Header, Input, Label, Static, Select
 )
 from textual import work
 
@@ -51,7 +51,7 @@ def format_time_taipei(ts_str: str | None) -> str:
         return str(ts_str)
 
 
-class DashboardView(Container):
+class DashboardView(Vertical):
     """Account summary, Market Overview, and open positions."""
 
     def compose(self) -> ComposeResult:
@@ -69,11 +69,13 @@ class DashboardView(Container):
         table.zebra_stripes = True
 
 
-class BacktestView(Container):
+class BacktestView(Vertical):
     """Backtest configuration and results."""
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="controls-area"):
+            yield Label("Strategy:")
+            yield Select([("Momentum", "momentum")], id="bt-strategy", allow_blank=False, value="momentum")
             yield Label("Symbol:")
             yield Input(placeholder="ETH-USDT-SWAP", id="bt-symbol", value="ETH-USDT-SWAP")
             yield Label("Days:")
@@ -92,7 +94,7 @@ class BacktestView(Container):
         table.zebra_stripes = True
 
 
-class ExecutorView(Container):
+class ExecutorView(Vertical):
     """Mock Executor Status Page."""
 
     def compose(self) -> ComposeResult:
@@ -128,27 +130,33 @@ class ExecutorView(Container):
             pass
 
 
-class SettingsView(Container):
+class SettingsView(Vertical):
     """Editable settings view."""
 
     def compose(self) -> ComposeResult:
         yield Label("Strategy Configuration (Editable)", classes="section-title")
         
-        with Horizontal(classes="controls-area"):
-            yield Label("K Long:")
-            yield Input(id="in-k-long")
-            yield Label("K Short:")
-            yield Input(id="in-k-short")
+        yield Label("Strategy (Global):", classes="section-title")
+        yield Select([("Momentum", "momentum")], id="sel-strategy", allow_blank=False, value="momentum")
+
+        yield Label("Momentum Configuration", classes="section-title")
         
-        with Horizontal(classes="controls-area"):
-            yield Label("Gap Thresh:")
-            yield Input(id="in-gap")
-        
-        with Horizontal(classes="controls-area"):
-            yield Label("TP Ratio:")
-            yield Input(id="in-tp-ratio")
-            yield Label("Vol Scaled TP:")
-            yield Input(id="in-tp-vol", placeholder="1=True, 0=False")
+        with Container(id="cfg-momentum", classes="box"):
+            with Horizontal(classes="controls-area"):
+                yield Label("K Long:")
+                yield Input(id="in-k-long")
+                yield Label("K Short:")
+                yield Input(id="in-k-short")
+            
+            with Horizontal(classes="controls-area"):
+                yield Label("Gap Thresh:")
+                yield Input(id="in-gap")
+            
+            with Horizontal(classes="controls-area"):
+                yield Label("TP Ratio:")
+                yield Input(id="in-tp-ratio")
+                yield Label("Vol Scaled TP:")
+                yield Input(id="in-tp-vol", placeholder="1=True, 0=False")
 
         with Horizontal(classes="controls-area"):
             yield Button("Save Config", id="btn-save-config", variant="primary")
@@ -161,6 +169,11 @@ class SettingsView(Container):
 
     def on_mount(self) -> None:
         cfg = StrategyConfig.load()
+        
+        # Set Active Strategy
+        self.query_one("#sel-strategy", Select).value = cfg.active_strategy
+
+        # Load Momentum Params
         self.query_one("#in-k-long", Input).value = str(cfg.momentum.k_long)
         self.query_one("#in-k-short", Input).value = str(cfg.momentum.k_short)
         self.query_one("#in-gap", Input).value = str(cfg.momentum.gap_threshold)
@@ -168,11 +181,14 @@ class SettingsView(Container):
         self.query_one("#in-tp-vol", Input).value = "1" if cfg.momentum.stop_win_vol_ratio else "0"
 
 
-class GridSearchView(Container):
+class GridSearchView(Vertical):
     """Grid Search Optimizer View."""
 
     def compose(self) -> ComposeResult:
         yield Label("Grid Search Parameters", classes="section-title")
+        with Horizontal(classes="controls-area"):
+            yield Label("Strategy:")
+            yield Select([("Momentum", "momentum")], id="gs-strategy", allow_blank=False, value="momentum")
         with Horizontal(classes="controls-area"):
             yield Label("K-Long (start,end,step):")
             yield Input(placeholder="5,15,5", id="gs-klong", value="5,15,5")
@@ -229,7 +245,8 @@ class MaybechApp(App):
         align-vertical: middle;
     }
     .controls-area Label { padding: 1; width: auto; }
-    .controls-area Input { width: 16; }
+    .controls-area Input { width: 25; }
+    .controls-area Select { width: 25; }
     .warning { color: $error; text-style: bold; margin-left: 2; }
     .status-msg { color: $success; margin-left: 2; }
     #btn-save-config { margin-left: 2; }
@@ -435,6 +452,11 @@ class MaybechApp(App):
             tp_vol_str = self.settings_view.query_one("#in-tp-vol", Input).value
             tp_vol = True if tp_vol_str.strip() == "1" else False
             
+            # Save Active Strategy
+            active_strat = self.settings_view.query_one("#sel-strategy", Select).value
+            if not active_strat:
+                active_strat = "momentum"
+
             mom_cfg = MomentumConfig(
                 k_long=k_long, 
                 k_short=k_short, 
@@ -442,11 +464,17 @@ class MaybechApp(App):
                 stop_win_ratio=tp_ratio,
                 stop_win_vol_ratio=tp_vol
             )
-            new_cfg = StrategyConfig(momentum=mom_cfg)
+            new_cfg = StrategyConfig(momentum=mom_cfg, active_strategy=active_strat)
             new_cfg.save()
             
             self.config = new_cfg
-            self.strategy.config = mom_cfg
+            
+            # Switch strategy instance if needed (future proofing)
+            # Currently only momentum exists
+            if active_strat == "momentum":
+                self.strategy = MomentumStrategy(config=mom_cfg)
+            
+            self.engine.strategy = self.strategy
             
             self.app.call_from_thread(
                 self.settings_view.query_one("#settings-status", Label).update, "Settings Saved!"

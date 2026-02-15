@@ -39,12 +39,14 @@ class MomentumConfig:
 class StrategyConfig:
     """Global Strategy Configuration holding all strategy parameters."""
     momentum: MomentumConfig
+    active_strategy: str = "momentum"
 
     @classmethod
     def default(cls) -> "StrategyConfig":
         """Return default configuration."""
         return cls(
-            momentum=MomentumConfig.default()
+            momentum=MomentumConfig.default(),
+            active_strategy="momentum"
         )
 
     def save(self) -> None:
@@ -69,6 +71,10 @@ class StrategyConfig:
                 data = json.load(f)
             
             # Helper to safely load submodule configs
+            
+            # Active Strategy (default 'momentum' if missing)
+            active_strat = data.get("active_strategy", "momentum")
+
             # If "momentum" key is missing, or entire file is old format, fallback safely
             momentum_data = data.get("momentum")
             if not momentum_data:
@@ -79,14 +85,16 @@ class StrategyConfig:
                     momentum_conf = MomentumConfig(
                         k_long=data.get("k_long", settings.MOMENTUM_K_LONG),
                         k_short=data.get("k_short", settings.MOMENTUM_K_SHORT),
-                        gap_threshold=data.get("gap_threshold", settings.PRICE_GAP_THRESHOLD)
+                        gap_threshold=data.get("gap_threshold", settings.PRICE_GAP_THRESHOLD),
+                        stop_win_ratio=data.get("stop_win_ratio", 1.0),
+                        stop_win_vol_ratio=data.get("stop_win_vol_ratio", False),
                     )
                 else:
                     momentum_conf = MomentumConfig.default()
             else:
                 momentum_conf = MomentumConfig(**momentum_data)
 
-            return cls(momentum=momentum_conf)
+            return cls(momentum=momentum_conf, active_strategy=active_strat)
 
         except Exception as e:
             logger.warning("Failed to load strategy config, using defaults: %s", e)

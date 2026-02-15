@@ -36,10 +36,10 @@ def setup_logger(name: str) -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Console handler
-    console = logging.StreamHandler(sys.stdout)
-    console.setFormatter(fmt)
-    logger.addHandler(console)
+    # Console handler - DISABLED for TUI (Textual handles its own output)
+    # console = logging.StreamHandler(sys.stdout)
+    # console.setFormatter(fmt)
+    # logger.addHandler(console)
 
     # File handler
     file_handler = logging.FileHandler(_LOG_DIR / "maybech.log", encoding="utf-8")
