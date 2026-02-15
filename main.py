@@ -20,7 +20,7 @@ from textual import work
 from src.backtesting.engine import BacktestEngine
 from src.backtesting.optimizer import GridSearch
 from src.config.settings import settings
-from src.config.strategy import StrategyConfig
+from src.config.strategy import StrategyConfig, MomentumConfig
 from src.data.candles import CandleManager
 from src.exchange.client import OKXClient
 from src.monitor.dashboard import Dashboard
@@ -143,6 +143,14 @@ class SettingsView(Container):
         with Horizontal(classes="controls-area"):
             yield Label("Gap Thresh:")
             yield Input(id="in-gap")
+        
+        with Horizontal(classes="controls-area"):
+            yield Label("TP Ratio:")
+            yield Input(id="in-tp-ratio")
+            yield Label("Vol Scaled TP:")
+            yield Input(id="in-tp-vol", placeholder="1=True, 0=False")
+
+        with Horizontal(classes="controls-area"):
             yield Button("Save Config", id="btn-save-config", variant="primary")
         
         # Status Label to avoid popup overlap
@@ -153,9 +161,11 @@ class SettingsView(Container):
 
     def on_mount(self) -> None:
         cfg = StrategyConfig.load()
-        self.query_one("#in-k-long", Input).value = str(cfg.k_long)
-        self.query_one("#in-k-short", Input).value = str(cfg.k_short)
-        self.query_one("#in-gap", Input).value = str(cfg.gap_threshold)
+        self.query_one("#in-k-long", Input).value = str(cfg.momentum.k_long)
+        self.query_one("#in-k-short", Input).value = str(cfg.momentum.k_short)
+        self.query_one("#in-gap", Input).value = str(cfg.momentum.gap_threshold)
+        self.query_one("#in-tp-ratio", Input).value = str(cfg.momentum.stop_win_ratio)
+        self.query_one("#in-tp-vol", Input).value = "1" if cfg.momentum.stop_win_vol_ratio else "0"
 
 
 class GridSearchView(Container):
@@ -248,7 +258,7 @@ class MaybechApp(App):
             
             # Load initial config
             self.config = StrategyConfig.load()
-            self.strategy = MomentumStrategy(config=self.config)
+            self.strategy = MomentumStrategy(config=self.config.momentum)
             self.engine = BacktestEngine(self.strategy, self.candle_manager)
             self.optimizer = GridSearch(self.candle_manager)
             
@@ -421,12 +431,22 @@ class MaybechApp(App):
             k_long = float(self.settings_view.query_one("#in-k-long", Input).value)
             k_short = float(self.settings_view.query_one("#in-k-short", Input).value)
             gap = float(self.settings_view.query_one("#in-gap", Input).value)
+            tp_ratio = float(self.settings_view.query_one("#in-tp-ratio", Input).value)
+            tp_vol_str = self.settings_view.query_one("#in-tp-vol", Input).value
+            tp_vol = True if tp_vol_str.strip() == "1" else False
             
-            new_cfg = StrategyConfig(k_long=k_long, k_short=k_short, gap_threshold=gap)
+            mom_cfg = MomentumConfig(
+                k_long=k_long, 
+                k_short=k_short, 
+                gap_threshold=gap,
+                stop_win_ratio=tp_ratio,
+                stop_win_vol_ratio=tp_vol
+            )
+            new_cfg = StrategyConfig(momentum=mom_cfg)
             new_cfg.save()
             
             self.config = new_cfg
-            self.strategy.config = new_cfg
+            self.strategy.config = mom_cfg
             
             self.app.call_from_thread(
                 self.settings_view.query_one("#settings-status", Label).update, "Settings Saved!"

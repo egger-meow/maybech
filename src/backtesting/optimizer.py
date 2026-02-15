@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import List, Dict
 
 from src.backtesting.engine import BacktestEngine, BacktestResult
-from src.config.strategy import StrategyConfig
+from src.config.strategy import StrategyConfig, MomentumConfig
 from src.data.candles import CandleManager
 from src.strategies.momentum import MomentumStrategy
 
@@ -77,8 +77,9 @@ class GridSearch:
 
         for i, (k_l, k_s, gap) in enumerate(combinations):
             # Create config and strategy
-            cfg = StrategyConfig(k_long=k_l, k_short=k_s, gap_threshold=gap)
-            strategy = MomentumStrategy(config=cfg)
+            mom_cfg = MomentumConfig(k_long=k_l, k_short=k_s, gap_threshold=gap)
+            cfg = StrategyConfig(momentum=mom_cfg)
+            strategy = MomentumStrategy(config=mom_cfg)
             
             # Create engine with this strategy
             engine = BacktestEngine(strategy, self.candle_manager)

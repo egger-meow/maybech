@@ -21,7 +21,7 @@ Risk Management:
 import pandas as pd
 
 from src.config.settings import settings
-from src.config.strategy import StrategyConfig
+from src.config.strategy import StrategyConfig, MomentumConfig
 from src.strategies.base import BaseStrategy, Signal
 
 
@@ -30,11 +30,12 @@ class MomentumStrategy(BaseStrategy):
 
     name = "momentum_swap"
 
-    def __init__(self, config: StrategyConfig | None = None) -> None:
+    def __init__(self, config: "MomentumConfig | None" = None) -> None:
         if config:
             self.config = config
         else:
-            self.config = StrategyConfig.load()
+            # Load global config and extract momentum part
+            self.config = StrategyConfig.load().momentum
         
         # Shortcuts for logic
         self.k_long = self.config.k_long
@@ -115,8 +116,24 @@ class MomentumStrategy(BaseStrategy):
         entry_price = float(curr["close"])
         sl_price = float(prev["close"])
 
-        # TP is 1:1 distance
-        dist = abs(entry_price - sl_price)
+        # TP Calculation
+        sl_dist = abs(entry_price - sl_price)
+        
+        # Base Ratio
+        ratio = self.config.stop_win_ratio
+        
+        # Optional: Volume Scaling
+        if self.config.stop_win_vol_ratio:
+            k = self.k_long if signal == Signal.LONG else self.k_short
+            
+            # vol_scale = current_vol / (prev_vol * k)
+            # using small epsilon for safety although prev_vol check exists
+            prev_vol = prev["volume"] if prev["volume"] > 0 else 0.0001
+            vol_scale = curr["volume"] / (prev_vol * k)
+            
+            ratio *= vol_scale
+
+        dist = sl_dist * ratio
 
         if signal == Signal.LONG:
             tp_price = entry_price + dist
@@ -129,7 +146,9 @@ class MomentumStrategy(BaseStrategy):
             stop_loss=sl_price,
             take_profit=tp_price,
             reason=(
-                f"Vol x{curr['volume']/prev['volume']:.1f} > {self.k_long if signal==Signal.LONG else self.k_short} "
-                f"& Gap {dist:.1f} > {self.gap_threshold}"
+                f"Vol x{curr['volume']/(prev['volume'] if prev['volume']>0 else 0.0001):.1f} "
+                f"> {self.k_long if signal==Signal.LONG else self.k_short} "
+                f"& Gap {abs(entry_price - sl_price):.1f} > {self.gap_threshold} "
+                f"| TP Ratio: {ratio:.2f}"
             ),
         )
