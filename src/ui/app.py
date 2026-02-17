@@ -6,7 +6,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.containers import Container
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, Select
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, Select, ContentSwitcher
 from textual import work
 
 from src.backtesting.engine import BacktestEngine
@@ -98,7 +98,7 @@ class MaybechApp(App):
     DataTable { height: 1fr; border: solid $secondary; }
     #gs-results-container DataTable { border: none; }
     #gs-results-container { height: 1fr; }
-    #view-container { height: 1fr; }
+    #view-switcher { height: 1fr; }
 
     #preload-container {
         border: solid $accent;
@@ -140,9 +140,6 @@ class MaybechApp(App):
             self.executor_view = ExecutorView(id="view-executor")
             self.gridsearch_view = GridSearchView(id="view-gridsearch")
             
-            # Default view
-            self.current_view = self.dashboard_view
-            
         except Exception as e:
             logger.exception("Init failed")
             # In a real app we might want to re-raise or handle this more gracefully
@@ -151,7 +148,12 @@ class MaybechApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Container(self.dashboard_view, id="view-container")
+        with ContentSwitcher(initial="view-dashboard", id="view-switcher"):
+            yield self.dashboard_view
+            yield self.backtest_view
+            yield self.settings_view
+            yield self.executor_view
+            yield self.gridsearch_view
         yield Footer()
 
     def on_mount(self) -> None:
@@ -199,31 +201,25 @@ class MaybechApp(App):
 
     # -- Navigation --
     def action_show_dashboard(self) -> None:
-        self._switch_view(self.dashboard_view, "Dashboard")
+        self._switch_view("view-dashboard", "Dashboard")
         self.action_refresh_dashboard()
 
     def action_show_backtest(self) -> None:
-        self._switch_view(self.backtest_view, "Backtest")
+        self._switch_view("view-backtest", "Backtest")
 
     def action_show_settings(self) -> None:
-        self._switch_view(self.settings_view, "Settings")
+        self._switch_view("view-settings", "Settings")
         self.update_settings_readonly()
 
     def action_show_executor(self) -> None:
-        self._switch_view(self.executor_view, "Executor (Mock)")
+        self._switch_view("view-executor", "Executor")
         self.action_refresh_dashboard()
 
     def action_show_gridsearch(self) -> None:
-        self._switch_view(self.gridsearch_view, "Grid Search")
+        self._switch_view("view-gridsearch", "Grid Search")
 
-    def _switch_view(self, new_view: Container, title_suffix: str) -> None:
-        container = self.query_one("#view-container", Container)
-        
-        if self.current_view and self.current_view != new_view:
-            self.current_view.remove()
-            container.mount(new_view)
-            self.current_view = new_view
-        
+    def _switch_view(self, view_id: str, title_suffix: str) -> None:
+        self.query_one("#view-switcher", ContentSwitcher).current = view_id
         self.title = f"Maybech - {title_suffix}"
 
     # -- Logic --
