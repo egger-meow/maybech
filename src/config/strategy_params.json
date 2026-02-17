@@ -2,7 +2,7 @@
     "momentum": {
         "k_long": 12.0,
         "k_short": 10.0,
-        "gap_threshold": 8.0,
+        "gap_threshold": 10.0,
         "stop_win_ratio": 1.0,
         "stop_win_vol_ratio": false
     },
