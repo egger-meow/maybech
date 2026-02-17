@@ -1,6 +1,6 @@
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import DataTable, Label, Static
+from textual.widgets import DataTable, Label, Static, ProgressBar
 
 from src.ui.utils import format_time_taipei
 
@@ -8,6 +8,11 @@ class DashboardView(Vertical):
     """Account summary, Market Overview, and open positions."""
 
     def compose(self) -> ComposeResult:
+        with Vertical(id="preload-container", classes="box hidden"):
+            yield Label("Preloading Market Data...", id="preload-title")
+            yield ProgressBar(total=100, show_percentage=True, id="preload-progress")
+            yield Static("", id="preload-status")
+
         with Vertical(classes="top-section"):
             yield Label("Account Summary", classes="section-title")
             yield Static(id="balance-summary", classes="box")

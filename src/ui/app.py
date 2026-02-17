@@ -1,6 +1,7 @@
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -98,6 +99,13 @@ class MaybechApp(App):
     #gs-results-container DataTable { border: none; }
     #gs-results-container { height: 1fr; }
     #view-container { height: 1fr; }
+
+    #preload-container {
+        border: solid $accent;
+        background: $accent-darken-1;
+    }
+    #preload-title { text-style: bold; }
+    #preload-status { color: $text-muted; text-style: italic; }
     """
 
     BINDINGS = [
@@ -147,12 +155,47 @@ class MaybechApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        # Schedule auto-refresh every 10s
+        # 1. Start Preloading Data (Threaded)
+        self.preload_data_task()
+
+        # 2. Schedule auto-refresh every 10s
         self.set_interval(10.0, self.action_refresh_dashboard)
         
         # Initial data load
         self.action_refresh_dashboard()
         self.update_settings_readonly()
+
+    @work(exclusive=True, thread=True)
+    def preload_data_task(self) -> None:
+        """Preload market data for all pairs on startup."""
+        container = self.dashboard_view.query_one("#preload-container")
+        progress = self.dashboard_view.query_one("#preload-progress")
+        status = self.dashboard_view.query_one("#preload-status")
+        
+        self.call_from_thread(container.remove_class, "hidden")
+        
+        pairs = settings.TRADING_PAIRS
+        total = len(pairs)
+        duration = 10 # 10 days as requested
+        
+        self.call_from_thread(progress.update, total=total, progress=0)
+        
+        for i, pair in enumerate(pairs):
+            self.call_from_thread(status.update, f"Preloading {pair} ({duration} days)...")
+            try:
+                # CandleManager.get_history already implements caching logic
+                self.candle_manager.get_history(pair, settings.CANDLE_INTERVAL, days=duration)
+            except Exception as e:
+                logger.error(f"Preload failed for {pair}: {e}")
+            
+            self.call_from_thread(progress.update, progress=i+1)
+            # Small delay to keep UI responsive and respect OKX limits if many pairs
+            time.sleep(0.1)
+            
+        self.call_from_thread(status.update, "Preload Complete!")
+        # Hide after a short delay
+        time.sleep(1.0)
+        self.call_from_thread(container.add_class, "hidden")
 
     # -- Navigation --
     def action_show_dashboard(self) -> None:

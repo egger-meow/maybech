@@ -66,27 +66,28 @@ class CandleManager:
         bar: str = "1m",
         limit: int = 100,
     ) -> pd.DataFrame:
-        """Fetch candles and return as DataFrame with columns:
-        [timestamp, open, high, low, close, volume, ...].
-        """
+        """Fetch candles and return as DataFrame. Merges with cache."""
         raw = self.client.get_candles(
             inst_id=inst_id, bar=bar, limit=str(limit),
         )
         df = _raw_to_df(raw)
+        
         cache_key = f"{inst_id}:{bar}"
+        if cache_key in self._cache:
+            df = pd.concat([self._cache[cache_key], df], ignore_index=True)
+            df.drop_duplicates(subset="timestamp", inplace=True)
+            df.sort_values("timestamp", inplace=True)
+            df.reset_index(drop=True, inplace=True)
+        
         self._cache[cache_key] = df
-        logger.info("Fetched %d candles for %s (%s)", len(df), inst_id, bar)
+        logger.info("Fetched %d candles for %s (%s). Cache size: %d", len(raw), inst_id, bar, len(df))
         return df
 
     def get_latest(self, inst_id: str, bar: str = "1m") -> pd.Series:
-        """Get the most recent candle for a given instrument.
-
-        Uses cache if available, otherwise fetches fresh data.
-        """
+        """Get the most recent candle for a given instrument."""
         cache_key = f"{inst_id}:{bar}"
-        if cache_key not in self._cache or self._cache[cache_key].empty:
-            self.fetch(inst_id, bar, limit=10)
-
+        # If cache is old or empty, fetch fresh
+        self.fetch(inst_id, bar, limit=10)
         df = self._cache[cache_key]
         return df.iloc[-1]
 
@@ -96,57 +97,96 @@ class CandleManager:
         bar: str = "1m",
         days: int = 30,
     ) -> pd.DataFrame:
-        """Fetch extended historical data for backtesting.
-
-        Paginates through the OKX history-candles endpoint to collect
-        ``days`` worth of data, up to the API's limits.
+        """Fetch extended historical data with incremental caching.
+        
+        If requested data range is already in cache, returns it immediately.
+        Otherwise, fetches only the missing part.
         """
         bar_ms = _BAR_MS.get(bar, 60_000)
-        total_candles = int((days * 86_400_000) / bar_ms)
-        page_size = 100  # OKX max per request
+        now_ts = pd.Timestamp.now(tz="UTC")
+        start_ts = now_ts - pd.Timedelta(days=days)
+        
+        cache_key = f"{inst_id}:{bar}"
+        cached_df = self._cache.get(cache_key, pd.DataFrame(columns=_RAW_COLUMNS))
+        
+        if not cached_df.empty:
+            cache_start = cached_df["timestamp"].iloc[0]
+            cache_end = cached_df["timestamp"].iloc[-1]
+            
+            # If cache covers the requested range [start_ts, now_ts]
+            # (Give 5 mins buffer for 'now')
+            if cache_start <= start_ts and cache_end >= (now_ts - pd.Timedelta(minutes=5)):
+                logger.info("Cache hit for %d days of %s (%s)", days, inst_id, bar)
+                return cached_df[cached_df["timestamp"] >= start_ts].copy()
 
+        # Determine where to start fetching
+        # OKX 'after' returns data older than the timestamp.
+        # If we have cache, we might need to fetch data OLDER than cache or NEWER than cache.
+        
+        # Scenario A: Need data older than cache_start
+        if not cached_df.empty and cache_start > start_ts:
+            after = str(int(cache_start.timestamp() * 1000))
+            logger.info("Fetching older history starting from %s", cache_start)
+        else:
+            after = "" # Start from now
+            
+        # Prepare for fetching
+        page_size = 100
         all_frames: list[pd.DataFrame] = []
-        after = ""  # pagination cursor (oldest ts of previous batch)
         fetched = 0
 
         logger.info(
-            "Fetching ~%d history candles for %s (%s, %d days)",
-            total_candles, inst_id, bar, days,
+            "Fetching missing history for %s (%s, %d days requested)",
+            inst_id, bar, days,
         )
-
-        while fetched < total_candles:
-            remaining = min(page_size, total_candles - fetched)
+        while True:
             raw = self.client.get_history_candles(
                 inst_id=inst_id, bar=bar,
-                limit=str(remaining), after=after,
+                limit=str(page_size), after=after,
             )
             if not raw:
-                logger.info("No more history data available, stopping.")
                 break
 
             df_page = _raw_to_df(raw)
             all_frames.append(df_page)
             fetched += len(df_page)
 
-            # OKX 'after' = return data older than this timestamp
-            oldest_ts = df_page["timestamp"].iloc[0]
-            after = str(int(oldest_ts.timestamp() * 1000))
+            oldest_in_page = df_page["timestamp"].iloc[0]
+            if oldest_in_page <= start_ts:
+                # We have reached back far enough
+                break
+                
+            after = str(int(oldest_in_page.timestamp() * 1000))
+            time.sleep(0.15) # Rate limit safety
 
-            logger.debug(
-                "Fetched page: %d candles (total %d / %d)",
-                len(df_page), fetched, total_candles,
-            )
+        # Scenario B: Cache is stale (cache_end < now)
+        # We also need to fetch the gap from now down to cache_end.
+        # This is handled by starting after="" if cache_end is too old.
+        # To keep it simple, if cache is stale, we just start from "" and merge.
+        if not cached_df.empty and cache_end < (now_ts - pd.Timedelta(minutes=5)):
+             # Re-run loop from now
+             after = ""
+             while True:
+                raw = self.client.get_history_candles(
+                    inst_id=inst_id, bar=bar,
+                    limit=str(page_size), after=after,
+                )
+                if not raw: break
+                df_page = _raw_to_df(raw)
+                all_frames.append(df_page)
+                newest_in_page = df_page["timestamp"].iloc[-1]
+                oldest_in_page = df_page["timestamp"].iloc[0]
+                if oldest_in_page <= cache_end: break # Reached cache
+                after = str(int(oldest_in_page.timestamp() * 1000))
+                time.sleep(0.15)
 
-            # Respect rate limits — 20 req/2s for history endpoint
-            time.sleep(0.15)
+        if all_frames:
+            new_df = pd.concat(all_frames + [cached_df], ignore_index=True)
+            new_df.drop_duplicates(subset="timestamp", inplace=True)
+            new_df.sort_values("timestamp", inplace=True)
+            new_df.reset_index(drop=True, inplace=True)
+            self._cache[cache_key] = new_df
+            cached_df = new_df
 
-        if not all_frames:
-            return pd.DataFrame(columns=_RAW_COLUMNS)
-
-        result = pd.concat(all_frames, ignore_index=True)
-        result.sort_values("timestamp", inplace=True)
-        result.drop_duplicates(subset="timestamp", inplace=True)
-        result.reset_index(drop=True, inplace=True)
-
-        logger.info("History: %d total candles for %s", len(result), inst_id)
-        return result
+        logger.info("History: Returning %d candles for %s", len(cached_df[cached_df["timestamp"] >= start_ts]), inst_id)
+        return cached_df[cached_df["timestamp"] >= start_ts].copy()
