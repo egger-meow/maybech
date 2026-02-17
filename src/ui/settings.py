@@ -8,35 +8,37 @@ class SettingsView(Vertical):
     """Editable settings view."""
 
     def compose(self) -> ComposeResult:
-        yield Label("Strategy Configuration (Editable)", classes="section-title")
-        
-        yield Label("Strategy (Global):", classes="section-title")
-        yield Select([("Momentum", "momentum")], id="sel-strategy", allow_blank=False, value="momentum")
-
-        yield Label("Momentum Configuration", classes="section-title")
-        
-        with Container(id="cfg-momentum", classes="box"):
-            with Horizontal(classes="controls-area"):
-                yield Label("K Long:")
-                yield Input(id="in-k-long")
-                yield Label("K Short:")
-                yield Input(id="in-k-short")
-            
-            with Horizontal(classes="controls-area"):
-                yield Label("Gap Thresh:")
-                yield Input(id="in-gap")
-            
-            with Horizontal(classes="controls-area"):
-                yield Label("TP Ratio:")
-                yield Input(id="in-tp-ratio")
-                yield Label("Vol Scaled TP:")
-                yield Input(id="in-tp-vol", placeholder="1=True, 0=False")
-
+        yield Label("Strategy (Global)", classes="section-title")
         with Horizontal(classes="controls-area"):
+            yield Label("Active Strategy:")
+            yield Select([("Momentum", "momentum")], id="sel-strategy", allow_blank=False, value="momentum")
+
+        yield Label("Momentum Parameters", classes="section-title")
+        with Vertical(id="cfg-momentum", classes="box"):
+            with Horizontal(classes="input-group"):
+                with Horizontal(classes="input-pair"):
+                    yield Label("K Long:")
+                    yield Input(id="in-k-long")
+                with Horizontal(classes="input-pair"):
+                    yield Label("K Short:")
+                    yield Input(id="in-k-short")
+            
+            with Horizontal(classes="input-group"):
+                with Horizontal(classes="input-pair"):
+                    yield Label("Gap Thresh:")
+                    yield Input(id="in-gap")
+                with Horizontal(classes="input-pair"):
+                    yield Label("TP Ratio:")
+                    yield Input(id="in-tp-ratio")
+
+            with Horizontal(classes="input-group"):
+                with Horizontal(classes="input-pair"):
+                    yield Label("Vol Scaled TP:")
+                    yield Input(id="in-tp-vol", placeholder="1=True, 0=False")
+
+        with Horizontal(classes="button-row"):
             yield Button("Save Config", id="btn-save-config", variant="primary")
-        
-        # Status Label to avoid popup overlap
-        yield Label("", id="settings-status", classes="status-msg")
+            yield Label("", id="settings-status", classes="status-msg")
 
         yield Label("Static Configuration (Read-Only)", classes="section-title")
         yield Static(id="settings-readonly", classes="box")

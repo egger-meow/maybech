@@ -38,6 +38,7 @@ class GridSearch:
         gap_range: List[float],
         days: int = 7,
         bar: str = "1m",
+        on_progress=None,
     ) -> List[OptimizationResult]:
         """
         Run grid search.
@@ -49,6 +50,7 @@ class GridSearch:
             gap_range: List of Gap Thresholds to test.
             days: Backtest duration.
             bar: Candle interval.
+            on_progress: Optional callback function(current, total).
             
         Returns:
             List of OptimizationResult, sorted by score descending.
@@ -61,14 +63,6 @@ class GridSearch:
             logger.warning("Not enough data for optimization.")
             return []
 
-        # Create a temporary manager that uses cached data
-        # (Actually, BacktestEngine uses candle_manager.get_history. 
-        #  To optimize, we should probably modify BacktestEngine to accept DF directly,
-        #  or just mock the manager. For now, let's rely on LRU cache in CandleManager if it exists,
-        #  or just accept it might verify cache each time. 
-        #  Better: BacktestEngine.run has fetch logic. We can reuse the engine but 
-        #  we need to swap the strategy instance.)
-
         combinations = list(itertools.product(k_long_range, k_short_range, gap_range))
         total_runs = len(combinations)
         logger.info("Total combinations to test: %d", total_runs)
@@ -76,6 +70,9 @@ class GridSearch:
         results = []
 
         for i, (k_l, k_s, gap) in enumerate(combinations):
+            if on_progress:
+                on_progress(i, total_runs)
+            
             # Create config and strategy
             mom_cfg = MomentumConfig(k_long=k_l, k_short=k_s, gap_threshold=gap)
             cfg = StrategyConfig(momentum=mom_cfg)

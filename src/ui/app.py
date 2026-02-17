@@ -48,7 +48,6 @@ class MaybechApp(App):
         height: auto;
     }
     .top-section { height: auto; }
-    .half-width { width: 50%; }
     .controls-area {
         height: auto;
         margin: 1 0;
@@ -57,10 +56,47 @@ class MaybechApp(App):
     .controls-area Label { padding: 1; width: auto; }
     .controls-area Input { width: 25; }
     .controls-area Select { width: 25; }
+    
+    .input-group {
+        height: auto;
+        margin-bottom: 1;
+    }
+    .input-pair {
+        width: 1fr;
+        height: auto;
+        align-vertical: middle;
+    }
+    .input-pair Label { width: 15; padding: 1; }
+    .input-pair Input { width: 20; }
+    
+    .button-row {
+        height: auto;
+        margin: 1 0;
+        align-vertical: middle;
+    }
+
+    /* Executor Specific */
+    #executor-header { height: auto; align-vertical: middle; background: $accent; }
+    #executor-header .section-title { width: auto; background: transparent; }
+    #executor-live-indicator {
+        width: 20;
+        text-align: right;
+        padding-right: 2;
+        text-style: bold;
+        color: $error;
+    }
+    #executor-live-indicator.online { color: $success; }
+    .label { text-style: italic; color: $text-muted; margin-top: 1; }
+    ProgressBar { margin: 1 0; }
+    #executor-logs { height: 1fr; }
+    
     .warning { color: $error; text-style: bold; margin-left: 2; }
     .status-msg { color: $success; margin-left: 2; }
-    #btn-save-config { margin-left: 2; }
+    .hidden { display: none; }
+    #btn-save-config { margin-left: 0; }
     DataTable { height: 1fr; border: solid $secondary; }
+    #gs-results-container DataTable { border: none; }
+    #gs-results-container { height: 1fr; }
     #view-container { height: 1fr; }
     """
 
@@ -193,6 +229,22 @@ class MaybechApp(App):
 
     def _update_ui(self, summary, positions, prices, fng, ema, mvrv, daemon_data):
         """Update all UI elements (dashboard + executor)."""
+        # Calculate seconds since last update for executor
+        seconds_since_update = 999
+        if daemon_data and "last_update" in daemon_data:
+            try:
+                # Format: 2026-02-18 05:01:48
+                from datetime import datetime
+                last_upd = datetime.strptime(daemon_data["last_update"], "%Y-%m-%d %H:%M:%S")
+                # Since we are using TZ_TAIPEI in daemon, we should use it here or assume local machine time is same
+                # For simplicity, if daemon uses datetime.now(TZ_TAIPEI), we should compare with now(TZ_TAIPEI)
+                from src.ui.utils import TZ_TAIPEI
+                now = datetime.now(TZ_TAIPEI).replace(tzinfo=None) # remove tz for comparison if needed or keep both
+                diff = now - last_upd
+                seconds_since_update = diff.total_seconds()
+            except Exception:
+                pass
+
         try:
             balance_static = self.dashboard_view.query_one("#balance-summary", Static)
             if summary:
@@ -219,7 +271,7 @@ class MaybechApp(App):
 
         try:
             if self.executor_view.is_mounted:
-                self.executor_view.update_status_ui(daemon_data)
+                self.executor_view.update_status_ui(daemon_data, seconds_since_update)
         except Exception:
             pass 
 
@@ -327,6 +379,9 @@ class MaybechApp(App):
         """Run grid search optimization."""
         try:
             table = self.gridsearch_view.query_one("#gs-results-table", DataTable)
+            status_msg = self.gridsearch_view.query_one("#gs-status-msg", Static)
+            progress = self.gridsearch_view.query_one("#gs-progress", ProgressBar)
+            
             kl_str = self.gridsearch_view.query_one("#gs-klong", Input).value
             ks_str = self.gridsearch_view.query_one("#gs-kshort", Input).value
             gap_str = self.gridsearch_view.query_one("#gs-gap", Input).value
@@ -335,6 +390,8 @@ class MaybechApp(App):
             return
 
         self.call_from_thread(table.clear)
+        self.call_from_thread(status_msg.update, "Starting Grid Search...")
+        self.call_from_thread(progress.remove_class, "hidden")
         
         try:
             days = int(days_str)
@@ -352,26 +409,35 @@ class MaybechApp(App):
             ks_range = parse_range(ks_str)
             gap_range = parse_range(gap_str)
             
+            def on_progress(curr, total):
+                self.call_from_thread(progress.update, total=total, progress=curr)
+                self.call_from_thread(status_msg.update, f"Optimizing: {curr}/{total} combinations...")
+
             results = self.optimizer.optimize(
-                "ETH-USDT-SWAP", kl_range, ks_range, gap_range, days=days, bar=settings.CANDLE_INTERVAL
+                "ETH-USDT-SWAP", kl_range, ks_range, gap_range, days=days, bar=settings.CANDLE_INTERVAL,
+                on_progress=on_progress
             )
 
             rows = []
             for i, res in enumerate(results[:20]): 
                 rows.append((
                     str(i+1),
-                    f"{res.config.k_long:.1f}",
-                    f"{res.config.k_short:.1f}",
-                    f"{res.config.gap_threshold:.1f}",
+                    f"{res.config.momentum.k_long:.1f}",
+                    f"{res.config.momentum.k_short:.1f}",
+                    f"{res.config.momentum.gap_threshold:.1f}",
                     f"{res.result.total_pnl:.4f}",
                     f"{res.result.win_rate*100:.1f}%",
                     str(res.result.total_trades)
                 ))
             
+            self.app.call_from_thread(status_msg.update, f"Optimization Complete! Best PnL: {results[0].result.total_pnl:.4f}")
+            self.app.call_from_thread(progress.add_class, "hidden")
             self.app.call_from_thread(self._populate_table, table, rows)
 
         except Exception as e:
             logger.exception("Grid Search failed")
+            self.call_from_thread(status_msg.update, f"Optimization Failed: {e}")
+            self.call_from_thread(progress.add_class, "hidden")
 
     def _populate_table(self, table: DataTable, rows: list) -> None:
         try:

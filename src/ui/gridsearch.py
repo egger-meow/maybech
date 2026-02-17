@@ -1,6 +1,6 @@
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, DataTable, Input, Label, Select
+from textual.widgets import Button, DataTable, Input, Label, Select, ProgressBar, Static
 
 class GridSearchView(Vertical):
     """Grid Search Optimizer View."""
@@ -29,7 +29,10 @@ class GridSearchView(Vertical):
             yield Label("WARNING: CPU Intensive!", classes="warning")
 
         yield Label("Top Results", classes="section-title")
-        yield DataTable(id="gs-results-table")
+        with Vertical(id="gs-results-container", classes="box"):
+            yield Static("Ready to optimize.", id="gs-status-msg")
+            yield ProgressBar(total=100, show_percentage=True, id="gs-progress", classes="hidden")
+            yield DataTable(id="gs-results-table")
 
     def on_mount(self) -> None:
         table = self.query_one("#gs-results-table", DataTable)
