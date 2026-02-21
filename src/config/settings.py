@@ -95,6 +95,10 @@ class Settings:
     LINE_CHANNEL_SECRET: str = field(default_factory=lambda: _get("LINE_CHANNEL_SECRET"))
     LINE_USER_ID: str = field(default_factory=lambda: _get("LINE_USER_ID"))
 
+    NOTIFICATOR_ENABLED: bool = field(
+        default_factory=lambda: _get("NOTIFICATOR_ENABLED", "1") == "1"
+    )
+
     # Notifications — Email
     EMAIL_SMTP_HOST: str = field(
         default_factory=lambda: _get("EMAIL_SMTP_HOST", "smtp.gmail.com")

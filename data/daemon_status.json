@@ -1,0 +1,11 @@
+{
+    "status": "STOPPED",
+    "last_update": "2026-02-22 03:37:03",
+    "strategy": "momentum_swap",
+    "dry_run": true,
+    "signals": [],
+    "errors": [
+        "Error in BTC-USDT-SWAP: CandleManager.get_history() got an unexpected keyword argument 'limit'",
+        "Error in ETH-USDT-SWAP: CandleManager.get_history() got an unexpected keyword argument 'limit'"
+    ]
+}

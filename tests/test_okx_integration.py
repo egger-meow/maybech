@@ -243,3 +243,40 @@ def test_candle_miner_multiple_timeframes(candle_manager):
 
     print(f"\n  1m: {len(result_1m['raw'])} raw extrema → {len(result_1m['levels'])} levels")
     print(f"  1H: {len(result_1h['raw'])} raw extrema → {len(result_1h['levels'])} levels")
+
+
+# ── Notificator Integration Tests ───────────────────────────────────────────
+
+def test_notificator_service_tick(candle_manager):
+    """Verify that NotificatorService can perform a full tick on real data."""
+    from src.daemon.notificator_service import NotificatorService
+    from unittest.mock import MagicMock
+
+    service = NotificatorService()
+    service.setup()
+    
+    # Mock the notifier to avoid sending real messages during test, 
+    # but still let the logic run.
+    service.notifier.send = MagicMock(return_value=True)
+    
+    # Run one tick
+    service.tick()
+    
+    # If the tick passed without exception, it's a success for this level of test.
+    # We can also check if it attempted to send anything (might not if no proximity).
+    print(f"\n  Notificator TICK completed. Alerts triggered: {service.notifier.send.call_count}")
+
+
+def test_strategy_service_setup_and_tick():
+    """Verify that StrategyService can setup and perform a tick on real data."""
+    from src.daemon.strategy_service import StrategyService
+    from unittest.mock import MagicMock
+
+    # Use dry_run for safety
+    service = StrategyService(dry_run=True)
+    service.setup()
+    
+    # Run one tick
+    service.tick()
+    
+    print("\n  Strategy TICK completed.")
