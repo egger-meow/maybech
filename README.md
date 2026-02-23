@@ -1,77 +1,97 @@
-# Maybech 🌊
+<div align="center">
 
-**Advanced Crypto Trading TUI Framework**
+# 🌊 Maybech
 
-Maybech is a high-performance, automated trading system built for the modern crypto trader. It combines quantitative strategy development, rigorous backtesting, and real-time execution into a sleek, terminal-based interface.
+**The Next-Generation Automated Crypto Trading & Market Tracking Framework**
 
-![Maybech Dashboard](docs/imgs/panel.png)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
+[![Textual](https://img.shields.io/badge/TUI-Textual-brightgreen)](https://textual.textualize.io/)
+[![OKX](https://img.shields.io/badge/Exchange-OKX-black)](https://www.okx.com/)
 
-## 🎯 Project Vision
-This repository represents a commitment to technical excellence in quantitative trading. My goal is to bridge the gap between complex market data and actionable strategies, evolving into a **robust crypto trader** who leverages automation to eliminate emotional bias and maximize efficiency.
+*A sleek, high-performance command center built for the modern quantitative trader.*
+
+</div>
 
 ---
 
-## 🚀 Key Features
+## 🎯 Project Vision
 
-### 1. Auto-Strategy Executor
-*   **Live Monitoring**: Real-time tracking of strategy status, signal generation, and trade execution.
-*   **Status Indicator**: Visual live indicator (● RUNNING, ○ STALE, OFFLINE) with polling progress tracking.
-*   **Live Logs**: Instant visibility into recent signals and OKX API interactions.
+Maybech is more than just a trading bot—it's a commitment to technical excellence in quantitative finance. Built to bridge the gap between complex market data and actionable, automated strategies, it stands as a robust showcase of software engineering and market analysis.
 
-### 2. Backtest Engine
-*   **High-Fidelity Simulation**: Validates strategies against historical OHLCV data.
-*   **Dynamic Logic**: Implements 1:1 Risk/Reward validation with conservative outcome handling (SL priority in volatile candles).
-*   **Comprehensive Metrics**: Tracks Win Rate, PnL, Profit Factor, and trade-by-trade breakdowns.
+Whether you're tracking violent market swings instantly, developing fluent trading strategies, or backtesting ideas, Maybech brings it all together under a graceful, terminal-based interface (TUI). It is designed to eliminate emotional bias, maximize execution efficiency, and bring enterprise-grade market awareness directly to your terminal.
 
-### 3. Grid Search Optimizer
-*   **Parameter Discovery**: Multi-dimensional search across parameter ranges (K-Long, K-Short, Gap Threshold).
-*   **Progressive UI**: Real-time progress bar and status updates directly within the TUI.
-*   **Scoring System**: Automatically ranks configurations based on historical performance.
+![Maybech Dashboard](docs/imgs/panel.png)
 
-### 4. Smart Data Caching
-*   **Incremental Fetching**: Intelligently identifies missing data gaps and fetches only what's needed from OKX. 
-*   **In-Memory Performance**: Serves repeated backtests instantly from a persistent cache, significantly reducing API latency and respecting rate limits.
-*   **Preloading Logic**: Automatically warms up the cache for all trading pairs on application startup.
+---
 
-### 5. Multi-Channel Notifications
-*   **Price Alerts**: Stay informed on the go with integrated **Line Bot** and **Email** notifications for critical price points and trade events.
+## ✨ Core Highlights
+
+### 🕹️ Graceful Terminal UI (TUI)
+Manage the chaos of the crypto markets with elegance. Powered by **Textual**, the TUI provides a visual, real-time command center:
+- **Live Strategy Monitoring**: Track auto-execution status (● RUNNING, ○ STALE) with visual polling indicators.
+- **Progressive UI**: See real-time metrics, backtest progress bars, and streaming system logs directly in your terminal without ever leaving the keyboard.
+
+### ⚡ Instant Market Tracking & AutoTrader
+Never miss a beat in the market.
+- **Fluent Strategy Development**: Craft complex quantitative strategies leveraging Pandas and TA-Lib with ease.
+- **Auto-Strategy Executor**: Deploy your logic into the live market. The engine handles real-time signal generation, 1:1 Risk/Reward validation, conservative outcome handling, and zero-hesitation execution via the OKX API.
+
+### 📡 Real-Time Intelligent Notifications
+Stay connected, no matter where you are.
+- **Instant Alerts**: Receive immediate **LINE Bot** pushes (and soon Email) whenever the market experiences severe fluctuations or critical price proximity events.
+- **Actionable Intel**: Get notified of instant trade entries, take-profits, and stop-losses directly to your mobile device, in beautifully formatted Traditional Chinese.
+
+### 🔬 High-Fidelity Backtest Engine & Optimizer
+Prove it before you trade it.
+- **Rigorous Simulation**: Validate strategies against comprehensive historical OHLCV data with precision.
+- **Grid Search Optimizer**: Run multi-dimensional parameter discovery (e.g., K-Long, K-Short, Gap Thresholds) with automated scoring and ranking to find the absolute mathematically optimal configuration.
+- **Smart Data Caching**: Intelligent incremental fetching perfectly respects API rate limits while serving repeated backtests instantly from persistent cache.
 
 ---
 
 ## 🛠 Tech Stack
-*   **Core**: Python 3.14 (Optimized for modern async workloads)
-*   **TUI**: [Textual](https://github.com/Textualize/textual) (CSS-driven modern terminal interface)
-*   **Analysis**: Pandas, NumPy, TA-Lib (Technical analysis library)
-*   **Exchange**: [OKX API](https://www.okx.com/docs-v5)
-*   **Package Management**: [uv](https://github.com/astral-sh/uv) (Extremely fast Python package installer and resolver)
+
+*   **Core**: Python 3.14 (Optimized for modern async workloads & performance)
+*   **User Interface**: [Textual](https://github.com/Textualize/textual) for a reactive, CSS-driven modern terminal experience
+*   **Data & Analysis**: Pandas, NumPy, TA-Lib for lightning-fast quantitative analysis
+*   **Exchange Layer**: [OKX API v5](https://www.okx.com/docs-v5)
+*   **Ecosystem**: [uv](https://github.com/astral-sh/uv) (Extremely fast Python package installer and virtual environment resolver)
 
 ---
 
 ## 📦 Installation & Setup
 
-Ensure you have `uv` installed. If not, get it from [astral.sh/uv](https://astral.sh/uv).
+We strictly use `uv` for blazing-fast project management. Get it from [astral.sh/uv](https://astral.sh/uv).
 
-1.  **Clone the Repo**:
+1.  **Clone the Repository**:
     ```bash
     git clone https://github.com/egger-meow/maybech.git
     cd maybech
     ```
 
-2.  **Setup Environment**:
+2.  **Setup Environment (Strictly via UV)**:
     ```bash
+    # Embody the standard
     uv venv
-    source .venv/Scripts/activate # On Windows
+    
+    # Activate (Windows)
+    .venv\Scripts\activate 
+    
+    # Install dependencies instantly
     uv pip install -r requirements.txt
     ```
 
 3.  **Configuration**:
-    Create a `.env` file based on `.env.example` and add your OKX API credentials.
+    Create a `.env` file based on `.env.example`. Add your OKX API credentials and LINE Messaging API tokens.
+    Customize parameters for market trackers in `src/config/notificator_config.json`.
 
-4.  **Launch the App**:
+4.  **Launch the Command Center**:
     ```bash
-    python main.py
+    uv run python run_services.py
     ```
 
 ---
 
-*Developed with precision for the future of decentralized finance.*
+<div align="center">
+<i>Developed with precision for the future of decentralized finance. Built to impress, engineered to perform.</i>
+</div>
