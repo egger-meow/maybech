@@ -6,3 +6,5 @@ from src.data.candle_miner.peak_valley import (  # noqa: F401
     PriceLevel,
     PeakValleyResult,
 )
+from src.data.candle_miner.fluctuation import Fluctuation  # noqa: F401
+

@@ -136,6 +136,27 @@ class LineBotNotifier:
         )
         return self.send(msg)
 
+    def send_fluctuation_alert(self, 
+                             inst_id: str, 
+                             minutes: int, 
+                             pct_change: float, 
+                             threshold: float, 
+                             direction: str, 
+                             start_price: float, 
+                             end_price: float) -> bool:
+        """Send a rapid price fluctuation alert in Traditional Chinese."""
+        direction_tw = "急漲 (Surge) 🚀" if direction == "up" else "急跌 (Plunge) 💥"
+        
+        msg = (
+            f"⚠️ 價格劇烈波動預警: {inst_id}\n"
+            f"觸發條件: {minutes} 分鐘內波動超過 {threshold}%\n\n"
+            f"方向: {direction_tw}\n"
+            f"實際幅寬: {pct_change:+.2f}%\n"
+            f"起始價格: ${start_price:,.2f}\n"
+            f"當前價格: ${end_price:,.2f}"
+        )
+        return self.send(msg)
+
     def send_performance_update(self, win_rate: float, total_return: float) -> bool:
         """Send a periodic performance summary in Traditional Chinese."""
         msg = (
