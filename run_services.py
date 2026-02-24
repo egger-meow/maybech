@@ -61,11 +61,8 @@ class ServiceManagerApp(App):
         yield Header()
         with Container():
             yield DataTable(id="service-table")
-            with Horizontal(classes="button-row"):
-                yield Button("Enable Strategy", id="btn-en-strategy", variant="success")
-                yield Button("Disable Strategy", id="btn-dis-strategy", variant="error")
-                yield Button("Enable Notificator", id="btn-en-notif", variant="success")
-                yield Button("Disable Notificator", id="btn-dis-notif", variant="error")
+            with Horizontal(id="services-button-row", classes="button-row"):
+                pass
             yield Log(id="log-view")
         yield Footer()
 
@@ -83,6 +80,17 @@ class ServiceManagerApp(App):
 
     def update_table(self) -> None:
         table = self.query_one(DataTable)
+        
+        current_row = table.cursor_row
+        
+        if not hasattr(self, "_buttons_created") or not self._buttons_created:
+            button_row = self.query_one("#services-button-row", Horizontal)
+            for name in self.runner.services:
+                btn_id = f"btn-toggle-{name}"
+                btn = Button(f"Toggle {name.capitalize()}", id=btn_id)
+                button_row.mount(btn)
+            self._buttons_created = True
+
         table.clear()
         for name in self.runner.services:
             status = self.runner.get_service_status(name)
@@ -95,17 +103,30 @@ class ServiceManagerApp(App):
                     status["last_duration"] or "-",
                     str(status["errors"])
                 )
+                try:
+                    btn = self.query_one(f"#btn-toggle-{name}", Button)
+                    if status["active"]:
+                        btn.label = f"Disable {name.capitalize()}"
+                        btn.variant = "error"
+                    else:
+                        btn.label = f"Enable {name.capitalize()}"
+                        btn.variant = "success"
+                except Exception:
+                    pass
+        
+        if current_row < table.row_count:
+            table.move_cursor(row=current_row)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
-        if btn_id == "btn-en-strategy":
-            self.runner.enable_service("strategy")
-        elif btn_id == "btn-dis-strategy":
-            self.runner.disable_service("strategy")
-        elif btn_id == "btn-en-notif":
-            self.runner.enable_service("notificator")
-        elif btn_id == "btn-dis-notif":
-            self.runner.disable_service("notificator")
+        if btn_id and btn_id.startswith("btn-toggle-"):
+            service_name = btn_id.replace("btn-toggle-", "")
+            status = self.runner.get_service_status(service_name)
+            if status:
+                if status["active"]:
+                    self.runner.disable_service(service_name)
+                else:
+                    self.runner.enable_service(service_name)
         self.update_table()
 
     def action_enable_all(self) -> None:

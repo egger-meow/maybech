@@ -14,8 +14,9 @@ from src.data.candle_miner import CandleMiner, PeakValley, Fluctuation
 from src.exchange.client import OKXClient
 from src.notifications.line_bot import LineBotNotifier
 from src.daemon.service import DaemonService
+from src.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 class NotificatorService(DaemonService):

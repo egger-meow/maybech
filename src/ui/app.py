@@ -22,7 +22,10 @@ from src.utils.logger import setup_logger
 from src.ui.utils import format_time_taipei
 from src.ui.dashboard import DashboardView
 from src.ui.backtest import BacktestView
-from src.ui.executor import ExecutorView
+from src.ui.services_console import ServicesConsoleView, GUILogHandler
+from src.daemon.service import DaemonRunner
+from src.daemon.strategy_service import StrategyService
+from src.daemon.notificator_service import NotificatorService
 from src.ui.settings import SettingsView
 from src.ui.gridsearch import GridSearchView
 
@@ -76,20 +79,11 @@ class MaybechApp(App):
         align-vertical: middle;
     }
 
-    /* Executor Specific */
-    #executor-header { height: auto; align-vertical: middle; background: $accent; }
-    #executor-header .section-title { width: auto; background: transparent; }
-    #executor-live-indicator {
-        width: 20;
-        text-align: right;
-        padding-right: 2;
-        text-style: bold;
-        color: $error;
-    }
-    #executor-live-indicator.online { color: $success; }
+    /* Services Console Specific */
+    #services-header { height: auto; align-vertical: middle; background: $accent; }
+    #services-header .section-title { width: auto; background: transparent; }
     .label { text-style: italic; color: $text-muted; margin-top: 1; }
-    ProgressBar { margin: 1 0; }
-    #executor-logs { height: 1fr; }
+    #services-logs { height: 1fr; }
     
     .warning { color: $error; text-style: bold; margin-left: 2; }
     .status-msg { color: $success; margin-left: 2; }
@@ -113,7 +107,7 @@ class MaybechApp(App):
         ("1", "show_dashboard", "Dashboard"),
         ("2", "show_backtest", "Backtest"),
         ("3", "show_settings", "Settings"),
-        ("4", "show_executor", "Executor"),
+        ("4", "show_services_console", "Services Console"),
         ("5", "show_gridsearch", "Grid Search"),
         ("r", "refresh_dashboard", "Refresh Data"),
     ]
@@ -137,8 +131,13 @@ class MaybechApp(App):
             self.dashboard_view = DashboardView(id="view-dashboard")
             self.backtest_view = BacktestView(id="view-backtest")
             self.settings_view = SettingsView(id="view-settings")
-            self.executor_view = ExecutorView(id="view-executor")
+            self.services_console_view = ServicesConsoleView(id="view-services-console")
             self.gridsearch_view = GridSearchView(id="view-gridsearch")
+            
+            # Daemons
+            self.runner = DaemonRunner()
+            self.runner.register(StrategyService(dry_run=True))
+            self.runner.register(NotificatorService())
             
         except Exception as e:
             logger.exception("Init failed")
@@ -152,7 +151,7 @@ class MaybechApp(App):
             yield self.dashboard_view
             yield self.backtest_view
             yield self.settings_view
-            yield self.executor_view
+            yield self.services_console_view
             yield self.gridsearch_view
         yield Footer()
 
@@ -164,6 +163,18 @@ class MaybechApp(App):
     def on_ready(self) -> None:
         # CALLING the @work method directly starts the worker.
         # on_ready ensures all widgets are mounted and ready for querying.
+        
+        # Attach custom logger handler
+        handler = GUILogHandler(self, "services-logs")
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        handler.setLevel(logging.INFO)
+        logging.getLogger().addHandler(handler)
+        
+        import threading
+        self.daemon_thread = threading.Thread(target=self.runner.run_forever, daemon=True)
+        self.daemon_thread.start()
+
         self.preload_data_task()
         self.action_refresh_dashboard()
 
@@ -228,8 +239,8 @@ class MaybechApp(App):
         self._switch_view("view-settings", "Settings")
         self.update_settings_readonly()
 
-    def action_show_executor(self) -> None:
-        self._switch_view("view-executor", "Executor")
+    def action_show_services_console(self) -> None:
+        self._switch_view("view-services-console", "Services Console")
         self.action_refresh_dashboard()
 
     def action_show_gridsearch(self) -> None:
@@ -268,38 +279,15 @@ class MaybechApp(App):
             ema = 0.0
             mvrv = 0.0
 
-            daemon_data = {}
-            try:
-                path = Path("data/daemon_status.json")
-                if path.exists():
-                    with open(path, "r") as f:
-                        daemon_data = json.load(f)
-            except Exception: pass
-
-            self.call_from_thread(self._update_ui, summary, positions, prices, fng, ema, mvrv, daemon_data)
+            self.call_from_thread(self._update_ui, summary, positions, prices, fng, ema, mvrv)
                 
         except Exception as e:
             logger.error(f"Refresh failed: {e}")
         finally:
             self._refreshing = False
 
-    def _update_ui(self, summary, positions, prices, fng, ema, mvrv, daemon_data):
-        """Update all UI elements (dashboard + executor)."""
-        # Calculate seconds since last update for executor
-        seconds_since_update = 999
-        if daemon_data and "last_update" in daemon_data:
-            try:
-                # Format: 2026-02-18 05:01:48
-                from datetime import datetime
-                last_upd = datetime.strptime(daemon_data["last_update"], "%Y-%m-%d %H:%M:%S")
-                # Since we are using TZ_TAIPEI in daemon, we should use it here or assume local machine time is same
-                # For simplicity, if daemon uses datetime.now(TZ_TAIPEI), we should compare with now(TZ_TAIPEI)
-                from src.ui.utils import TZ_TAIPEI
-                now = datetime.now(TZ_TAIPEI).replace(tzinfo=None) # remove tz for comparison if needed or keep both
-                diff = now - last_upd
-                seconds_since_update = diff.total_seconds()
-            except Exception:
-                pass
+    def _update_ui(self, summary, positions, prices, fng, ema, mvrv):
+        """Update all UI elements (dashboard + services console)."""
 
         try:
             balance_static = self.dashboard_view.query_one("#balance-summary", Static)
@@ -326,8 +314,8 @@ class MaybechApp(App):
             pass
 
         try:
-            if self.executor_view.is_mounted:
-                self.executor_view.update_status_ui(daemon_data, seconds_since_update)
+            if self.services_console_view.is_mounted:
+                self.services_console_view.update_status_ui(self.runner)
         except Exception:
             pass 
 
@@ -347,6 +335,17 @@ class MaybechApp(App):
 
         elif btn_id == "gs-run-btn":
             self.run_gridsearch_task()
+            
+        elif btn_id and btn_id.startswith("btn-toggle-"):
+            service_name = btn_id.replace("btn-toggle-", "")
+            status = self.runner.get_service_status(service_name)
+            if status:
+                if status["active"]:
+                    self.runner.disable_service(service_name)
+                else:
+                    self.runner.enable_service(service_name)
+            if self.services_console_view.is_mounted:
+                self.services_console_view.update_status_ui(self.runner)
 
     @work(exclusive=True, thread=True)
     def save_config_task(self) -> None:

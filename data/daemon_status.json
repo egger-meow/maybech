@@ -1,6 +1,6 @@
 {
-    "status": "STOPPED",
-    "last_update": "2026-02-22 03:37:03",
+    "status": "RUNNING",
+    "last_update": "2026-02-25 02:45:19",
     "strategy": "momentum_swap",
     "dry_run": true,
     "signals": [],
