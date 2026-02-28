@@ -77,7 +77,7 @@ class StrategyService(DaemonService):
             try:
                 # 1. Fetch latest candle
                 bar = settings.CANDLE_INTERVAL
-                df = self.candle_manager.get_history(pair, bar, limit=100)
+                df = self.candle_manager.fetch(pair, bar, limit=100)
                 
                 if df.empty:
                     logger.warning(f"No data for {pair}")
