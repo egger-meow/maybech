@@ -139,6 +139,42 @@ class StrategyService(DaemonService):
                             "result": "Order Placed" if result else "Failed",
                             "decision": decision.reason,
                         }
+                        
+                        if result:
+                            # Record trade and default exit rules
+                            from src.trading.trade_store import TradeStore, TradeRecord
+                            from src.trading.rules import RuleGroup, PositionRule
+                            
+                            store = TradeStore()
+                            trade = TradeRecord(
+                                strategy_id=self.strategy.name,
+                                inst_id=pair,
+                                side=setup.signal.value,
+                                entry_price=setup.entry_price,
+                                btc_price_at_entry=btc_regime.get("price") if btc_regime else None,
+                            )
+                            store.save_trade(trade)
+                            
+                            # Attach Stop Loss
+                            sl_rule = PositionRule(
+                                target="self",
+                                metric="price",
+                                operator="less_than" if setup.signal == Signal.LONG else "greater_than",
+                                value=setup.stop_loss
+                            )
+                            sl_group = RuleGroup(name="Default Stop Loss", rules=[sl_rule])
+                            store.attach_rule_group(trade.id, sl_group)
+                            
+                            # Attach Take Profit
+                            tp_rule = PositionRule(
+                                target="self",
+                                metric="price",
+                                operator="greater_than" if setup.signal == Signal.LONG else "less_than",
+                                value=setup.take_profit
+                            )
+                            tp_group = RuleGroup(name="Default Take Profit", rules=[tp_rule])
+                            store.attach_rule_group(trade.id, tp_group)
+
                         self.signals_history.append(sig_entry)
                         status["signals"] = self.signals_history[-10:]
                         self.publish_event("strategy.signal", sig_entry)
