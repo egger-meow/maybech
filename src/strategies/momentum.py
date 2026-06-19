@@ -30,7 +30,15 @@ class MomentumStrategy(BaseStrategy):
 
     name = "momentum_swap"
 
-    def __init__(self, config: "MomentumConfig | None" = None) -> None:
+    def __init__(
+        self,
+        config: "MomentumConfig | None" = None,
+        *,
+        stop_loss_long_pct: float | None = None,
+        stop_loss_short_pct: float | None = None,
+        take_profit_long_pct: float | None = None,
+        take_profit_short_pct: float | None = None,
+    ) -> None:
         if config:
             self.config = config
         else:
@@ -41,6 +49,18 @@ class MomentumStrategy(BaseStrategy):
         self.k_long = self.config.k_long
         self.k_short = self.config.k_short
         self.gap_threshold = self.config.gap_threshold
+        self.stop_loss_long_pct = (
+            settings.STOP_LOSS_LONG_PCT if stop_loss_long_pct is None else stop_loss_long_pct
+        )
+        self.stop_loss_short_pct = (
+            settings.STOP_LOSS_SHORT_PCT if stop_loss_short_pct is None else stop_loss_short_pct
+        )
+        self.take_profit_long_pct = (
+            settings.TAKE_PROFIT_LONG_PCT if take_profit_long_pct is None else take_profit_long_pct
+        )
+        self.take_profit_short_pct = (
+            settings.TAKE_PROFIT_SHORT_PCT if take_profit_short_pct is None else take_profit_short_pct
+        )
 
     def generate_signal(self, df: pd.DataFrame) -> Signal:
         """Analyze the last two candles for a signal.
@@ -82,25 +102,23 @@ class MomentumStrategy(BaseStrategy):
         return direction
 
     def calc_stop_loss(self, entry_price: float, signal: Signal) -> float:
-        """stop_loss is the Close of the previous candle.
+        """Compute a percentage stop loss for the base strategy contract.
 
-        Note: This method signature in BaseStrategy usually only takes entry/signal.
-        However, this specific strategy depends on the *previous candle close* for SL.
-        The BaseStrategy.create_setup structure might need a slight adjustment
-        or we handle it by passing context.
-
-        For now, since `create_setup` calls this, and `create_setup` has the DF,
-        we should actually override `create_setup` in this class to access `prev['close']`.
-        But to adhere to the base contract, we'll store the `sl_price` temporarily
-        during `generate_signal` or just override `create_setup` entirely which is cleaner.
+        Live momentum setups override this with previous-candle close context in
+        create_setup(), but backtests and smoke tests still use this interface.
         """
-        # This method is effectively unused if we override create_setup,
-        # but required by abstract base class.
-        return 0.0
+        if signal == Signal.LONG:
+            return entry_price * (1 - self.stop_loss_long_pct)
+        if signal == Signal.SHORT:
+            return entry_price * (1 + self.stop_loss_short_pct)
+        return entry_price
 
     def calc_take_profit(self, entry_price: float, signal: Signal) -> float:
-        # Unused if create_setup is overridden
-        return 0.0
+        if signal == Signal.LONG:
+            return entry_price * (1 + self.take_profit_long_pct)
+        if signal == Signal.SHORT:
+            return entry_price * (1 - self.take_profit_short_pct)
+        return entry_price
 
     def create_setup(self, df: pd.DataFrame) -> "TradeSetup | None":
         """Override to access previous candle for SL calculation."""

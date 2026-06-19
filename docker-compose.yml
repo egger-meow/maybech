@@ -1,0 +1,13 @@
+services:
+  maybech-api:
+    build: .
+    container_name: maybech-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: ["python", "run_api.py", "--host", "0.0.0.0", "--port", "8000"]

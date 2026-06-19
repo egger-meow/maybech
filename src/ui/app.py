@@ -23,9 +23,7 @@ from src.ui.utils import format_time_taipei
 from src.ui.dashboard import DashboardView
 from src.ui.backtest import BacktestView
 from src.ui.services_console import ServicesConsoleView, GUILogHandler
-from src.daemon.service import DaemonRunner
-from src.daemon.strategy_service import StrategyService
-from src.daemon.notificator_service import NotificatorService
+from src.daemon.runtime import create_default_runner
 from src.ui.settings import SettingsView
 from src.ui.gridsearch import GridSearchView
 
@@ -135,9 +133,7 @@ class MaybechApp(App):
             self.gridsearch_view = GridSearchView(id="view-gridsearch")
             
             # Daemons
-            self.runner = DaemonRunner()
-            self.runner.register(StrategyService(dry_run=True))
-            self.runner.register(NotificatorService())
+            self.runner = create_default_runner(dry_run=True)
             
         except Exception as e:
             logger.exception("Init failed")
@@ -170,6 +166,9 @@ class MaybechApp(App):
         handler.setFormatter(formatter)
         handler.setLevel(logging.INFO)
         logging.getLogger().addHandler(handler)
+        self._unsubscribe_runtime_events = self.runner.runtime.events.subscribe(
+            self._handle_runtime_event
+        )
         
         import threading
         self.daemon_thread = threading.Thread(target=self.runner.run_forever, daemon=True)
@@ -177,6 +176,15 @@ class MaybechApp(App):
 
         self.preload_data_task()
         self.action_refresh_dashboard()
+
+    def _handle_runtime_event(self, event) -> None:
+        """Write daemon runtime events to the services console log."""
+        try:
+            log_widget = self.query_one("#services-logs", Log)
+            line = f"EVENT {event.type} [{event.source}] {event.payload}"
+            self.call_from_thread(log_widget.write_line, line)
+        except Exception:
+            pass
 
     @work(exclusive=True, thread=True)
     def preload_data_task(self) -> None:

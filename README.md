@@ -4,7 +4,7 @@
 
 **The Next-Generation Automated Crypto Trading & Market Tracking Framework**
 
-[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 [![Textual](https://img.shields.io/badge/TUI-Textual-brightgreen)](https://textual.textualize.io/)
 [![OKX](https://img.shields.io/badge/Exchange-OKX-black)](https://www.okx.com/)
 
@@ -51,7 +51,7 @@ Prove it before you trade it.
 
 ## 🛠 Tech Stack
 
-*   **Core**: Python 3.14 (Optimized for modern async workloads & performance)
+*   **Core**: Python 3.13 recommended (`>=3.11,<3.15` supported)
 *   **User Interface**: [Textual](https://github.com/Textualize/textual) for a reactive, CSS-driven modern terminal experience
 *   **Data & Analysis**: Pandas, NumPy, TA-Lib for lightning-fast quantitative analysis
 *   **Exchange Layer**: [OKX API v5](https://www.okx.com/docs-v5)
@@ -61,7 +61,19 @@ Prove it before you trade it.
 
 ## 📦 Installation & Setup
 
-We strictly use `uv` for blazing-fast project management. Get it from [astral.sh/uv](https://astral.sh/uv).
+We strictly use `uv` for blazing-fast project management. Python 3.13 is the recommended runtime for this project because it is stable, broadly supported by package wheels, and avoids dependency lag on the newest CPython releases. The project metadata supports Python `>=3.11,<3.15`.
+
+Install `uv` on Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Then restart the shell and confirm:
+
+```powershell
+uv --version
+```
 
 1.  **Clone the Repository**:
     ```bash
@@ -71,8 +83,11 @@ We strictly use `uv` for blazing-fast project management. Get it from [astral.sh
 
 2.  **Setup Environment (Strictly via UV)**:
     ```bash
-    # Embody the standard
-    uv venv
+    # Install the recommended Python if missing
+    uv python install 3.13
+
+    # Create a local virtual environment using Python 3.13
+    uv venv --python 3.13
     
     # Activate (Windows)
     .venv\Scripts\activate 
@@ -89,6 +104,20 @@ We strictly use `uv` for blazing-fast project management. Get it from [astral.sh
     ```bash
     uv run python run_services.py
     ```
+
+5.  **Launch the Local Runtime API**:
+    ```bash
+    uv run python run_api.py
+    ```
+    The API starts the daemon services and exposes service state at
+    `http://127.0.0.1:8000/services`, recent runtime events at
+    `http://127.0.0.1:8000/events`, position intents at
+    `http://127.0.0.1:8000/position/intents`, and a live event stream at
+    `ws://127.0.0.1:8000/ws/events`.
+
+6.  **Optional Always-On Deployment**:
+    See `docs/deployment.md` for Windows Task Scheduler and Docker Compose
+    setup notes.
 
 ---
 

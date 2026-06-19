@@ -11,7 +11,9 @@ from src.config.settings import settings
 from src.config.strategy import StrategyConfig
 from src.data.candles import CandleManager
 from src.exchange.client import OKXClient
+from src.strategies.base import Signal
 from src.strategies.momentum import MomentumStrategy
+from src.trading.action_policy import BTCRegimeActionPolicy
 from src.trading.executor import Executor
 from src.daemon.service import DaemonService
 from src.utils.logger import setup_logger
@@ -36,7 +38,9 @@ class StrategyService(DaemonService):
         self.candle_manager = None
         self.strategy = None
         self.executor = None
+        self.action_policy = BTCRegimeActionPolicy()
         self.signals_history = []
+        self.decisions_history = []
 
     def setup(self) -> None:
         """Initialize exchange client and strategy components."""
@@ -62,6 +66,9 @@ class StrategyService(DaemonService):
         # Reload config hot
         config = StrategyConfig.load()
         self.strategy.config = config.momentum
+        self.strategy.k_long = config.momentum.k_long
+        self.strategy.k_short = config.momentum.k_short
+        self.strategy.gap_threshold = config.momentum.gap_threshold
         
         current_time = datetime.now(TZ_TAIPEI).strftime("%Y-%m-%d %H:%M:%S")
         status = {
@@ -70,6 +77,7 @@ class StrategyService(DaemonService):
             "strategy": self.strategy.name,
             "dry_run": self.dry_run,
             "signals": self.signals_history[-10:],  # keep last 10 in status
+            "decisions": self.decisions_history[-20:],
             "errors": []
         }
 
@@ -87,28 +95,71 @@ class StrategyService(DaemonService):
                 # 2. Generate Signal
                 signal = self.strategy.generate_signal(df)
                 
-                if signal:
+                if signal != Signal.HOLD:
                     logger.info(f"Signal detected for {pair}: {signal}")
                     
-                    # 3. Create Setup & Execute
-                    setup = self.strategy.create_setup(df, signal)
+                    # 3. Create Setup, evaluate BTC regime, then execute only if allowed.
+                    setup = self.strategy.create_setup(df)
                     if setup:
+                        btc_regime = None
+                        if self.runtime is not None:
+                            btc_regime = self.runtime.get_value("market.btc_regime")
+
+                        decision = self.action_policy.evaluate(
+                            pair=pair,
+                            setup=setup,
+                            btc_regime=btc_regime,
+                        )
+                        decision_entry = {
+                            **decision.to_dict(),
+                            "time": current_time,
+                            "setup_reason": setup.reason,
+                            "entry_price": setup.entry_price,
+                            "stop_loss": setup.stop_loss,
+                            "take_profit": setup.take_profit,
+                        }
+                        self.decisions_history.append(decision_entry)
+                        status["decisions"] = self.decisions_history[-20:]
+                        if self.runtime is not None:
+                            self.runtime.set_value("strategy.decisions", status["decisions"])
+                        self.publish_event("strategy.action_decision", decision_entry)
+
+                        if not decision.allowed:
+                            logger.info("Action blocked for %s: %s", pair, decision.reason)
+                            status["signals"] = self.signals_history[-10:]
+                            continue
+
                         # Execute
                         result = self.executor.execute(pair, setup)
                         sig_entry = {
                             "pair": pair,
-                            "signal": str(signal),
+                            "signal": setup.signal.value,
                             "price": setup.entry_price,
                             "time": current_time,
-                            "result": "Order Placed" if result else "Failed"
+                            "result": "Order Placed" if result else "Failed",
+                            "decision": decision.reason,
                         }
                         self.signals_history.append(sig_entry)
                         status["signals"] = self.signals_history[-10:]
+                        self.publish_event("strategy.signal", sig_entry)
                     else:
                         logger.warning(f"Signal {signal} but setup creation failed for {pair}.")
+                        self.publish_event(
+                            "strategy.signal_rejected",
+                            {
+                                "pair": pair,
+                                "signal": str(signal),
+                                "time": current_time,
+                                "reason": "setup creation failed",
+                            },
+                        )
             except Exception as e:
                 logger.error(f"Error processing {pair} in StrategyService: {e}")
                 status["errors"].append(f"Error in {pair}: {str(e)}")
+                self.publish_event(
+                    "strategy.error",
+                    {"pair": pair, "time": current_time, "error": str(e)},
+                )
 
         # Write status to file for TUI
         try:

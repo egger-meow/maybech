@@ -140,6 +140,20 @@ class NotificatorService(DaemonService):
         if success:
             logger.info(f"Alert sent for {pair} {tf} @ {level['price']}")
             self.cooldowns[key] = now
+            self.publish_event(
+                "notification.level_alert",
+                {
+                    "pair": pair,
+                    "timeframe": tf,
+                    "current_price": current_price,
+                    "level_price": level["price"],
+                    "kind": level["kind"],
+                    "distance": dist,
+                    "significance": level["significance"],
+                    "count": level["count"],
+                    "purity": level["purity"],
+                },
+            )
 
     def _check_fluctuation_timeframe(self, pair: str, tf: str) -> None:
         """Check for rapid price fluctuations."""
@@ -186,6 +200,18 @@ class NotificatorService(DaemonService):
             if success:
                 logger.info(f"Fluctuation alert sent for {pair} {tf}: {pct_change:+.2f}%")
                 self.cooldowns[key] = now
+                self.publish_event(
+                    "notification.fluctuation_alert",
+                    {
+                        "pair": pair,
+                        "timeframe": tf,
+                        "pct_change": pct_change,
+                        "threshold": threshold,
+                        "direction": direction,
+                        "start_price": fl_res.get("start_price", 0.0),
+                        "end_price": fl_res.get("end_price", 0.0),
+                    },
+                )
 
     def teardown(self) -> None:
         logger.info("NotificatorService shutting down.")
