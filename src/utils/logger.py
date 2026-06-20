@@ -36,7 +36,7 @@ def setup_logger(name: str) -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Console handler - DISABLED for TUI (Textual handles its own output)
+    # Console handler is intentionally disabled for background service output.
     # console = logging.StreamHandler(sys.stdout)
     # console.setFormatter(fmt)
     # logger.addHandler(console)

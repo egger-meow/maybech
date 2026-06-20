@@ -2,10 +2,8 @@
 Strategy Executor Service — port of the original run_daemon.py logic.
 """
 
-import json
 import logging
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 
 from src.config.settings import settings
 from src.config.strategy import StrategyConfig
@@ -20,8 +18,6 @@ from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-# Status file path for TUI compatibility
-STATUS_FILE = Path("data/daemon_status.json")
 TZ_TAIPEI = timezone(timedelta(hours=8))
 
 
@@ -44,8 +40,6 @@ class StrategyService(DaemonService):
 
     def setup(self) -> None:
         """Initialize exchange client and strategy components."""
-        STATUS_FILE.parent.mkdir(exist_ok=True)
-        
         self.client = OKXClient()
         self.candle_manager = CandleManager(self.client)
         
@@ -197,23 +191,6 @@ class StrategyService(DaemonService):
                     {"pair": pair, "time": current_time, "error": str(e)},
                 )
 
-        # Write status to file for TUI
-        try:
-            with open(STATUS_FILE, "w") as f:
-                json.dump(status, f, indent=4)
-        except Exception as e:
-            logger.error(f"Failed to write strategy status file: {e}")
-
     def teardown(self) -> None:
-        """Write stop status."""
+        """Log service shutdown."""
         logger.info("StrategyService shutting down.")
-        try:
-            if STATUS_FILE.exists():
-                with open(STATUS_FILE, "r") as f:
-                    data = json.load(f)
-                data["status"] = "STOPPED"
-                data["last_update"] = datetime.now(TZ_TAIPEI).strftime("%Y-%m-%d %H:%M:%S")
-                with open(STATUS_FILE, "w") as f:
-                    json.dump(data, f, indent=4)
-        except:
-            pass

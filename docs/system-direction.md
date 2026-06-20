@@ -10,10 +10,10 @@ The current codebase is a good Python MVP:
 
 - `src/daemon/` already separates background services from the UI.
 - `StrategyService` and `NotificatorService` can run continuously.
-- `src/ui/` provides a local Textual dashboard for control and inspection.
+- `frontend/` provides the browser dashboard for control and inspection.
 - OKX order placement has safety guards through dry-run and explicit arming.
 
-The main limitation is process coupling. The Textual UI starts the same `DaemonRunner` in-process, and status is partly shared through direct object access or JSON files. That works locally, but it is not ideal for a web frontend, instant updates, or long-running production behavior.
+The main limitation is remaining process coupling in the daemon runtime. The API-backed runner now exposes service state directly, but longer-running production behavior still needs stronger persistence and authentication.
 
 ## Recommended Architecture
 
@@ -30,7 +30,7 @@ OKX REST/WebSocket -> Market Data Service -> Signal Engine -> Risk/Action Engine
                                       v
                          FastAPI HTTP + WebSocket API
                                       |
-                         Textual UI or Web Frontend
+                         Next.js Web Frontend
 ```
 
 The first Python API boundary now exists through `run_api.py` and `src/api/app.py`.
@@ -49,7 +49,7 @@ The next API expansion should add richer decision records with signal reasons,
 risk checks, and action results, plus editable operator review states for
 manual position management.
 
-After that, a web UI can be added. Next.js is fine if the UI becomes a full browser dashboard, but a lighter Vite/React frontend may be faster and simpler for a local control panel. Textual remains useful for SSH/local operator mode.
+The web UI now lives in `frontend/` using Next.js.
 
 ## BTC-Led Strategy Model
 
@@ -98,9 +98,6 @@ This repo now includes a conservative `Dockerfile` and `docker-compose.yml` for 
 
 ## Near-Term Decision
 
-Do not rewrite the whole UI first. Keep Textual while refactoring the backend boundary. Once the API/event layer is stable, build either:
-
-- Textual plus FastAPI for local operator use, or
-- FastAPI plus Vite/React or Next.js for a browser dashboard.
+Keep improving the API/event layer and the Next.js dashboard rather than maintaining a parallel terminal UI.
 
 The current system is a workable MVP, but it should be refactored before depending on it as an always-on position management platform.

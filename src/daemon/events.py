@@ -2,7 +2,7 @@
 In-memory runtime event stream for daemon services.
 
 This module is intentionally dependency-free so it can be used by the current
-Textual UI and a future HTTP/WebSocket API without changing service code again.
+HTTP/WebSocket API and background services without coupling components.
 """
 
 from __future__ import annotations

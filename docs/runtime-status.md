@@ -6,7 +6,7 @@ when endpoints, service state keys, or safety behavior changes.
 ## Local Runtime
 
 - API entry point: `uv run python run_api.py`
-- Textual console: `uv run python run_services.py`
+- Headless service runner: `uv run python run_services.py`
 - Recommended Python: `3.13`
 - Supported Python range: `>=3.11,<3.15`
 

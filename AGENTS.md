@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Maybech is a Python crypto trading, monitoring, and backtesting application. Runtime entry points live at the repository root: `main.py` and `run_services.py`. Core code is under `src/`, organized by responsibility: `exchange/` for OKX access, `trading/` for execution and risk, `strategies/` for strategy implementations, `backtesting/` for simulation and optimization, `data/` for market data and indicators, `notifications/` for LINE/email alerts, `daemon/` for services, and `ui/` or `monitor/` for Textual dashboards. Tests live in `tests/` and should mirror the behavior being changed. Documentation and images are in `docs/`; runtime sample/status data is in `data/`.
+Maybech is a Python crypto trading, monitoring, and backtesting application with a Next.js dashboard. Runtime entry points live at the repository root: `run_api.py` for the API-backed runtime and `run_services.py` for background services without a UI. Core code is under `src/`, organized by responsibility: `api/` for FastAPI endpoints, `exchange/` for OKX access, `trading/` for execution and risk, `strategies/` for strategy implementations, `backtesting/` for simulation and optimization, `data/` for market data and indicators, `notifications/` for LINE/email alerts, `daemon/` for services, and `monitor/` for account inspection helpers. Tests live in `tests/` and should mirror the behavior being changed. Documentation and images are in `docs/`; runtime data is in `data/`.
 
 ## Build, Test, and Development Commands
 
@@ -21,8 +21,8 @@ uv run pytest
 uv run pytest --cov=src
 ```
 
-`run_services.py` launches the Textual service console. `run_api.py` starts the
-daemon-backed FastAPI runtime. `uv run pytest` runs the configured test suite
+`run_services.py` launches daemon services without a UI. `run_api.py` starts the
+daemon-backed FastAPI runtime used by the Next.js dashboard. `uv run pytest` runs the configured test suite
 from `tests/`; use `--cov=src` when touching shared strategy, exchange, daemon,
 or backtesting code.
 
@@ -42,7 +42,7 @@ Tests use `pytest`, with discovery configured for `tests/test_*.py` in `pyprojec
 
 ## Commit & Pull Request Guidelines
 
-Recent history follows Conventional Commit prefixes such as `feat:`, `fix:`, and `docs:`. Keep commits short and imperative, for example `fix: restore default strategy config after tests`. Pull requests should include a clear summary, test results, linked issues when applicable, and screenshots for UI changes under `src/ui/` or `src/monitor/`.
+Recent history follows Conventional Commit prefixes such as `feat:`, `fix:`, and `docs:`. Keep commits short and imperative, for example `fix: restore default strategy config after tests`. Pull requests should include a clear summary, test results, linked issues when applicable, and screenshots for UI changes under `frontend/`.
 
 ## Security & Configuration Tips
 

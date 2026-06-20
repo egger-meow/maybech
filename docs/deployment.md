@@ -2,13 +2,11 @@
 
 ## Recommended Local Modes
 
-Use the Textual UI while developing strategies and inspecting behavior manually:
+Use the local Python virtual environment plus the Next.js dev server for normal
+development and operation. That keeps secrets, logs, browser access, and
+debugging straightforward while the API and dashboard are still evolving.
 
-```bash
-uv run python main.py
-```
-
-Use the runtime API when a browser frontend, local dashboard, or always-on service should control the daemon:
+Use the runtime API when the browser dashboard, local tools, or always-on service should control the daemon:
 
 ```bash
 uv run python run_api.py
@@ -23,14 +21,15 @@ For a personal PC, the simplest always-on setup is Windows Task Scheduler:
 
 1. Create a task triggered "At log on" or "At startup".
 2. Set the working directory to this repository.
-3. Run either `uv run python run_api.py` or `uv run python run_services.py --headless`.
+3. Run either `uv run python run_api.py` or `uv run python run_services.py`.
 4. Keep live trading disabled unless `.env`, account mode, and `MAYBECH_ARM_ORDERS=1` are intentionally configured.
 
-Use `run_api.py` if a frontend needs to manage services. Use `run_services.py --headless` if only background alerts/signals are needed.
+Use `run_api.py` if the Next.js frontend needs to manage services. Use `run_services.py` if only background alerts/signals are needed.
 
 ## Docker Compose
 
-Docker is useful once the API is the stable control surface:
+Docker is not the default path for this repo right now. It is useful later when
+the API is stable and you want repeatable always-on packaging:
 
 ```bash
 docker compose up -d --build

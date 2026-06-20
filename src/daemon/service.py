@@ -90,7 +90,7 @@ class DaemonRunner:
         return False
 
     def get_service_status(self, name: str) -> Optional[dict]:
-        """Get the current status of a service for TUI/API."""
+        """Get the current status of a service for API/runtime readers."""
         if name not in self.services:
             return None
         
