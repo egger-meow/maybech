@@ -4,7 +4,9 @@ For each open trade in TradeStore, this service:
 1. Reads current prices from RuntimeState.
 2. Computes velocity (1m, 5m, 10m).
 3. Evaluates each RuleGroup attached to the trade.
-4. If any rule group fires → closes the trade via OKX and records the exit.
+4. If any rule group fires, closes simulated trades in dry-run mode. In live
+   mode it emits a manual-close-required event until a confirmed exchange close
+   executor is implemented.
 """
 
 from __future__ import annotations
@@ -105,7 +107,37 @@ class PositionManagerService(DaemonService):
                 # Close the trade
                 exit_reason = f"rule_fired:{triggered_group.name}"
 
-                # TODO: Trigger real OKX close order here if not dry_run
+                if not self.dry_run:
+                    logger.error(
+                        "LIVE CLOSE BLOCKED: %s %s %s rule=%s. "
+                        "No exchange close-order executor is wired.",
+                        trade.id,
+                        trade.side,
+                        trade.inst_id,
+                        triggered_group.name,
+                    )
+                    self.publish_event("position.close_blocked", {
+                        "trade_id": trade.id,
+                        "inst_id": trade.inst_id,
+                        "side": trade.side,
+                        "current_price": current_price,
+                        "exit_reason": exit_reason,
+                        "rule_group_id": triggered_group.id,
+                        "rule_group_name": triggered_group.name,
+                        "dry_run": self.dry_run,
+                        "reason": "live close order executor is not implemented",
+                    })
+                    intents.append({
+                        "trade_id": trade.id,
+                        "inst_id": trade.inst_id,
+                        "side": trade.side,
+                        "action": "manual_close_required",
+                        "reason": exit_reason,
+                        "current_price": current_price,
+                        "rule_group": triggered_group.name,
+                        "strategy_id": trade.strategy_id,
+                    })
+                    continue
                 
                 closed = self.store.close_trade(
                     trade.id,
@@ -219,4 +251,3 @@ class PositionManagerService(DaemonService):
 
     def teardown(self) -> None:
         logger.info("PositionManagerService shutting down.")
-

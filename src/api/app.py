@@ -138,7 +138,7 @@ def create_app(runner: DaemonRunner) -> FastAPI:
                 return
             queue.put_nowait(event)
 
-        runner.bus.subscribe("*", _handler)
+        unsubscribe = runner.runtime.events.subscribe(_handler)
 
         try:
             while True:
@@ -155,7 +155,7 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         except WebSocketDisconnect:
             pass
         finally:
-            runner.bus.unsubscribe("*", _handler)
+            unsubscribe()
 
     # ------------------------------------------------------------------------
     # Trades & Rules API
@@ -236,9 +236,9 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         if not store.get_trade(trade_id):
             raise HTTPException(status_code=404, detail="Trade not found")
             
-        success = store.remove_rule_group(group_id)
+        success = store.remove_trade_rule_group(trade_id, group_id)
         if not success:
-            raise HTTPException(status_code=404, detail="Rule group not found")
+            raise HTTPException(status_code=404, detail="Rule group not found for trade")
             
         return {"status": "ok"}
 

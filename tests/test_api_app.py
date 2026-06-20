@@ -2,6 +2,8 @@ from fastapi.testclient import TestClient
 
 from src.api.app import create_app
 from src.daemon.service import DaemonRunner, DaemonService
+from src.trading.rules import PositionRule, RuleGroup
+from src.trading.trade_store import TradeRecord, TradeStore
 
 
 class ApiMockService(DaemonService):
@@ -161,3 +163,47 @@ def test_api_returns_empty_account_snapshot_when_missing():
     assert snapshot.json() == {"summary": {}, "positions": [], "orders": []}
     assert positions.json() == []
     assert orders.json() == []
+
+
+def test_api_delete_rule_is_scoped_to_trade(monkeypatch, tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    first_trade = TradeRecord(id="trade-a", inst_id="ETH-USDT-SWAP", side="long", entry_price=100)
+    second_trade = TradeRecord(id="trade-b", inst_id="SOL-USDT-SWAP", side="long", entry_price=50)
+    store.save_trade(first_trade)
+    store.save_trade(second_trade)
+
+    rule = RuleGroup(
+        id="rule-on-b",
+        name="SOL stop",
+        rules=[PositionRule(target="self", metric="price", operator="less_than", value=45)],
+    )
+    store.attach_rule_group(second_trade.id, rule)
+
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.delete(f"/trades/{first_trade.id}/rules/{rule.id}")
+
+    assert response.status_code == 404
+    assert store.get_trade_rules(second_trade.id)[0][0].id == rule.id
+
+
+def test_api_delete_rule_removes_only_matching_trade_rule(monkeypatch, tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    trade = TradeRecord(id="trade-a", inst_id="ETH-USDT-SWAP", side="long", entry_price=100)
+    store.save_trade(trade)
+
+    rule = RuleGroup(
+        id="rule-on-a",
+        name="ETH stop",
+        rules=[PositionRule(target="self", metric="price", operator="less_than", value=90)],
+    )
+    store.attach_rule_group(trade.id, rule)
+
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.delete(f"/trades/{trade.id}/rules/{rule.id}")
+
+    assert response.status_code == 200
+    assert store.get_trade_rules(trade.id) == []

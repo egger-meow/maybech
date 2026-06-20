@@ -1,28 +1,31 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { Moon, Sun } from 'lucide-react';
+import { useEffect, useState } from "react";
+import { Moon, Sun } from "lucide-react";
+
+type Theme = "dark" | "light";
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") {
+      return "dark";
+    }
+    return localStorage.getItem("theme") === "light" ? "light" : "dark";
+  });
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-    setTheme(savedTheme);
-    document.documentElement.setAttribute('data-theme', savedTheme);
-  }, []);
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-    document.documentElement.setAttribute('data-theme', newTheme);
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
   };
 
   return (
     <button onClick={toggleTheme} className="btn btn-outline" aria-label="Toggle Theme">
-      {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-      <span style={{ marginLeft: '8px' }}>{theme === 'dark' ? '日語模式' : '夜間模式'}</span>
+      {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+      <span style={{ marginLeft: "8px" }}>{theme === "dark" ? "Light" : "Dark"}</span>
     </button>
   );
 }

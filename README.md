@@ -119,6 +119,12 @@ uv --version
     See `docs/deployment.md` for Windows Task Scheduler and Docker Compose
     setup notes.
 
+## Runtime Tracking
+
+Use `docs/runtime-status.md` as the source of truth for local API endpoints,
+service status keys, account snapshot fields, and live-trading safety limits.
+Keep `toImprove.md` updated with at least three active improvement priorities.
+
 ---
 
 <div align="center">

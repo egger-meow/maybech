@@ -286,6 +286,15 @@ class TradeStore:
             )
         return cur.rowcount > 0
 
+    def remove_trade_rule_group(self, trade_id: str, rule_group_id: str) -> bool:
+        """Remove a rule group only when it belongs to the requested trade."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM trade_rules WHERE trade_id = ? AND id = ?",
+                (trade_id, rule_group_id),
+            )
+        return cur.rowcount > 0
+
     def set_rule_group_enabled(self, rule_group_id: str, enabled: bool) -> bool:
         with self._conn() as conn:
             cur = conn.execute(
@@ -293,4 +302,3 @@ class TradeStore:
                 (1 if enabled else 0, rule_group_id),
             )
         return cur.rowcount > 0
-

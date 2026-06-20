@@ -1,41 +1,76 @@
 "use client";
 
-import useSWR from 'swr';
-import { fetcher, postData, deleteData } from '@/lib/api';
-import { useState } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
+import useSWR from "swr";
+import { deleteData, fetcher, postData } from "@/lib/api";
+import { useState } from "react";
+import { Plus, Trash2, X } from "lucide-react";
+
+type RuleCondition = {
+  target: string;
+  metric: "price" | "pnl_pct" | "velocity_1m" | "velocity_5m" | "velocity_10m";
+  operator: "less_than" | "greater_than";
+  value: number | string;
+};
+
+type ActiveRule = {
+  group: {
+    id: string;
+    name: string;
+    operator: "and" | "or";
+    rules: Array<RuleCondition & { id: string }>;
+  };
+  enabled: boolean;
+};
+
+type OpenTrade = {
+  id: string;
+  strategy_id: string;
+  inst_id: string;
+  side: string;
+  entry_price: number;
+  pnl: number | null;
+  pnl_pct: number | null;
+  active_rules: ActiveRule[];
+};
+
+const EMPTY_RULE: RuleCondition = {
+  target: "self",
+  metric: "price",
+  operator: "less_than",
+  value: 0,
+};
+
+function formatNumber(value: number | null | undefined, digits = 2): string {
+  return Number(value ?? 0).toFixed(digits);
+}
 
 export default function Positions() {
-  const { data: trades, mutate } = useSWR('/trades/open', fetcher, { refreshInterval: 5000 });
-  const [selectedTrade, setSelectedTrade] = useState<any>(null);
+  const { data: trades, mutate } = useSWR<OpenTrade[]>("/trades/open", fetcher, { refreshInterval: 5000 });
+  const [selectedTrade, setSelectedTrade] = useState<OpenTrade | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-
-  // Form states
-  const [ruleName, setRuleName] = useState('');
-  const [groupOp, setGroupOp] = useState('and');
-  const [rules, setRules] = useState<any[]>([{ target: 'self', metric: 'price', operator: 'less_than', value: 0 }]);
+  const [ruleName, setRuleName] = useState("");
+  const [groupOp, setGroupOp] = useState<"and" | "or">("and");
+  const [rules, setRules] = useState<RuleCondition[]>([{ ...EMPTY_RULE }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const openModal = (trade: any) => {
+  const openModal = (trade: OpenTrade) => {
     setSelectedTrade(trade);
-    setRuleName('');
-    setGroupOp('and');
-    setRules([{ target: 'self', metric: 'price', operator: 'less_than', value: 0 }]);
+    setRuleName("");
+    setGroupOp("and");
+    setRules([{ ...EMPTY_RULE }]);
     setIsModalOpen(true);
   };
 
   const addRuleCondition = () => {
-    setRules([...rules, { target: 'self', metric: 'price', operator: 'less_than', value: 0 }]);
+    setRules((current) => [...current, { ...EMPTY_RULE }]);
   };
 
-  const updateRuleCondition = (index: number, key: string, value: any) => {
-    const newRules = [...rules];
-    newRules[index][key] = value;
-    setRules(newRules);
+  const updateRuleCondition = <K extends keyof RuleCondition>(index: number, key: K, value: RuleCondition[K]) => {
+    setRules((current) => current.map((rule, i) => (i === index ? { ...rule, [key]: value } : rule)));
   };
 
   const removeRuleCondition = (index: number) => {
-    setRules(rules.filter((_, i) => i !== index));
+    setRules((current) => current.filter((_, i) => i !== index));
   };
 
   const handleAddRuleGroup = async () => {
@@ -44,155 +79,161 @@ export default function Positions() {
     try {
       await postData(`/trades/${selectedTrade.id}/rules`, {
         rule_group: {
-          name: ruleName || '自訂規則',
+          name: ruleName || "Manual rule",
           operator: groupOp,
-          rules: rules.map(r => ({ ...r, value: parseFloat(r.value) }))
+          rules: rules.map((rule) => ({ ...rule, value: Number(rule.value) })),
         },
-        enabled: true
+        enabled: true,
       });
       await mutate();
       setIsModalOpen(false);
-    } catch (e) {
-      alert('新增失敗 (Add failed)');
+    } catch (error: unknown) {
+      console.error("Failed to add rule group", error);
+      alert("Add failed");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleDeleteRuleGroup = async (tradeId: string, groupId: string) => {
-    if (!confirm('確定刪除此規則？ (Are you sure?)')) return;
+    if (!confirm("Delete this rule group?")) return;
     try {
       await deleteData(`/trades/${tradeId}/rules/${groupId}`);
       await mutate();
-    } catch (e) {
-      alert('刪除失敗 (Delete failed)');
+    } catch (error: unknown) {
+      console.error("Failed to delete rule group", error);
+      alert("Delete failed");
     }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
       <header>
-        <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '0.5rem' }}>倉位管理 (Positions)</h1>
-        <p style={{ color: 'var(--text-muted)' }}>動態管理各別倉位的出場條件 (Stop-Loss / Take-Profit / Signals)</p>
+        <h1 style={{ fontSize: "2rem", fontWeight: 700, marginBottom: "0.5rem" }}>Positions</h1>
+        <p style={{ color: "var(--text-muted)" }}>Open trades and attached dynamic exit rules.</p>
       </header>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        {trades ? trades.map((trade: any) => (
-          <div key={trade.id} className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  {trade.inst_id}
-                  <span className={`badge ${trade.side.toLowerCase() === 'long' || trade.side.toLowerCase() === 'buy' ? 'success' : 'danger'}`}>
-                    {trade.side}
-                  </span>
-                </div>
-                <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-                  策略: {trade.strategy_id} | 入場價: ${trade.entry_price?.toFixed(4)}
-                </div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: (trade.pnl || 0) >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
-                  {(trade.pnl || 0) >= 0 ? '+' : ''}${trade.pnl?.toFixed(2) || '0.00'} ({(trade.pnl_pct || 0).toFixed(2)}%)
-                </div>
-              </div>
-            </div>
-
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>觸發規則 (Active Rules)</h3>
-                <button className="btn btn-outline" onClick={() => openModal(trade)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}>
-                  <Plus size={14} /> 新增規則 (Add Rule)
-                </button>
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {trade.active_rules && trade.active_rules.length > 0 ? trade.active_rules.map((ar: any) => (
-                  <div key={ar.group.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-secondary)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{ar.group.name} {ar.group.operator === 'or' ? '(OR)' : '(AND)'}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
-                        {ar.group.rules.map((r: any, idx: number) => (
-                          <span key={r.id}>
-                            {idx > 0 ? ` ${ar.group.operator.toUpperCase()} ` : ''}
-                            [{r.target}] {r.metric} {r.operator === 'greater_than' ? '>' : '<'} {r.value}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <button className="btn btn-outline" style={{ border: 'none', color: 'var(--accent-danger)', padding: '0.5rem' }} onClick={() => handleDeleteRuleGroup(trade.id, ar.group.id)}>
-                      <Trash2 size={16} />
-                    </button>
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        {trades ? trades.map((trade) => {
+          const side = trade.side.toLowerCase();
+          const pnl = trade.pnl ?? 0;
+          return (
+            <div key={trade.id} className="glass-panel" style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+                <div>
+                  <div style={{ fontSize: "1.25rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    {trade.inst_id}
+                    <span className={`badge ${side === "long" || side === "buy" ? "success" : "danger"}`}>{trade.side}</span>
                   </div>
-                )) : (
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>無綁定規則 (No active rules)</div>
-                )}
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginTop: "0.25rem" }}>
+                    Strategy: {trade.strategy_id} | Entry: ${formatNumber(trade.entry_price, 4)}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 700, color: pnl >= 0 ? "var(--accent-success)" : "var(--accent-danger)" }}>
+                    {pnl >= 0 ? "+" : ""}${formatNumber(pnl)} ({formatNumber(trade.pnl_pct)}%)
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", gap: "1rem" }}>
+                  <h3 style={{ fontSize: "1rem", fontWeight: 600 }}>Active Rules</h3>
+                  <button className="btn btn-outline" onClick={() => openModal(trade)} style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }}>
+                    <Plus size={14} /> Add Rule
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {trade.active_rules.length > 0 ? trade.active_rules.map((activeRule) => (
+                    <div key={activeRule.group.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", backgroundColor: "var(--bg-secondary)", padding: "0.75rem", borderRadius: "var(--radius-sm)" }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{activeRule.group.name} ({activeRule.group.operator.toUpperCase()})</div>
+                        <div style={{ color: "var(--text-muted)", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                          {activeRule.group.rules.map((rule, idx) => (
+                            <span key={rule.id}>
+                              {idx > 0 ? ` ${activeRule.group.operator.toUpperCase()} ` : ""}
+                              [{rule.target}] {rule.metric} {rule.operator === "greater_than" ? ">" : "<"} {rule.value}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <button className="btn btn-outline" style={{ border: "none", color: "var(--accent-danger)", padding: "0.5rem" }} onClick={() => handleDeleteRuleGroup(trade.id, activeRule.group.id)} aria-label="Delete rule group">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  )) : (
+                    <div style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No active rules</div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )) : (
-          <div className="flex-center" style={{ height: '100px', color: 'var(--text-muted)' }}>載入中...</div>
+          );
+        }) : (
+          <div className="flex-center" style={{ height: "100px", color: "var(--text-muted)" }}>Loading...</div>
         )}
       </div>
 
       {isModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '500px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>為 {selectedTrade?.inst_id} 新增規則</h2>
-              <button className="btn btn-outline" style={{ border: 'none', padding: '0.25rem' }} onClick={() => setIsModalOpen(false)}>
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 50, display: "flex", justifyContent: "center", alignItems: "center" }}>
+          <div className="glass-panel" style={{ width: "100%", maxWidth: "720px", padding: "2rem", display: "flex", flexDirection: "column", gap: "1.5rem", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 600 }}>Add Rule for {selectedTrade?.inst_id}</h2>
+              <button className="btn btn-outline" style={{ border: "none", padding: "0.25rem" }} onClick={() => setIsModalOpen(false)} aria-label="Close modal">
                 <X size={20} />
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <label style={{ fontSize: '0.9rem', fontWeight: 500 }}>規則群組名稱</label>
-              <input type="text" value={ruleName} onChange={e => setRuleName(e.target.value)} placeholder="e.g. 停損 (Stop Loss)" />
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              <label style={{ fontSize: "0.9rem", fontWeight: 500 }}>Rule group name</label>
+              <input type="text" value={ruleName} onChange={(event) => setRuleName(event.target.value)} placeholder="Stop loss" />
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <label style={{ fontSize: '0.9rem', fontWeight: 500 }}>邏輯運算子 (Operator)</label>
-              <select value={groupOp} onChange={e => setGroupOp(e.target.value)}>
-                <option value="and">全部滿足 (AND)</option>
-                <option value="or">任一滿足 (OR)</option>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              <label style={{ fontSize: "0.9rem", fontWeight: 500 }}>Group operator</label>
+              <select value={groupOp} onChange={(event) => setGroupOp(event.target.value === "or" ? "or" : "and")}>
+                <option value="and">AND</option>
+                <option value="or">OR</option>
               </select>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 600 }}>條件列表 (Conditions)</span>
-                <button className="btn btn-outline" onClick={addRuleCondition} style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}>
-                  <Plus size={14} /> 加入條件
+            <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: "1rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+                <span style={{ fontWeight: 600 }}>Conditions</span>
+                <button className="btn btn-outline" onClick={addRuleCondition} style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }}>
+                  <Plus size={14} /> Add Condition
                 </button>
               </div>
 
-              {rules.map((r, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '0.5rem', alignItems: 'center' }}>
-                  <select value={r.target} onChange={e => updateRuleCondition(i, 'target', e.target.value)}>
-                    <option value="self">目前幣種 (Self)</option>
-                    <option value="BTC-USDT">比特幣 (BTC-USDT)</option>
+              {rules.map((rule, index) => (
+                <div key={index} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: "0.5rem", alignItems: "center" }}>
+                  <select value={rule.target} onChange={(event) => updateRuleCondition(index, "target", event.target.value)}>
+                    <option value="self">Self</option>
+                    <option value="BTC-USDT-SWAP">BTC-USDT-SWAP</option>
                   </select>
-                  <select value={r.metric} onChange={e => updateRuleCondition(i, 'metric', e.target.value)}>
-                    <option value="price">價格 (Price)</option>
-                    <option value="pnl_pct">未實現盈虧% (PnL%)</option>
-                    <option value="velocity_5m">5分變化率 (Velocity)</option>
+                  <select value={rule.metric} onChange={(event) => updateRuleCondition(index, "metric", event.target.value as RuleCondition["metric"])}>
+                    <option value="price">Price</option>
+                    <option value="pnl_pct">PnL%</option>
+                    <option value="velocity_1m">Velocity 1m</option>
+                    <option value="velocity_5m">Velocity 5m</option>
+                    <option value="velocity_10m">Velocity 10m</option>
                   </select>
-                  <select value={r.operator} onChange={e => updateRuleCondition(i, 'operator', e.target.value)}>
-                    <option value="less_than">小於 (&lt;)</option>
-                    <option value="greater_than">大於 (&gt;)</option>
+                  <select value={rule.operator} onChange={(event) => updateRuleCondition(index, "operator", event.target.value as RuleCondition["operator"])}>
+                    <option value="less_than">Less Than</option>
+                    <option value="greater_than">Greater Than</option>
                   </select>
-                  <input type="number" step="any" value={r.value} onChange={e => updateRuleCondition(i, 'value', e.target.value)} />
-                  <button className="btn btn-outline" style={{ padding: '0.5rem', color: 'var(--accent-danger)', border: 'none' }} onClick={() => removeRuleCondition(i)}>
+                  <input type="number" step="any" value={rule.value} onChange={(event) => updateRuleCondition(index, "value", event.target.value)} />
+                  <button className="btn btn-outline" style={{ padding: "0.5rem", color: "var(--accent-danger)", border: "none" }} onClick={() => removeRuleCondition(index)} aria-label="Remove condition">
                     <Trash2 size={16} />
                   </button>
                 </div>
               ))}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
-              <button className="btn btn-outline" onClick={() => setIsModalOpen(false)}>取消</button>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "1rem", marginTop: "1rem" }}>
+              <button className="btn btn-outline" onClick={() => setIsModalOpen(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={handleAddRuleGroup} disabled={isSubmitting || rules.length === 0}>
-                {isSubmitting ? '儲存中...' : '確認儲存'}
+                {isSubmitting ? "Saving..." : "Save Rule"}
               </button>
             </div>
           </div>
