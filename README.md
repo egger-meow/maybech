@@ -13,8 +13,10 @@ events until a confirmed exchange close executor is implemented.
 
 ## Project Structure
 
-- `run_api.py` starts daemon services behind the local FastAPI API.
-- `run_services.py` starts daemon services without a UI.
+- `src/runtime/` owns CLI parsing and startup for API and headless service
+  modes.
+- `run_api.py` and `run_services.py` are compatibility wrappers around
+  `src/runtime/`.
 - `src/api/` contains HTTP/WebSocket endpoints and Pydantic schemas.
 - `src/daemon/` contains background services and runtime state.
 - `src/trading/` contains execution, risk, trade persistence, and dynamic rules.
@@ -29,7 +31,12 @@ events until a confirmed exchange close executor is implemented.
 - Python 3.13 recommended. `pyproject.toml` supports `>=3.11,<3.15`.
 - `uv` for Python environment and dependency management.
 - Node.js and npm for the `frontend/` dashboard.
-- Local `.env` credentials for OKX/LINE/email integrations when needed.
+- Local `.env` copied from `.env.example` for OKX/LINE/email integrations when
+  needed.
+
+`requirements.txt` is currently the canonical dependency list for the Python
+runtime. `pyproject.toml` holds project metadata and pytest configuration until
+dependencies are consolidated into project metadata.
 
 Install `uv` on Windows PowerShell:
 
@@ -61,6 +68,12 @@ workspace, using the activated `.venv` avoids local uv cache permission issues.
 Start the API-backed runtime:
 
 ```powershell
+uv run python -m src.runtime api
+```
+
+Compatibility wrapper:
+
+```powershell
 uv run python run_api.py
 ```
 
@@ -77,13 +90,19 @@ Useful API endpoints:
 Start daemon services without the API:
 
 ```powershell
-uv run python run_services.py
+uv run python -m src.runtime services
 ```
 
 Disable strategy execution for monitor-only service runs:
 
 ```powershell
-uv run python run_services.py --no-strategy
+uv run python -m src.runtime services --no-strategy
+```
+
+Compatibility wrapper:
+
+```powershell
+uv run python run_services.py
 ```
 
 ## Frontend Dashboard
@@ -100,8 +119,17 @@ The dashboard reads `NEXT_PUBLIC_API_URL`, defaulting to
 Check frontend quality gates:
 
 ```powershell
+npm run contract
 npm run lint
 npm run build
+```
+
+`npm run contract` checks that `docs/openapi.json` and
+`frontend/lib/generated/api-types.ts` still match the FastAPI OpenAPI schema.
+Regenerate them from the repo root with:
+
+```powershell
+uv run python scripts/generate_openapi_types.py
 ```
 
 ## Runtime Tracking
@@ -110,12 +138,17 @@ Use `docs/runtime-status.md` as the source of truth for API payloads, service
 status keys, and current live-trading safety limits. Keep `toImprove.md`
 maintained with at least three active improvement priorities.
 
-For operational setup, see `docs/deployment.md`. For architecture direction,
-see `docs/system-direction.md`.
+For product direction, see `docs/project-charter.md` and
+`docs/domain-model.md`. For target API and UI shape, see `docs/api-spec.md` and
+`docs/ui-direction.md`. For storage, schema migration, and SQLite direction,
+see `docs/storage.md`. For operational setup, see `docs/deployment.md`. For
+architecture direction, see `docs/system-direction.md`.
 
 ## Security
 
-Create secrets from `.env.example` when available and never commit `.env`.
+Create secrets from `.env.example` and never commit `.env`. The example file is
+kept focused on active runtime/operator variables, including
+`MAYBECH_ARM_ORDERS` and `NEXT_PUBLIC_API_URL`, by tests.
 Treat OKX API keys, LINE tokens, SMTP credentials, and notification targets as
 sensitive. Keep the API bound to localhost unless authentication, TLS, and a
 private access path are configured.

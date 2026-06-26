@@ -32,6 +32,10 @@ Tracked API contracts are documented in `../docs/runtime-status.md`.
 ## Checks
 
 ```powershell
+npm run contract
 npm run lint
 npm run build
 ```
+
+`npm run contract` verifies that `../docs/openapi.json` and
+`lib/generated/api-types.ts` match the backend FastAPI schema.

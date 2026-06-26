@@ -4,6 +4,18 @@
 
 Maybech should be a robust auto-signaling and action-trigger system for perpetual position management. It is not primarily a high-frequency or fully autonomous quant trading bot. The core loop should detect market state, produce explainable signals, manage position actions safely, and present a precise, vivid, interactive control surface.
 
+The product is centered on two first-class workflows:
+
+- Strategy management: pre-position plans that watch composable signals and
+  create new logical position units after risk checks.
+- Position management: post-entry control of each logical position unit with
+  independent stop-loss, take-profit, break-even, reduce, and close rules.
+
+OKX can merge repeated entries on the same swap side into one exchange position.
+Maybech must not model that merged OKX row as the only position. Every open or
+add action should become a separate logical position-management unit, optionally
+tagged with the creating strategy, so rules can be managed independently.
+
 ## Current Fit
 
 The current codebase is a good Python MVP:
@@ -33,7 +45,8 @@ OKX REST/WebSocket -> Market Data Service -> Signal Engine -> Risk/Action Engine
                          Next.js Web Frontend
 ```
 
-The first Python API boundary now exists through `run_api.py` and `src/api/app.py`.
+The first Python API boundary now exists through `src/runtime/`,
+`run_api.py`, and `src/api/app.py`.
 It exposes:
 
 - service status and enable/disable controls
@@ -48,6 +61,10 @@ It exposes:
 The next API expansion should add richer decision records with signal reasons,
 risk checks, and action results, plus editable operator review states for
 manual position management.
+
+See `docs/project-charter.md`, `docs/domain-model.md`, `docs/api-spec.md`, and
+`docs/ui-direction.md` for the canonical product concepts and target API/UI
+shape.
 
 The web UI now lives in `frontend/` using Next.js.
 
@@ -89,12 +106,19 @@ This repo now includes a conservative `Dockerfile` and `docker-compose.yml` for 
 
 ## Refactor Priorities
 
-1. Split daemon runtime from UI startup.
+1. Keep runtime startup centralized in `src/runtime/` and keep `run_api.py` and
+   `run_services.py` as thin compatibility wrappers.
 2. Add an event bus or queue abstraction for signals, logs, and service state.
 3. Implement OKX WebSocket market/account streams instead of relying only on polling.
-4. Expand FastAPI endpoints beyond runtime events into positions, orders, and strategy decisions.
-5. Move JSON status files toward structured state storage, such as SQLite.
-6. Add explicit strategy decision records: input data, BTC regime, signal, risk decision, action, and result.
+4. Expand FastAPI endpoints beyond runtime events into strategies, logical
+   position units, exchange positions, orders, signal evaluation, and strategy
+   decisions.
+5. Move JSON/in-memory runtime state toward structured storage, likely SQLite,
+   with explicit retention rules.
+6. Add explicit strategy decision records: input data, BTC regime, signal,
+   risk decision, action, and result.
+7. Add a reconciliation layer between Maybech logical position units and OKX net
+   positions.
 
 ## Near-Term Decision
 

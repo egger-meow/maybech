@@ -9,7 +9,7 @@ debugging straightforward while the API and dashboard are still evolving.
 Use the runtime API when the browser dashboard, local tools, or always-on service should control the daemon:
 
 ```bash
-uv run python run_api.py
+uv run python -m src.runtime api
 ```
 
 The API exposes service state at `http://127.0.0.1:8000/services` and live runtime events at `ws://127.0.0.1:8000/ws/events`.
@@ -21,10 +21,14 @@ For a personal PC, the simplest always-on setup is Windows Task Scheduler:
 
 1. Create a task triggered "At log on" or "At startup".
 2. Set the working directory to this repository.
-3. Run either `uv run python run_api.py` or `uv run python run_services.py`.
+3. Run either `uv run python -m src.runtime api` or
+   `uv run python -m src.runtime services`.
 4. Keep live trading disabled unless `.env`, account mode, and `MAYBECH_ARM_ORDERS=1` are intentionally configured.
 
-Use `run_api.py` if the Next.js frontend needs to manage services. Use `run_services.py` if only background alerts/signals are needed.
+Use `src.runtime api` if the Next.js frontend needs to manage services. Use
+`src.runtime services` if only background alerts/signals are needed. The
+root-level `run_api.py` and `run_services.py` wrappers remain supported for
+existing local scripts.
 
 ## Docker Compose
 
