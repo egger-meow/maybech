@@ -19,9 +19,18 @@ from pathlib import Path
 from typing import Any, Generator
 from uuid import uuid4
 
+from src.config.settings import settings
 from src.trading.rules import RuleGroup
+from src.trading.sqlite_schema import (
+    applied_schema_versions,
+    configure_connection,
+    initialize_schema,
+)
 
 logger = logging.getLogger(__name__)
+
+_SCHEMA_COMPONENT = "trade_store"
+_SCHEMA_VERSION = 1
 
 
 class TradeRecord:
@@ -118,21 +127,24 @@ CREATE INDEX IF NOT EXISTS idx_trade_rules_trade ON trade_rules(trade_id);
 class TradeStore:
     """SQLite-backed persistence for trades and their dynamic rules."""
 
-    def __init__(self, db_path: str = "data/trades.db") -> None:
-        self.db_path = db_path
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_path: str | None = None) -> None:
+        self.db_path = db_path or settings.MAYBECH_DB_PATH
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _init_db(self) -> None:
         with self._conn() as conn:
-            conn.executescript(_SCHEMA)
+            initialize_schema(
+                conn,
+                schema_sql=_SCHEMA,
+                component=_SCHEMA_COMPONENT,
+                version=_SCHEMA_VERSION,
+            )
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
+        configure_connection(conn)
         try:
             yield conn
             conn.commit()
@@ -147,14 +159,30 @@ class TradeStore:
     def save_trade(self, trade: TradeRecord) -> str:
         with self._conn() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO trades
+                """INSERT INTO trades
                    (id, strategy_id, inst_id, side,
                     entry_price, entry_time,
                     exit_price, exit_time, exit_reason,
                     pnl, pnl_pct, status,
                     signal_reason, btc_price_at_entry, btc_price_at_exit,
                     metadata_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                    strategy_id = excluded.strategy_id,
+                    inst_id = excluded.inst_id,
+                    side = excluded.side,
+                    entry_price = excluded.entry_price,
+                    entry_time = excluded.entry_time,
+                    exit_price = excluded.exit_price,
+                    exit_time = excluded.exit_time,
+                    exit_reason = excluded.exit_reason,
+                    pnl = excluded.pnl,
+                    pnl_pct = excluded.pnl_pct,
+                    status = excluded.status,
+                    signal_reason = excluded.signal_reason,
+                    btc_price_at_entry = excluded.btc_price_at_entry,
+                    btc_price_at_exit = excluded.btc_price_at_exit,
+                    metadata_json = excluded.metadata_json""",
                 (
                     trade.id, trade.strategy_id, trade.inst_id, trade.side,
                     trade.entry_price, trade.entry_time,
@@ -181,6 +209,19 @@ class TradeStore:
                 "SELECT * FROM trades WHERE status = 'open' ORDER BY entry_time"
             ).fetchall()
         return [TradeRecord.from_row(r) for r in rows]
+
+    def mark_trade_open(self, trade_id: str, *, entry_price: float) -> TradeRecord | None:
+        trade = self.get_trade(trade_id)
+        if trade is None or trade.status not in {"pending_open", "open"}:
+            return None
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE trades SET status = 'open', entry_price = ? WHERE id = ?",
+                (entry_price, trade_id),
+            )
+        trade.status = "open"
+        trade.entry_price = entry_price
+        return trade
 
     def get_trade_history(
         self,
@@ -302,3 +343,7 @@ class TradeStore:
                 (1 if enabled else 0, rule_group_id),
             )
         return cur.rowcount > 0
+
+    def applied_schema_versions(self) -> list[int]:
+        with self._conn() as conn:
+            return applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
