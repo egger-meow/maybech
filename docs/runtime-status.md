@@ -108,7 +108,10 @@ order lookup, or fill after a restart. A confirmed open fill atomically creates 
 updates weighted entry price and quantities, opens the unit for management, and
 updates the correlated strategy decision to `partially_filled` or `filled`.
 `ExecutionFillService` polls authenticated three-month SWAP fill history every
-five seconds. It traverses at most five 100-record pages per tick using OKX
+five seconds. It also consumes authenticated private `orders/SWAP` events every
+daemon cycle for low-latency fills and terminal cancellations. Login and
+subscription acknowledgement are required during live startup; reconnects use
+bounded backoff. REST traverses at most five 100-record pages per tick using OKX
 `billId` pagination. SQLite stores a committed high-water bill ID separately
 from an in-progress target and next-page checkpoint. A page checkpoint advances
 only after every record is allocated, recognized as unmatched, or durably
@@ -130,7 +133,11 @@ polls, the unit emits one deduplicated durable
 `GET /execution/fills/status` exposes `caught_up`, page counts, cursor progress,
 high-water/next-after bill IDs, history exhaustion, and cursor errors.
 It also exposes `client_orders_linked` and
-`missing_client_orders_recovered` for crash-window recovery visibility.
+`missing_client_orders_recovered` for crash-window recovery visibility, plus
+private-stream connectivity, event/reconnect/drop counts, and latest stream
+message/error details. WebSocket and REST share the same idempotent allocation
+boundary. Live entries require current REST catch-up and a connected stream;
+automatic position closes remain independent.
 
 ## Runtime Storage
 
@@ -182,6 +189,6 @@ strategy's default close conditions.
 - The confirmed-fill POST is a trusted local ingestion boundary, not an order
   placement endpoint. Keep it localhost-only until service authentication and
   authorization are implemented.
-- REST fill polling is the correctness/catch-up layer. A future private OKX
-  websocket should reduce latency and report cancellations, but reconnects must
-  still catch up through REST.
+- REST fill polling remains the correctness/catch-up layer. Private order
+  events reduce latency and report cancellations; reconnects still catch up
+  through REST before new entries resume.

@@ -42,7 +42,9 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
     runner.register(PositionManagerService(store=store, dry_run=dry_run))
     runner.register(
         ExecutionFillService(
-            allocator=ExecutionAllocationService(trade_store=store)
+            allocator=ExecutionAllocationService(trade_store=store),
+            enable_private_stream=not dry_run,
+            rest_poll_interval=5.0,
         )
     )
     

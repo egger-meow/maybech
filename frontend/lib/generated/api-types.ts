@@ -93,6 +93,16 @@ export type ExecutionFillIngestionStatusResponse = {
   "next_after_bill_id"?: string;
   "cursor_errors"?: number;
   "cursor_error"?: string;
+  "websocket_enabled"?: boolean;
+  "websocket_connected"?: boolean;
+  "websocket_events_received"?: number;
+  "websocket_events_processed"?: number;
+  "websocket_fills_applied"?: number;
+  "websocket_terminal_recovered"?: number;
+  "websocket_reconnects"?: number;
+  "websocket_dropped_events"?: number;
+  "websocket_last_message_at"?: string;
+  "websocket_last_error"?: string;
   "updated_at"?: string | null;
 };
 

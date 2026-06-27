@@ -40,6 +40,12 @@ three-month SWAP fill history. Cursor checkpoints share `MAYBECH_DB_PATH` and
 survive restarts. Without valid credentials its daemon status will show cursor
 and tick errors; it never allocates fills whose order id is not linked to a
 Maybech logical unit.
+In live mode the same service must authenticate and receive a subscription
+acknowledgement for the private OKX `orders/SWAP` WebSocket before startup can
+arm orders. Production and demo WebSocket URLs are selected from `OKX_FLAG`.
+The stream reconnects with bounded backoff and reports health through
+`GET /execution/fills/status`. A disconnected stream or incomplete REST
+catch-up blocks new entries without disabling automatic reduce-only closes.
 It also requests cancellation once for linked active orders older than five
 minutes. Position state changes only after OKX reports a terminal order state.
 

@@ -813,6 +813,9 @@ def test_api_returns_execution_fill_ingestion_status():
             "pages_fetched": 3,
             "caught_up": True,
             "high_water_bill_id": "bill-300",
+            "websocket_enabled": True,
+            "websocket_connected": True,
+            "websocket_events_received": 4,
             "updated_at": "2026-06-27T00:00:00+00:00",
         },
     )
@@ -826,6 +829,8 @@ def test_api_returns_execution_fill_ingestion_status():
     assert response.json()["caught_up"] is True
     assert response.json()["pages_fetched"] == 3
     assert response.json()["high_water_bill_id"] == "bill-300"
+    assert response.json()["websocket_connected"] is True
+    assert response.json()["websocket_events_received"] == 4
 
 
 def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):

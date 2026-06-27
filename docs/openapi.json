@@ -552,6 +552,56 @@
               }
             ],
             "title": "Updated At"
+          },
+          "websocket_connected": {
+            "default": false,
+            "title": "Websocket Connected",
+            "type": "boolean"
+          },
+          "websocket_dropped_events": {
+            "default": 0,
+            "title": "Websocket Dropped Events",
+            "type": "integer"
+          },
+          "websocket_enabled": {
+            "default": false,
+            "title": "Websocket Enabled",
+            "type": "boolean"
+          },
+          "websocket_events_processed": {
+            "default": 0,
+            "title": "Websocket Events Processed",
+            "type": "integer"
+          },
+          "websocket_events_received": {
+            "default": 0,
+            "title": "Websocket Events Received",
+            "type": "integer"
+          },
+          "websocket_fills_applied": {
+            "default": 0,
+            "title": "Websocket Fills Applied",
+            "type": "integer"
+          },
+          "websocket_last_error": {
+            "default": "",
+            "title": "Websocket Last Error",
+            "type": "string"
+          },
+          "websocket_last_message_at": {
+            "default": "",
+            "title": "Websocket Last Message At",
+            "type": "string"
+          },
+          "websocket_reconnects": {
+            "default": 0,
+            "title": "Websocket Reconnects",
+            "type": "integer"
+          },
+          "websocket_terminal_recovered": {
+            "default": 0,
+            "title": "Websocket Terminal Recovered",
+            "type": "integer"
           }
         },
         "title": "ExecutionFillIngestionStatusResponse",

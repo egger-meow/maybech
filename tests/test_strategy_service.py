@@ -88,6 +88,13 @@ def _service(tmp_path, *, dry_run=True, audit_store=None):
         audit_store=audit_store,
         strategy_store=strategy_store,
     )
+    if not dry_run:
+        runner = DaemonRunner()
+        runner.register(service)
+        runner.runtime.set_value(
+            "execution.fills.status",
+            {"caught_up": True, "websocket_connected": True},
+        )
     return service, strategy
 
 
@@ -216,3 +223,32 @@ def test_strategy_service_executes_one_persisted_false_to_true_edge(tmp_path):
     assert executor.calls[0]["position_side"] == "long"
     assert executor.calls[0]["stop_loss_price"] == 95
     assert len(service.trade_store.get_open_trades()) == 1
+
+
+def test_live_strategy_does_not_consume_signal_edge_before_ingestion_is_ready(tmp_path):
+    service, strategy = _service(tmp_path, dry_run=False)
+    executor = FakeExecutor({"ordId": "must-wait"})
+    service.executor = executor
+    service.candle_manager = FakeCandleManager()
+    service.runtime.set_value(
+        "execution.fills.status",
+        {"caught_up": False, "websocket_connected": True},
+    )
+    service.runtime.set_value(
+        "market.btc_regime",
+        {"direction": "bullish", "strength": "normal", "impulse": "up"},
+    )
+
+    service.tick()
+    service.runtime.set_value(
+        "execution.fills.status",
+        {"caught_up": True, "websocket_connected": True},
+    )
+    service.tick()
+
+    assert len(executor.calls) == 1
+    assert service.strategy_store.record_evaluation(
+        strategy.id,
+        "ETH-USDT-SWAP",
+        matched=True,
+    ) is False

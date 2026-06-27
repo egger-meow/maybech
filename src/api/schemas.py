@@ -105,6 +105,16 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     next_after_bill_id: str = ""
     cursor_errors: int = 0
     cursor_error: str = ""
+    websocket_enabled: bool = False
+    websocket_connected: bool = False
+    websocket_events_received: int = 0
+    websocket_events_processed: int = 0
+    websocket_fills_applied: int = 0
+    websocket_terminal_recovered: int = 0
+    websocket_reconnects: int = 0
+    websocket_dropped_events: int = 0
+    websocket_last_message_at: str = ""
+    websocket_last_error: str = ""
     updated_at: str | None = None
 
 

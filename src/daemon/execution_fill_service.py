@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from typing import Any
 
+from src.config.settings import settings
 from src.daemon.service import DaemonService
 from src.exchange.client import OKXClient
 from src.exchange.fills import normalize_okx_fill
+from src.exchange.websocket import OKXPrivateOrderStream
 from src.trading.logical_position_store import AllocationConflictError
 from src.trading.execution_cursor_store import ExecutionCursorStore
 from src.trading.execution_allocation import ExecutionAllocationService
@@ -21,7 +24,7 @@ class ExecutionFillService(DaemonService):
     """Provide polling catch-up for fills missed before or between websocket sessions."""
 
     name = "execution_fills"
-    interval = 5.0
+    interval = 1.0
     TERMINAL_ORDER_STATES = {"canceled", "cancelled", "rejected", "mmp_canceled"}
     ACTIVE_ORDER_STATES = {"live", "partially_filled"}
     FILL_STREAM_ID = "okx:fills-history:SWAP"
@@ -35,6 +38,9 @@ class ExecutionFillService(DaemonService):
         stale_after_seconds: float = 300.0,
         missing_fill_alert_after: int = 3,
         max_pages_per_tick: int = 5,
+        private_order_stream: OKXPrivateOrderStream | None = None,
+        enable_private_stream: bool = False,
+        rest_poll_interval: float = 0.0,
     ) -> None:
         super().__init__()
         self.client = client
@@ -45,16 +51,71 @@ class ExecutionFillService(DaemonService):
         self.stale_after_seconds = stale_after_seconds
         self.missing_fill_alert_after = max(1, missing_fill_alert_after)
         self.max_pages_per_tick = max(1, min(5, max_pages_per_tick))
+        self.private_order_stream = private_order_stream
+        self.enable_private_stream = enable_private_stream
+        self.rest_poll_interval = max(0.0, rest_poll_interval)
+        self._next_rest_poll = 0.0
+        self._last_rest_status: dict[str, Any] = {}
 
     def setup(self) -> None:
         if self.client is None:
             self.client = OKXClient()
+        if self.enable_private_stream:
+            if self.private_order_stream is None:
+                self.private_order_stream = OKXPrivateOrderStream(
+                    api_key=settings.OKX_API_KEY,
+                    api_secret=settings.OKX_API_SECRET,
+                    passphrase=settings.OKX_PASSPHRASE,
+                    flag=settings.OKX_FLAG,
+                )
+            self.private_order_stream.start()
+        initial_status = self._empty_status()
+        self._apply_private_stream_status(initial_status)
+        if self.runtime is not None:
+            self.runtime.set_value("execution.fills.status", initial_status)
         logger.info("ExecutionFillService setup complete.")
 
     def tick(self) -> None:
         if self.client is None:
             raise RuntimeError("ExecutionFillService is not set up")
-        status: dict[str, Any] = {
+        status = self._empty_status()
+        catchup_error: Exception | None = None
+        now = time.monotonic()
+        if now >= self._next_rest_poll:
+            try:
+                self._catch_up_fills(status)
+            except Exception as exc:
+                catchup_error = exc
+                status["cursor_errors"] += 1
+                status["cursor_error"] = str(exc)
+                logger.error("OKX fill catch-up failed: %s", exc)
+
+            self._reconcile_pending_orders(status)
+            cursor = self.cursor_store.get(self.FILL_STREAM_ID)
+            status["cursor_in_progress"] = cursor.in_progress
+            status["high_water_bill_id"] = cursor.high_water_id
+            status["next_after_bill_id"] = cursor.next_after_id
+            self._last_rest_status = {
+                key: value
+                for key, value in status.items()
+                if not key.startswith("websocket_") and key != "updated_at"
+            }
+            self._next_rest_poll = now + self.rest_poll_interval
+        else:
+            status.update(self._last_rest_status)
+            status["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        self._drain_private_order_events(status)
+
+        if self.runtime is not None:
+            self.runtime.set_value("execution.fills.status", status)
+        self.publish_event("execution.fills_polled", status)
+        if catchup_error is not None:
+            raise catchup_error
+
+    @staticmethod
+    def _empty_status() -> dict[str, Any]:
+        return {
             "fetched": 0,
             "applied": 0,
             "idempotent": 0,
@@ -77,28 +138,91 @@ class ExecutionFillService(DaemonService):
             "next_after_bill_id": "",
             "cursor_errors": 0,
             "cursor_error": "",
+            "websocket_enabled": False,
+            "websocket_connected": False,
+            "websocket_events_received": 0,
+            "websocket_events_processed": 0,
+            "websocket_fills_applied": 0,
+            "websocket_terminal_recovered": 0,
+            "websocket_reconnects": 0,
+            "websocket_dropped_events": 0,
+            "websocket_last_message_at": "",
+            "websocket_last_error": "",
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
-        catchup_error: Exception | None = None
-        try:
-            self._catch_up_fills(status)
-        except Exception as exc:
-            catchup_error = exc
-            status["cursor_errors"] += 1
-            status["cursor_error"] = str(exc)
-            logger.error("OKX fill catch-up failed: %s", exc)
 
-        self._reconcile_pending_orders(status)
-        cursor = self.cursor_store.get(self.FILL_STREAM_ID)
-        status["cursor_in_progress"] = cursor.in_progress
-        status["high_water_bill_id"] = cursor.high_water_id
-        status["next_after_bill_id"] = cursor.next_after_id
+    def _drain_private_order_events(self, status: dict[str, Any]) -> None:
+        stream = self.private_order_stream
+        if stream is None:
+            return
+        for order in stream.drain(limit=1000):
+            status["websocket_events_processed"] += 1
+            applied_before = status["applied"]
+            if str(order.get("tradeId") or ""):
+                websocket_fill = {
+                    **order,
+                    "fee": order.get("fillFee"),
+                    "feeCcy": order.get("fillFeeCcy"),
+                    "ts": order.get("fillTime") or order.get("uTime"),
+                }
+                self._ingest_fills([websocket_fill], status)
+                status["websocket_fills_applied"] += (
+                    status["applied"] - applied_before
+                )
 
-        if self.runtime is not None:
-            self.runtime.set_value("execution.fills.status", status)
-        self.publish_event("execution.fills_polled", status)
-        if catchup_error is not None:
-            raise catchup_error
+            order_id = str(order.get("ordId") or "")
+            client_order_id = str(order.get("clOrdId") or "")
+            position = self.allocator.position_store.get_by_exchange_order_id(order_id)
+            if position is None and client_order_id:
+                position = self.allocator.position_store.get_by_client_order_id(
+                    client_order_id
+                )
+                if position is not None and order_id:
+                    linked = self.allocator.position_store.link_exchange_order(
+                        position.id,
+                        client_order_id=client_order_id,
+                        exchange_order_id=order_id,
+                        metadata={"execution_status": "exchange_order_recovered_from_ws"},
+                    )
+                    if linked is not None:
+                        position = linked
+                        status["client_orders_linked"] += 1
+
+            order_state = str(order.get("state") or "").lower()
+            if (
+                position is not None
+                and order_id
+                and order_state in self.TERMINAL_ORDER_STATES
+            ):
+                recovered_before = status["terminal_recovered"]
+                self._recover_terminal_order(
+                    position=position,
+                    order_id=order_id,
+                    order_state=order_state,
+                    status=status,
+                    source="websocket",
+                )
+                status["websocket_terminal_recovered"] += (
+                    status["terminal_recovered"] - recovered_before
+                )
+        self._apply_private_stream_status(status)
+
+    def _apply_private_stream_status(self, status: dict[str, Any]) -> None:
+        stream = self.private_order_stream
+        if stream is None:
+            return
+        snapshot = stream.status_dict()
+        status.update(
+            {
+                "websocket_enabled": bool(snapshot["enabled"]),
+                "websocket_connected": bool(snapshot["connected"]),
+                "websocket_events_received": int(snapshot["events_received"]),
+                "websocket_reconnects": int(snapshot["reconnects"]),
+                "websocket_dropped_events": int(snapshot["dropped_events"]),
+                "websocket_last_message_at": str(snapshot["last_message_at"]),
+                "websocket_last_error": str(snapshot["last_error"]),
+            }
+        )
 
     def _catch_up_fills(self, status: dict[str, Any]) -> None:
         if self.client is None:
@@ -314,39 +438,12 @@ class ExecutionFillService(DaemonService):
                 continue
             order_state = str(order.get("state") or "").lower()
             if order_state in self.TERMINAL_ORDER_STATES:
-                recovered = self.allocator.position_store.recover_terminal_order(
-                    position.id,
-                    exchange_order_id=order_id,
+                self._recover_terminal_order(
+                    position=position,
+                    order_id=order_id,
                     order_state=order_state,
-                )
-                if recovered is None:
-                    continue
-                if recovered.status == "failed" and recovered.trade_id:
-                    self.allocator.trade_store.mark_trade_failed(
-                        recovered.trade_id,
-                        reason=f"entry order {order_state}",
-                    )
-                status["terminal_recovered"] += 1
-                self.allocator.audit_store.create(
-                    type="position.order_terminal_recovered",
-                    source=self.name,
-                    payload={
-                        "strategy_id": recovered.strategy_id,
-                        "position_id": recovered.id,
-                        "trade_id": recovered.trade_id,
-                        "exchange_order_id": order_id,
-                        "order_state": order_state,
-                        "recovered_status": recovered.status,
-                    },
-                )
-                self.publish_event(
-                    "execution.order_terminal_recovered",
-                    {
-                        "position_id": recovered.id,
-                        "exchange_order_id": order_id,
-                        "order_state": order_state,
-                        "recovered_status": recovered.status,
-                    },
+                    status=status,
+                    source="rest",
                 )
                 continue
             if order_state == "filled":
@@ -356,6 +453,7 @@ class ExecutionFillService(DaemonService):
                         position.id,
                         exchange_order_id=order_id,
                     )
+
                 )
                 if (
                     observed is not None
@@ -436,6 +534,45 @@ class ExecutionFillService(DaemonService):
                         },
                     )
 
+    def _recover_terminal_order(
+        self,
+        *,
+        position: Any,
+        order_id: str,
+        order_state: str,
+        status: dict[str, Any],
+        source: str,
+    ) -> None:
+        recovered = self.allocator.position_store.recover_terminal_order(
+            position.id,
+            exchange_order_id=order_id,
+            order_state=order_state,
+        )
+        if recovered is None:
+            return
+        if recovered.status == "failed" and recovered.trade_id:
+            self.allocator.trade_store.mark_trade_failed(
+                recovered.trade_id,
+                reason=f"entry order {order_state}",
+            )
+        status["terminal_recovered"] += 1
+        payload = {
+            "strategy_id": recovered.strategy_id,
+            "position_id": recovered.id,
+            "trade_id": recovered.trade_id,
+            "exchange_order_id": order_id,
+            "order_state": order_state,
+            "recovered_status": recovered.status,
+            "confirmation_source": source,
+        }
+        self.allocator.audit_store.create(
+            id=f"terminal-order:{order_id}:{order_state}",
+            type="position.order_terminal_recovered",
+            source=self.name,
+            payload=payload,
+        )
+        self.publish_event("execution.order_terminal_recovered", payload)
+
     @staticmethod
     def _order_age_seconds(order: dict[str, Any]) -> float:
         raw_timestamp = order.get("uTime") or order.get("cTime")
@@ -454,4 +591,6 @@ class ExecutionFillService(DaemonService):
         return max(0.0, datetime.now(timezone.utc).timestamp() - timestamp)
 
     def teardown(self) -> None:
+        if self.private_order_stream is not None:
+            self.private_order_stream.stop()
         logger.info("ExecutionFillService shutting down.")

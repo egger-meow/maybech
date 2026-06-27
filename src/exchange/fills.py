@@ -19,8 +19,15 @@ def normalize_okx_fill(payload: dict[str, Any]) -> ConfirmedExecutionFill:
 
     quantity = _positive_float(payload.get("fillSz"), field="fillSz")
     price = _positive_float(payload.get("fillPx"), field="fillPx")
-    fee = _optional_float(payload.get("fee"), field="fee")
-    occurred_at = _timestamp_ms(payload.get("ts") or payload.get("fillTime"))
+    fee = _optional_float(
+        (
+            payload.get("fee")
+            if payload.get("fee") not in (None, "")
+            else payload.get("fillFee")
+        ),
+        field="fee",
+    )
+    occurred_at = _timestamp_ms(payload.get("fillTime") or payload.get("ts"))
     return ConfirmedExecutionFill(
         fill_id=fill_id,
         exchange_order_id=order_id,
@@ -36,7 +43,9 @@ def normalize_okx_fill(payload: dict[str, Any]) -> ConfirmedExecutionFill:
             "side": str(payload.get("side") or ""),
             "position_side": str(payload.get("posSide") or ""),
             "client_order_id": client_order_id,
-            "fee_currency": str(payload.get("feeCcy") or ""),
+            "fee_currency": str(
+                payload.get("feeCcy") or payload.get("fillFeeCcy") or ""
+            ),
             "execution_type": str(payload.get("execType") or ""),
         },
     )

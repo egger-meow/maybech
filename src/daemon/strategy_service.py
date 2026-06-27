@@ -95,6 +95,17 @@ class StrategyService(DaemonService):
             "errors": [],
         }
 
+        if not self.dry_run and not self._execution_ingestion_ready():
+            message = (
+                "Live entries blocked until REST execution catch-up is current "
+                "and the private order stream is connected"
+            )
+            status["errors"].append(message)
+            if self.runtime is not None:
+                self.runtime.set_value("strategy.status", status)
+            self.publish_event("strategy.execution_not_ready", {"reason": message})
+            return
+
         strategies = self.strategy_store.list(enabled=True)
         status["enabled_strategies"] = len(strategies)
         for strategy in strategies:
@@ -226,6 +237,9 @@ class StrategyService(DaemonService):
     ) -> dict[str, Any] | None:
         if self.executor is None:
             raise RuntimeError("Executor is required")
+        if not self.dry_run and not self._execution_ingestion_ready():
+            logger.warning("Live strategy entry blocked because execution ingestion is not ready")
+            return None
 
         decision = self.action_policy.evaluate(
             pair=pair,
@@ -386,6 +400,16 @@ class StrategyService(DaemonService):
             "decision": decision.reason,
             "correlation_id": decision_id,
         }
+
+    def _execution_ingestion_ready(self) -> bool:
+        if self.runtime is None:
+            return False
+        status = self.runtime.get_value("execution.fills.status")
+        return bool(
+            isinstance(status, dict)
+            and status.get("caught_up") is True
+            and status.get("websocket_connected") is True
+        )
 
     def _prepare_open_unit(
         self,

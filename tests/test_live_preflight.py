@@ -247,6 +247,11 @@ def test_live_preflight_requires_enabled_persisted_risk_limits(monkeypatch, tmp_
 def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     monkeypatch.setattr(runtime_module, "TradeStore", lambda: store)
+    monkeypatch.setattr(
+        runtime_module.ExecutionFillService,
+        "setup",
+        lambda self: None,
+    )
     preflight_calls = []
 
     class Report:
@@ -276,6 +281,7 @@ def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_pa
     assert client_module._ORDER_PLACEMENT_ARMED is True
     assert runner.runtime.get_value("runtime.live_preflight")["armed"] is True
     assert preflight_calls[0]["include_strategy"] is False
+    assert runner.services["execution_fills"].enable_private_stream is True
     runner.teardown_services()
     assert client_module._ORDER_PLACEMENT_ARMED is False
 

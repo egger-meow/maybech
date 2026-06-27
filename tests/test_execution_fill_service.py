@@ -39,6 +39,35 @@ class FakeFillClient:
         return {"ordId": order_id, "sCode": "0"}
 
 
+class FakeOrderStream:
+    def __init__(self, events=None):
+        self.events = list(events or [])
+        self.started = False
+        self.stopped = False
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.stopped = True
+
+    def drain(self, *, limit):
+        drained = self.events[:limit]
+        self.events = self.events[limit:]
+        return drained
+
+    def status_dict(self):
+        return {
+            "enabled": True,
+            "connected": self.started and not self.stopped,
+            "events_received": 1,
+            "reconnects": 0,
+            "dropped_events": 0,
+            "last_message_at": "2026-06-28T00:00:00+00:00",
+            "last_error": "",
+        }
+
+
 def _raw_fill(fill_id="fill-a", order_id="order-a", bill_id=None, client_order_id=""):
     return {
         "billId": bill_id or f"bill-{fill_id}",
@@ -66,6 +95,116 @@ def test_normalize_okx_fill_maps_confirmed_fields():
     assert fill.fee == -0.02
     assert fill.occurred_at.startswith("2026-")
     assert fill.metadata["inst_id"] == "ETH-USDT-SWAP"
+
+
+def test_execution_fill_service_applies_private_order_fill_before_rest_history(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="ws-unit",
+            inst_id="ETH-USDT-SWAP",
+            exchange_order_id="ws-order",
+            status="pending_open",
+            metadata_json='{"expected_quantity":0.1,"order_action":"open"}',
+        )
+    )
+    event = {
+        **_raw_fill("ws-fill", "ws-order"),
+        "billId": "",
+        "fillFee": "-0.03",
+        "fillFeeCcy": "USDT",
+        "fillTime": "1782518400000",
+        "state": "filled",
+    }
+    event.pop("fee")
+    event.pop("feeCcy")
+    stream = FakeOrderStream([event])
+    service = ExecutionFillService(
+        client=FakeFillClient([]),
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+        private_order_stream=stream,
+        enable_private_stream=True,
+    )
+    runner = DaemonRunner()
+    runner.register(service)
+    service.setup()
+
+    service.tick()
+
+    status = runner.runtime.get_value("execution.fills.status")
+    allocation = position_store.get_allocation("ws-fill")
+    assert allocation is not None
+    assert allocation.fee == -0.03
+    assert status["websocket_connected"] is True
+    assert status["websocket_events_processed"] == 1
+    assert status["websocket_fills_applied"] == 1
+    assert position_store.get("ws-unit").opened_quantity == 0.1
+    service.teardown()
+    assert stream.stopped is True
+
+
+def test_private_order_fill_is_idempotent_with_rest_catchup(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="same-unit",
+            exchange_order_id="same-order",
+            status="pending_open",
+            metadata_json='{"expected_quantity":0.1,"order_action":"open"}',
+        )
+    )
+    fill = _raw_fill("same-fill", "same-order")
+    service = ExecutionFillService(
+        client=FakeFillClient([fill]),
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+        private_order_stream=FakeOrderStream([fill]),
+    )
+
+    service.tick()
+
+    assert position_store.get("same-unit").opened_quantity == 0.1
+    assert len(position_store.list_allocations("same-unit")) == 1
+
+
+def test_private_order_event_recovers_terminal_order_without_waiting_for_rest(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="canceled-unit",
+            inst_id="ETH-USDT-SWAP",
+            exchange_order_id="canceled-order",
+            status="pending_open",
+        )
+    )
+    stream = FakeOrderStream(
+        [{"ordId": "canceled-order", "state": "canceled", "instId": "ETH-USDT-SWAP"}]
+    )
+    service = ExecutionFillService(
+        client=FakeFillClient([]),
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+        private_order_stream=stream,
+        rest_poll_interval=60,
+    )
+    service._next_rest_poll = float("inf")
+
+    service.tick()
+
+    assert position_store.get("canceled-unit").status == "failed"
 
 
 def test_execution_fill_service_applies_duplicates_and_reports_unmatched(tmp_path):

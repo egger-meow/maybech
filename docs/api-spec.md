@@ -234,6 +234,11 @@ It also reports durable catch-up state: pages fetched, `caught_up`, whether a
 cursor cycle is in progress, history exhaustion, committed high-water bill ID,
 next `after` bill ID, and cursor errors. A committed high-water mark never moves
 past a page that was not fully ingested or durably quarantined.
+It also exposes private order-stream connectivity, cumulative received events,
+events processed in the latest daemon cycle, WebSocket-applied fills and
+terminal recoveries, reconnect/drop counts, and latest message/error details.
+The WebSocket is a latency path only; REST catch-up remains authoritative, and
+new strategy entries require both a current REST cursor and a connected stream.
 
 Logical position responses expose both `client_order_id` and
 `exchange_order_id`. The client ID exists before submission and remains until
