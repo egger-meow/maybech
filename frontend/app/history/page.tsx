@@ -1,25 +1,14 @@
 "use client";
 
 import useSWR from "swr";
-import { fetcher } from "@/lib/api";
-
-type TradeHistoryItem = {
-  id: string;
-  strategy_id: string;
-  inst_id: string;
-  side: string;
-  exit_time: string | null;
-  exit_reason: string;
-  pnl: number | null;
-  pnl_pct: number | null;
-};
+import { listTradeHistory } from "@/lib/api";
 
 function formatNumber(value: number | null | undefined): string {
   return Number(value ?? 0).toFixed(2);
 }
 
 export default function History() {
-  const { data: history } = useSWR<TradeHistoryItem[]>("/trades/history?limit=100", fetcher, { refreshInterval: 10000 });
+  const { data: history } = useSWR("trade-history", () => listTradeHistory(100), { refreshInterval: 10000 });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>

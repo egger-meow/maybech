@@ -1,41 +1,38 @@
 "use client";
 
 import useSWR from "swr";
-import { fetcher, postData } from "@/lib/api";
+import {
+  disableService,
+  enableService,
+  listServices,
+  listPersistedStrategyDecisions,
+  type ServiceStatus,
+} from "@/lib/api";
 import { Play, Square, Settings, CheckCircle2, AlertCircle } from "lucide-react";
 import { useState } from "react";
 
-type ServiceStatus = {
-  active?: boolean;
-  interval?: number;
-  last_tick?: string | null;
-  last_duration?: string | null;
-  errors?: number;
-};
-
-type Decision = {
-  strategy_id?: string;
-  timestamp?: string;
-  target?: string;
-  action?: string;
-  reason?: string;
-};
-
 export default function Strategies() {
   const { data: services, mutate: mutateServices } = useSWR<Record<string, ServiceStatus>>(
-    "/services",
-    fetcher,
+    "services",
+    listServices,
     { refreshInterval: 5000 },
   );
-  const { data: decisions } = useSWR<Decision[]>("/strategy/decisions", fetcher, { refreshInterval: 5000 });
+  const { data: decisions } = useSWR(
+    "strategy-decisions-momentum-swap",
+    () => listPersistedStrategyDecisions("momentum_swap", { limit: 50 }),
+    { refreshInterval: 5000 },
+  );
 
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
 
   const toggleService = async (name: string, isRunning: boolean) => {
     setLoadingAction(name);
     try {
-      const action = isRunning ? "disable" : "enable";
-      await postData(`/services/${name}/${action}`);
+      if (isRunning) {
+        await disableService(name);
+      } else {
+        await enableService(name);
+      }
       await mutateServices();
     } catch (e) {
       console.error("Failed to toggle service", e);
@@ -93,17 +90,18 @@ export default function Strategies() {
           <h2 style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--text-secondary)" }}>Recent Decisions</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", flex: 1, overflowY: "auto", maxHeight: "400px" }}>
             {decisions && decisions.length > 0 ? decisions.map((d, idx) => (
-              <div key={idx} style={{ padding: "0.75rem", backgroundColor: "var(--bg-primary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)", fontSize: "0.9rem" }}>
+              <div key={d.id ?? idx} style={{ padding: "0.75rem", backgroundColor: "var(--bg-primary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)", fontSize: "0.9rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", marginBottom: "0.25rem" }}>
-                  <span style={{ fontWeight: 600 }}>{d.strategy_id ?? "strategy"}</span>
+                  <span style={{ fontWeight: 600 }}>{d.pair ?? "strategy"}</span>
                   <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
-                    {d.timestamp ? new Date(d.timestamp).toLocaleString() : ""}
+                    {d.time ? new Date(d.time).toLocaleString() : ""}
                   </span>
                 </div>
-                <div>Target: {d.target ?? "N/A"}</div>
-                <div style={{ color: d.action === "LONG" || d.action === "BUY" ? "var(--accent-success)" : d.action === "SHORT" || d.action === "SELL" ? "var(--accent-danger)" : "var(--text-muted)" }}>
-                  Action: {d.action ?? "N/A"}
+                <div>Signal: {d.signal ?? "N/A"}</div>
+                <div style={{ color: d.allowed === true ? "var(--accent-success)" : d.allowed === false ? "var(--accent-danger)" : "var(--text-muted)" }}>
+                  Decision: {d.allowed === true ? "Allowed" : d.allowed === false ? "Blocked" : "N/A"}
                 </div>
+                <div>Execution: {d.execution_status ?? "not started"}</div>
                 <div style={{ color: "var(--text-muted)", fontSize: "0.8rem", marginTop: "0.25rem" }}>Reason: {d.reason ?? "N/A"}</div>
               </div>
             )) : (

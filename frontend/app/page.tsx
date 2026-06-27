@@ -1,24 +1,8 @@
 "use client";
 
 import useSWR from "swr";
-import { fetcher } from "@/lib/api";
+import { getAccountSnapshot, getBtcRegime } from "@/lib/api";
 import { TrendingUp, TrendingDown, DollarSign, Activity } from "lucide-react";
-
-type AccountSummary = {
-  total_equity?: string | number;
-  available_equity?: string | number;
-  unrealized_pnl?: string | number;
-};
-
-type AccountSnapshot = {
-  summary?: AccountSummary;
-};
-
-type BtcRegime = {
-  direction?: string;
-  strength?: string | number;
-  impulse?: string | number;
-};
 
 function formatCurrency(value: unknown): string {
   const numberValue = Number(value ?? 0);
@@ -36,16 +20,8 @@ function formatLabel(value: unknown): string {
 }
 
 export default function Dashboard() {
-  const { data: account, error: accountError } = useSWR<AccountSnapshot>(
-    "/account/snapshot",
-    fetcher,
-    { refreshInterval: 5000 },
-  );
-  const { data: regime, error: regimeError } = useSWR<BtcRegime>(
-    "/market/btc-regime",
-    fetcher,
-    { refreshInterval: 5000 },
-  );
+  const { data: account, error: accountError } = useSWR("account-snapshot", getAccountSnapshot, { refreshInterval: 5000 });
+  const { data: regime, error: regimeError } = useSWR("btc-regime", getBtcRegime, { refreshInterval: 5000 });
 
   const loading = !account && !accountError;
   const regimeLoading = !regime && !regimeError;

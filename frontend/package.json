@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "contract": "uv run python ../scripts/generate_openapi_types.py --check",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

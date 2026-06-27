@@ -1,36 +1,21 @@
 "use client";
 
 import useSWR from "swr";
-import { deleteData, fetcher, postData } from "@/lib/api";
+import {
+  attachTradeRule,
+  deleteTradeRule,
+  listOpenTrades,
+  type PositionRule,
+  type TradeDetail,
+} from "@/lib/api";
 import { useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 
 type RuleCondition = {
   target: string;
-  metric: "price" | "pnl_pct" | "velocity_1m" | "velocity_5m" | "velocity_10m";
-  operator: "less_than" | "greater_than";
+  metric: NonNullable<PositionRule["metric"]>;
+  operator: NonNullable<PositionRule["operator"]>;
   value: number | string;
-};
-
-type ActiveRule = {
-  group: {
-    id: string;
-    name: string;
-    operator: "and" | "or";
-    rules: Array<RuleCondition & { id: string }>;
-  };
-  enabled: boolean;
-};
-
-type OpenTrade = {
-  id: string;
-  strategy_id: string;
-  inst_id: string;
-  side: string;
-  entry_price: number;
-  pnl: number | null;
-  pnl_pct: number | null;
-  active_rules: ActiveRule[];
 };
 
 const EMPTY_RULE: RuleCondition = {
@@ -45,15 +30,15 @@ function formatNumber(value: number | null | undefined, digits = 2): string {
 }
 
 export default function Positions() {
-  const { data: trades, mutate } = useSWR<OpenTrade[]>("/trades/open", fetcher, { refreshInterval: 5000 });
-  const [selectedTrade, setSelectedTrade] = useState<OpenTrade | null>(null);
+  const { data: trades, mutate } = useSWR("open-trades", listOpenTrades, { refreshInterval: 5000 });
+  const [selectedTrade, setSelectedTrade] = useState<TradeDetail | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [ruleName, setRuleName] = useState("");
   const [groupOp, setGroupOp] = useState<"and" | "or">("and");
   const [rules, setRules] = useState<RuleCondition[]>([{ ...EMPTY_RULE }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const openModal = (trade: OpenTrade) => {
+  const openModal = (trade: TradeDetail) => {
     setSelectedTrade(trade);
     setRuleName("");
     setGroupOp("and");
@@ -77,7 +62,7 @@ export default function Positions() {
     if (!selectedTrade) return;
     setIsSubmitting(true);
     try {
-      await postData(`/trades/${selectedTrade.id}/rules`, {
+      await attachTradeRule(selectedTrade.id, {
         rule_group: {
           name: ruleName || "Manual rule",
           operator: groupOp,
@@ -98,7 +83,7 @@ export default function Positions() {
   const handleDeleteRuleGroup = async (tradeId: string, groupId: string) => {
     if (!confirm("Delete this rule group?")) return;
     try {
-      await deleteData(`/trades/${tradeId}/rules/${groupId}`);
+      await deleteTradeRule(tradeId, groupId);
       await mutate();
     } catch (error: unknown) {
       console.error("Failed to delete rule group", error);
@@ -117,6 +102,7 @@ export default function Positions() {
         {trades ? trades.map((trade) => {
           const side = trade.side.toLowerCase();
           const pnl = trade.pnl ?? 0;
+          const activeRules = trade.active_rules ?? [];
           return (
             <div key={trade.id} className="glass-panel" style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
@@ -145,7 +131,7 @@ export default function Positions() {
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                  {trade.active_rules.length > 0 ? trade.active_rules.map((activeRule) => (
+                  {activeRules.length > 0 ? activeRules.map((activeRule) => (
                     <div key={activeRule.group.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", backgroundColor: "var(--bg-secondary)", padding: "0.75rem", borderRadius: "var(--radius-sm)" }}>
                       <div>
                         <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{activeRule.group.name} ({activeRule.group.operator.toUpperCase()})</div>

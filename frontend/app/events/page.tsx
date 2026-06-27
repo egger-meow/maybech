@@ -1,16 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { API_BASE } from "@/lib/api";
+import { listRecentEvents, wsUrl, type RuntimeEvent } from "@/lib/api";
 import { Terminal, Play, Square } from "lucide-react";
-
-type RuntimeEvent = {
-  id: string;
-  type: string;
-  source: string;
-  created_at: string;
-  payload: Record<string, unknown>;
-};
 
 export default function Events() {
   const [events, setEvents] = useState<RuntimeEvent[]>([]);
@@ -19,8 +11,7 @@ export default function Events() {
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/events?limit=50`)
-      .then((res) => res.json() as Promise<RuntimeEvent[]>)
+    listRecentEvents(50)
       .then((data) => {
         setEvents(data.reverse());
       })
@@ -28,7 +19,7 @@ export default function Events() {
         console.error("Failed to fetch events", error);
       });
 
-    const ws = new WebSocket(`${API_BASE.replace(/^http/, "ws")}/ws/events`);
+    const ws = new WebSocket(wsUrl("/ws/events"));
     ws.onopen = () => setIsConnected(true);
     ws.onclose = () => setIsConnected(false);
     ws.onmessage = (msg) => {
