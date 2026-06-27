@@ -119,11 +119,13 @@ setting for tests and isolated tools. Keep all production stores on one path so
 the API and daemon observe the same schema and records.
 
 Mutable strategy configuration is stored in the `strategies` table, not in
-`.env` or `src/config/strategy_params.json`. The current runtime reads target
-instruments, candle timeframe, compatibility parameters, default exit rules,
-and `metadata.order_size_contracts` from the persisted strategy record. The
-legacy momentum evaluator remains transitional until the daemon executes
-generic persisted signal expressions directly.
+`.env`. Enabled strategies require target instruments, `metadata.position_side`,
+per-instrument `metadata.order_size_contracts`, an entry signal expression, and
+at least one exchange-attachable absolute stop-loss condition. The daemon composes
+entry-purpose expressions with `and`, resolves `symbol: "self"` per target,
+and persists match state so a continuously true signal creates only one entry,
+including across restarts. Every new logical unit receives its own copy of the
+strategy's default close conditions.
 
 ## Safety Notes
 
@@ -135,6 +137,9 @@ generic persisted signal expressions directly.
   close submission, Maybech fetches OKX metadata and rejects halted instruments,
   sizes below `minSz`, and sizes outside `lotSz`; limit and trigger prices are
   normalized to `tickSz` with decimal arithmetic.
+- Every strategy entry carries its side-consistent absolute stop loss as an OKX
+  attached market stop. A compatible take profit is attached when configured;
+  rapid-move and composite exits continue to be managed per logical unit.
 - `POST /positions/logical/{position_id}/close` is the separate manual operator
   command and requires `{ "confirm": true }` to prevent accidental clicks.
 - Rule deletion must be scoped by both `trade_id` and `group_id` so one trade

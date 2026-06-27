@@ -17,7 +17,7 @@ def test_logical_position_store_saves_and_lists_independent_units(tmp_path):
     first = LogicalPositionRecord(
         id="unit-a",
         source="strategy",
-        strategy_id="momentum_swap",
+        strategy_id="strategy-a",
         inst_id="ETH-USDT-SWAP",
         side="short",
         opened_quantity=0.1,
@@ -27,7 +27,7 @@ def test_logical_position_store_saves_and_lists_independent_units(tmp_path):
     second = LogicalPositionRecord(
         id="unit-b",
         source="strategy",
-        strategy_id="momentum_swap",
+        strategy_id="strategy-a",
         inst_id="ETH-USDT-SWAP",
         side="short",
         opened_quantity=0.2,
@@ -100,7 +100,7 @@ def test_logical_position_store_backfills_from_trade_once(tmp_path):
     store = LogicalPositionStore(str(tmp_path / "positions.db"))
     trade = TradeRecord(
         id="trade-a",
-        strategy_id="momentum_swap",
+        strategy_id="strategy-a",
         inst_id="SOL-USDT-SWAP",
         side="long",
         entry_price=100,

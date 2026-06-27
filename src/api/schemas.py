@@ -350,7 +350,7 @@ class LogicalPositionCloseResponse(BaseModel):
 class StrategyCreate(BaseModel):
     id: str | None = None
     name: str
-    kind: str = "custom"
+    kind: str = "signal"
     enabled: bool = False
     target_instruments: list[str] = Field(default_factory=list)
     entry_signal: dict[str, Any] = Field(default_factory=dict)
@@ -371,7 +371,7 @@ class StrategyUpdate(BaseModel):
 class StrategySummaryResponse(BaseModel):
     id: str
     name: str
-    kind: str = "momentum"
+    kind: str = "signal"
     enabled: bool
     readiness: Literal["ready", "disabled", "blocked", "unknown"] = "unknown"
     target_instruments: list[str] = Field(default_factory=list)

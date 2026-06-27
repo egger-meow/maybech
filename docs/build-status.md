@@ -24,21 +24,19 @@ capability moves from planned to partial or complete.
 | Confirmed live close execution | Partial | Armed live triggers submit guarded reduce-only market orders and wait for fills. Canceled/rejected pending exits recover safely, stale orders receive one cancellation request, and current OKX min/lot precision is validated before submission. Private websocket latency remains incomplete. |
 | Logical position units | Partial | SQLite persistence, per-unit close conditions, reconciliation, idempotent open/close fill allocation, and manual close API are implemented. Private websocket cancellation events and break-even operations remain incomplete. |
 | Execution fill ingestion | Partial | `ExecutionFillService` polls fills and pending orders, allocates idempotently, recovers terminal orders, cancels stale orders once, and emits one alert when a filled order lacks fill details for three polls. Durable REST cursors and private websocket latency remain planned. |
-| Signal expression engine | Partial | Signal expressions can be persisted as JSON records under strategies, validated through `/signals/validate`, evaluated against caller-provided, runtime snapshot, or candle-derived context through `/signals/evaluate`, and required before strategy enable. The daemon entry path still uses the transitional momentum evaluator. |
+| Signal strategy execution | Built | Enabled SQLite strategies compose persisted entry expressions, resolve `self` per target, evaluate candle context, consume one persisted false-to-true edge, pass BTC policy, submit a validated order, and copy default close conditions to the new logical unit. |
 | Strategy Management page | Partial | A frontend route exists, but the target strategy-management workflow is not complete. |
 | Position Management page | Partial | A frontend route exists, but per-unit management and K-line overlays are not complete. |
 | API contract generation | Partial | Runtime, strategy, signal-expression, and logical-position endpoints use Pydantic response models and OpenAPI; `scripts/generate_openapi_types.py` exports `docs/openapi.json`; frontend schema types and dashboard API helpers are typed from generated contracts. |
 | Authentication/authorization | Planned | Required before exposing service or trading controls beyond localhost. |
 | Structured persistence | Partial | SQLite stores exist for trades, logical positions, allocations, strategies, signal expressions, position-manager audits, and strategy decision/execution history; most general runtime events remain in-memory. |
-| SQLite schema management | Partial | `TradeStore` and `StrategyStore` record version `1`, `AuditEventStore` records version `2`, and `LogicalPositionStore` records version `3` through explicit migration paths. All default to `MAYBECH_DB_PATH`. |
-| Live order precision | Built | Strategy contract counts are persisted per instrument. Live entries and reduce-only closes validate OKX instrument state, `minSz`, `lotSz`, and `tickSz` with decimal arithmetic before submission. |
+| SQLite schema management | Partial | `TradeStore` records version `1`, `AuditEventStore` records version `2`, and `StrategyStore` and `LogicalPositionStore` record version `3` through explicit migration paths. All default to `MAYBECH_DB_PATH`. Strategy version 2 adds persisted edge state; version 3 removes legacy momentum records. |
+| Live order protection | Built | Strategy contract counts are persisted per instrument. Entries and reduce-only closes validate OKX state, `minSz`, `lotSz`, and `tickSz`; entries require and attach a side-consistent exchange stop, with take profit attached when configured. |
 
 ## Next Build Milestones
 
-1. Replace the transitional momentum daemon with direct execution of persisted
-   generic signal expressions and remove its legacy files/tests.
-2. Persist OKX fill-history pagination/catch-up cursors and add private order
+1. Persist OKX fill-history pagination/catch-up cursors and add private order
    websocket events while retaining REST catch-up.
-3. Complete demo-account open, partial-fill, cancellation, close, and restart
+2. Complete demo-account open, partial-fill, cancellation, close, and restart
    verification before arming a live account.
-4. Add authentication before any remote trading controls are exposed.
+3. Add authentication before any remote trading controls are exposed.

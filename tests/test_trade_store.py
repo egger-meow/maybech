@@ -22,7 +22,7 @@ def test_trade_store_saves_closes_and_removes_rules(tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     trade = TradeRecord(
         id="trade-a",
-        strategy_id="momentum_swap",
+        strategy_id="strategy-a",
         inst_id="ETH-USDT-SWAP",
         side="long",
         entry_price=100,

@@ -12,7 +12,6 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config.settings import settings
-from src.config.strategy import default_strategy_definition, ensure_default_strategy
 from src.data.candles import CandleManager
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
@@ -34,6 +33,7 @@ from src.trading.position_reconciliation import PositionReconciliation, Position
 from src.trading.rules import PositionRule, RuleGroup
 from src.trading.signal_context import build_signal_context_from_candles, collect_signal_requirements
 from src.trading.signal_engine import SignalExpressionEngine
+from src.trading.strategy_runtime import validate_strategy_for_execution
 from src.trading.strategy_store import SignalExpressionRecord, StrategyRecord, StrategyStore
 from src.trading.trade_store import TradeStore
 from src.api.schemas import (
@@ -298,14 +298,6 @@ def _validate_signal_or_400(expression: dict) -> None:
         )
 
 
-def _default_strategy_definition() -> dict:
-    return default_strategy_definition()
-
-
-def _ensure_default_strategy(store: StrategyStore) -> StrategyRecord:
-    return ensure_default_strategy(store)
-
-
 def _signal_expression_response(expression: SignalExpressionRecord) -> SignalExpressionResponse:
     return SignalExpressionResponse(
         id=expression.id,
@@ -328,7 +320,14 @@ def _strategy_summary(
     latest_decisions = runner.runtime.get_value("strategy.decisions") or []
     service_active = bool(service.active) if service is not None else False
     enabled = strategy.enabled
-    readiness = "ready" if enabled and service_active else "disabled"
+    validation_errors = validate_strategy_for_execution(strategy, store)
+    readiness = (
+        "blocked"
+        if enabled and validation_errors
+        else "ready"
+        if enabled and service_active
+        else "disabled"
+    )
     return StrategySummaryResponse(
         id=strategy.id,
         name=strategy.name,
@@ -354,18 +353,7 @@ def _strategy_summary(
 
 
 def _strategy_validation_errors(strategy: StrategyRecord, store: StrategyStore) -> list[str]:
-    engine = SignalExpressionEngine()
-    errors: list[str] = []
-    if strategy.entry_signal:
-        result = engine.validate(strategy.entry_signal)
-        errors.extend([f"entry_signal: {error}" for error in result.errors])
-    expressions = store.list_signal_expressions(strategy.id)
-    if not strategy.entry_signal and not expressions:
-        errors.append("strategy must have entry_signal or at least one signal expression")
-    for expression in expressions:
-        result = engine.validate(expression.expression)
-        errors.extend([f"signal_expressions[{expression.id}]: {error}" for error in result.errors])
-    return errors
+    return validate_strategy_for_execution(strategy, store)
 
 
 def _as_float(value: object) -> float | None:
@@ -461,7 +449,12 @@ def _signal_candle_context(
     windows_seconds: set[int] | None = None,
 ) -> dict:
     requirements = collect_signal_requirements(expression or {})
-    strategy = _ensure_default_strategy(StrategyStore())
+    strategy_store = StrategyStore()
+    configured_symbols = {
+        instrument
+        for strategy in strategy_store.list(enabled=True)
+        for instrument in strategy.target_instruments
+    }
     requested_symbols = _normalize_symbols(
         [
             *list(requirements["symbols"]),
@@ -469,14 +462,12 @@ def _signal_candle_context(
         ]
     )
     if not requested_symbols:
-        requested_symbols = _normalize_symbols(
-            [_as_swap_symbol(pair) for pair in strategy.target_instruments]
-        )
+        requested_symbols = _normalize_symbols(configured_symbols or {"BTC-USDT-SWAP"})
 
     requested_bar = (
         bar
         or next(iter(requirements["timeframes"]), None)
-        or str(strategy.entry_signal.get("timeframe", "1m"))
+        or "1m"
     )
     requested_windows = set(windows_seconds or set())
     requested_windows.update(requirements["windows_seconds"])
@@ -786,7 +777,6 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     @app.get("/strategies", response_model=list[StrategySummaryResponse])
     def list_strategies() -> list[StrategySummaryResponse]:
         store = StrategyStore()
-        _ensure_default_strategy(store)
         return [_strategy_summary(runner, strategy, store) for strategy in store.list()]
 
     @app.post("/strategies", response_model=StrategySummaryResponse, status_code=201)
@@ -796,12 +786,20 @@ def create_app(runner: DaemonRunner) -> FastAPI:
             id=payload.id,
             name=payload.name,
             kind=payload.kind,
-            enabled=payload.enabled,
+            enabled=False,
             target_instruments=payload.target_instruments,
             entry_signal=payload.entry_signal,
             default_rules=payload.default_rules,
             metadata=payload.metadata,
         )
+        if payload.enabled:
+            validation_errors = _strategy_validation_errors(strategy, store)
+            if validation_errors:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"message": "Strategy is not executable", "errors": validation_errors},
+                )
+            strategy = store.update(strategy.id, enabled=True) or strategy
         return _strategy_summary(runner, strategy, store)
 
     @app.get(
@@ -816,12 +814,10 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         before: Optional[str] = None,
     ) -> list[StrategyDecisionResponse]:
         strategy_store = StrategyStore()
-        default_strategy = _ensure_default_strategy(strategy_store)
-        resolved_id = default_strategy.id if strategy_id == "momentum" else strategy_id
-        if strategy_store.get(resolved_id) is None:
+        if strategy_store.get(strategy_id) is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
         events = AuditEventStore().list_strategy_decisions(
-            strategy_id=resolved_id,
+            strategy_id=strategy_id,
             limit=limit,
             allowed=allowed,
             execution_status=execution_status,
@@ -832,9 +828,7 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     @app.get("/strategies/{strategy_id}", response_model=StrategySummaryResponse)
     def get_strategy(strategy_id: str) -> StrategySummaryResponse:
         store = StrategyStore()
-        default_strategy = _ensure_default_strategy(store)
-        resolved_id = default_strategy.id if strategy_id == "momentum" else strategy_id
-        strategy = store.get(resolved_id)
+        strategy = store.get(strategy_id)
         if strategy is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
         return _strategy_summary(runner, strategy, store)
@@ -842,12 +836,11 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     @app.patch("/strategies/{strategy_id}", response_model=StrategySummaryResponse)
     def update_strategy(strategy_id: str, payload: StrategyUpdate) -> StrategySummaryResponse:
         store = StrategyStore()
-        _ensure_default_strategy(store)
         strategy = store.update(
             strategy_id,
             name=payload.name,
             kind=payload.kind,
-            enabled=payload.enabled,
+            enabled=False if payload.enabled is True else payload.enabled,
             target_instruments=payload.target_instruments,
             entry_signal=payload.entry_signal,
             default_rules=payload.default_rules,
@@ -855,12 +848,21 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         )
         if strategy is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
+        if strategy.enabled or payload.enabled is True:
+            validation_errors = _strategy_validation_errors(strategy, store)
+            if validation_errors:
+                store.update(strategy_id, enabled=False)
+                raise HTTPException(
+                    status_code=400,
+                    detail={"message": "Strategy is not executable", "errors": validation_errors},
+                )
+            if payload.enabled is True:
+                strategy = store.update(strategy_id, enabled=True) or strategy
         return _strategy_summary(runner, strategy, store)
 
     @app.post("/strategies/{strategy_id}/enable", response_model=StrategySummaryResponse)
     def enable_strategy(strategy_id: str) -> StrategySummaryResponse:
         store = StrategyStore()
-        _ensure_default_strategy(store)
         strategy = store.get(strategy_id)
         if strategy is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
@@ -868,7 +870,7 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         if validation_errors:
             raise HTTPException(
                 status_code=400,
-                detail={"message": "Strategy signal validation failed", "errors": validation_errors},
+                detail={"message": "Strategy is not executable", "errors": validation_errors},
             )
         strategy = store.update(strategy_id, enabled=True)
         if strategy is None:
@@ -878,7 +880,6 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     @app.post("/strategies/{strategy_id}/disable", response_model=StrategySummaryResponse)
     def disable_strategy(strategy_id: str) -> StrategySummaryResponse:
         store = StrategyStore()
-        _ensure_default_strategy(store)
         strategy = store.update(strategy_id, enabled=False)
         if strategy is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
@@ -890,7 +891,6 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     )
     def list_strategy_signals(strategy_id: str) -> list[SignalExpressionResponse]:
         store = StrategyStore()
-        _ensure_default_strategy(store)
         if store.get(strategy_id) is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
         return [
@@ -908,7 +908,6 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         payload: SignalExpressionCreate,
     ) -> SignalExpressionResponse:
         store = StrategyStore()
-        _ensure_default_strategy(store)
         validation = SignalExpressionEngine().validate(payload.expression)
         if not validation.valid:
             raise HTTPException(

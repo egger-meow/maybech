@@ -1,4 +1,3 @@
-from src.strategies.base import Signal, TradeSetup
 from src.trading.executor import Executor
 
 
@@ -25,39 +24,41 @@ class FakeClient:
         return {"ordId": "close-a"}
 
 
-def _setup():
-    return TradeSetup(
-        signal=Signal.LONG,
-        entry_price=2000.126,
-        stop_loss=1900.124,
-        take_profit=2200.125,
-        reason="test",
-    )
-
-
-def test_live_entry_requires_persisted_instrument_size():
+def test_live_entry_rejects_missing_contract_size():
     client = FakeClient()
     executor = Executor(client, dry_run=False)
 
-    assert executor.execute("ETH-USDT-SWAP", _setup()) == {}
+    assert executor.execute(
+        inst_id="ETH-USDT-SWAP",
+        position_side="long",
+        entry_price=2000,
+        requested_size="",
+        stop_loss_price=1900,
+    ) == {}
     assert client.entry is None
 
 
-def test_live_entry_normalizes_size_and_prices_from_okx_metadata():
+def test_live_entry_normalizes_size_and_price_from_okx_metadata():
     client = FakeClient()
-    executor = Executor(
-        client,
-        dry_run=False,
-        order_sizes={"ETH-USDT-SWAP": "0.3"},
+    executor = Executor(client, dry_run=False)
+
+    result = executor.execute(
+        inst_id="ETH-USDT-SWAP",
+        position_side="long",
+        entry_price=2000.126,
+        requested_size="0.3",
+        stop_loss_price=1900.124,
+        take_profit_price=2200.125,
     )
 
-    result = executor.execute("ETH-USDT-SWAP", _setup())
-
     assert result == {"ordId": "entry-a", "maybechRequestedSize": "0.3"}
+    assert client.entry["side"] == "buy"
     assert client.entry["sz"] == "0.3"
     assert client.entry["px"] == "2000.13"
     assert client.entry["sl_trigger_px"] == "1900.12"
+    assert client.entry["sl_ord_px"] == "-1"
     assert client.entry["tp_trigger_px"] == "2200.13"
+    assert client.entry["tp_ord_px"] == "-1"
 
 
 def test_live_close_rejects_quantity_outside_lot_precision():
@@ -70,3 +71,17 @@ def test_live_close_rejects_quantity_outside_lot_precision():
         quantity=0.15,
     ) == {}
     assert client.close is None
+
+
+def test_entry_rejects_stop_on_wrong_side_before_submission():
+    client = FakeClient()
+    executor = Executor(client, dry_run=False)
+
+    assert executor.execute(
+        inst_id="ETH-USDT-SWAP",
+        position_side="long",
+        entry_price=2000,
+        requested_size="1",
+        stop_loss_price=2100,
+    ) == {}
+    assert client.entry is None

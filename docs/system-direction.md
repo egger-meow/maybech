@@ -84,13 +84,15 @@ Other strategies should consume this BTC state before opening, closing, reducing
 
 The first version is implemented as `BTCRegimeService`. It publishes
 `market.btc_regime` events and stores the latest regime in runtime state for
-`GET /market/btc-regime`. The next step is to make strategy and risk logic
-consume this state explicitly before action execution.
+`GET /market/btc-regime`. Strategy and position action policies consume this
+state explicitly before execution.
 
-Strategy execution now uses `BTCRegimeActionPolicy` before placing any setup.
-Each non-HOLD signal becomes a structured `strategy.action_decision` event with
-the BTC direction, strength, impulse, setup prices, allow/block reason, and a
-correlation id. The API exposes both the latest runtime snapshot at
+Strategy execution now evaluates persisted composable signal expressions and
+uses `BTCRegimeActionPolicy` before placing an entry. Each false-to-true signal
+edge becomes a structured `strategy.action_decision` event with the BTC
+direction, strength, impulse, entry price, allow/block reason, evidence, and a
+correlation id. SQLite match state prevents repeated entries while a condition
+remains true across ticks or restarts. The API exposes both the latest runtime snapshot at
 `GET /strategy/decisions` and durable history at
 `GET /strategies/{strategy_id}/decisions`.
 

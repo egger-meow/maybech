@@ -1660,7 +1660,7 @@
             "title": "Id"
           },
           "kind": {
-            "default": "custom",
+            "default": "signal",
             "title": "Kind",
             "type": "string"
           },
@@ -2023,7 +2023,7 @@
             "type": "string"
           },
           "kind": {
-            "default": "momentum",
+            "default": "signal",
             "title": "Kind",
             "type": "string"
           },

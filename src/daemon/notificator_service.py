@@ -7,7 +7,6 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
-from src.config.strategy import StrategyConfig
 from src.config.notificator import NotificatorConfig
 from src.data.candles import CandleManager
 from src.data.candle_miner import CandleMiner, PeakValley, Fluctuation
@@ -65,7 +64,11 @@ class NotificatorService(DaemonService):
         if not self.config.enabled:
             return
 
-        for pair in StrategyConfig.load().target_instruments:
+        pairs = {
+            *self.config.features.peak_valley.proximity_thresholds,
+            *self.config.features.fluctuation.thresholds_pct,
+        } - {"DEFAULT"}
+        for pair in sorted(pairs):
             try:
                 ticker = self.client.get_ticker(pair)
                 if not ticker or not isinstance(ticker, list):

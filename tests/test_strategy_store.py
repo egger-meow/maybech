@@ -4,19 +4,19 @@ from src.trading.strategy_store import StrategyRecord, StrategyStore
 def test_strategy_store_records_schema_version(tmp_path):
     store = StrategyStore(str(tmp_path / "strategies.db"))
 
-    assert store.applied_schema_versions() == [1]
+    assert store.applied_schema_versions() == [1, 2, 3]
 
 
 def test_strategy_store_creates_updates_and_lists_records(tmp_path):
     store = StrategyStore(str(tmp_path / "strategies.db"))
     created = store.create(
-        id="momentum_swap",
-        name="Momentum Swap",
-        kind="momentum",
+        id="breakout",
+        name="Breakout",
+        kind="signal",
         enabled=True,
         target_instruments=["ETH-USDT-SWAP"],
-        entry_signal={"type": "volume_price_gap", "k_long": 10},
-        default_rules={"stop_win_ratio": 1.5},
+        entry_signal={"type": "price_above", "symbol": "self", "value": 10},
+        default_rules={"close_conditions": []},
     )
 
     updated = store.update(
@@ -27,8 +27,8 @@ def test_strategy_store_creates_updates_and_lists_records(tmp_path):
 
     assert updated.enabled is False
     assert updated.target_instruments == ["ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-    assert updated.entry_signal["k_long"] == 10
-    assert store.list()[0].id == "momentum_swap"
+    assert updated.entry_signal["value"] == 10
+    assert store.list()[0].id == "breakout"
 
 
 def test_strategy_store_ensure_does_not_overwrite_existing_record(tmp_path):
@@ -43,7 +43,7 @@ def test_strategy_store_ensure_does_not_overwrite_existing_record(tmp_path):
     existing = store.ensure(
         id="custom",
         name="Runtime Default",
-        kind="momentum",
+        kind="signal",
         enabled=True,
         target_instruments=["ETH-USDT-SWAP"],
         entry_signal={"type": "runtime"},
@@ -53,6 +53,36 @@ def test_strategy_store_ensure_does_not_overwrite_existing_record(tmp_path):
     assert existing.name == "Custom Strategy"
     assert existing.enabled is False
     assert existing.target_instruments == ["BTC-USDT-SWAP"]
+
+
+def test_strategy_store_records_only_false_to_true_edges(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(id="breakout", name="Breakout")
+
+    assert store.record_evaluation("breakout", "ETH-USDT-SWAP", matched=True) is True
+    assert store.record_evaluation("breakout", "ETH-USDT-SWAP", matched=True) is False
+    assert store.record_evaluation("breakout", "ETH-USDT-SWAP", matched=False) is False
+    assert store.record_evaluation("breakout", "ETH-USDT-SWAP", matched=True) is True
+
+
+def test_strategy_store_v3_migration_removes_legacy_momentum_records(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(
+        id="legacy-momentum",
+        name="Legacy Momentum",
+        kind="momentum",
+        enabled=True,
+        entry_signal={"type": "volume_price_gap"},
+    )
+    with store._conn() as conn:
+        conn.execute(
+            "DELETE FROM schema_migrations WHERE component = 'strategies' AND version = 3"
+        )
+
+    migrated = StrategyStore(store.db_path)
+
+    assert migrated.get("legacy-momentum") is None
+    assert migrated.applied_schema_versions() == [1, 2, 3]
 
 
 def test_strategy_store_signal_expressions_follow_parent_strategy(tmp_path):

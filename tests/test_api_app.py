@@ -117,13 +117,14 @@ def test_api_lists_persisted_audit_events(monkeypatch, tmp_path):
 def test_api_lists_persisted_strategy_decisions(monkeypatch, tmp_path):
     db_path = str(tmp_path / "trades.db")
     strategy_store = StrategyStore(db_path)
+    strategy_store.create(id="breakout", name="Breakout")
     audit_store = AuditEventStore(db_path)
     audit_store.create(
         id="decision-a",
         type="strategy.action_decision",
         source="strategy",
         payload={
-            "strategy_id": "momentum_swap",
+            "strategy_id": "breakout",
             "correlation_id": "decision-a",
             "allowed": False,
             "reason": "blocked by test",
@@ -137,7 +138,7 @@ def test_api_lists_persisted_strategy_decisions(monkeypatch, tmp_path):
     client = TestClient(create_app(DaemonRunner()))
 
     response = client.get(
-        "/strategies/momentum_swap/decisions?allowed=false&execution_status=blocked"
+        "/strategies/breakout/decisions?allowed=false&execution_status=blocked"
     )
 
     assert response.status_code == 200
@@ -145,7 +146,7 @@ def test_api_lists_persisted_strategy_decisions(monkeypatch, tmp_path):
         {
             "id": "decision-a",
             "correlation_id": "decision-a",
-            "strategy_id": "momentum_swap",
+            "strategy_id": "breakout",
             "allowed": False,
             "reason": "blocked by test",
             "pair": "ETH-USDT-SWAP",
@@ -178,7 +179,7 @@ def test_api_records_confirmed_partial_fills_idempotently(monkeypatch, tmp_path)
     audit_store = AuditEventStore(db_path)
     trade = TradeRecord(
         id="trade-fill",
-        strategy_id="momentum_swap",
+        strategy_id="strategy-a",
         inst_id="ETH-USDT-SWAP",
         side="long",
         entry_price=2000,
@@ -192,7 +193,7 @@ def test_api_records_confirmed_partial_fills_idempotently(monkeypatch, tmp_path)
         type="strategy.action_decision",
         source="strategy",
         payload={
-            "strategy_id": "momentum_swap",
+            "strategy_id": "strategy-a",
             "correlation_id": "decision-fill",
             "allowed": True,
             "execution_status": "submitted",
@@ -232,7 +233,7 @@ def test_api_records_confirmed_partial_fills_idempotently(monkeypatch, tmp_path)
     assert second.json()["average_entry_price"] == 2060.0
     assert len(listed.json()) == 2
     assert trade_store.get_trade("trade-fill").status == "open"
-    decision = audit_store.list_strategy_decisions(strategy_id="momentum_swap")[0]
+    decision = audit_store.list_strategy_decisions(strategy_id="strategy-a")[0]
     assert decision.payload["execution_status"] == "filled"
     assert decision.payload["filled_quantity"] == 0.1
     assert len(audit_store.list(event_type="position.allocation_confirmed")) == 2
@@ -722,7 +723,24 @@ def test_openapi_exposes_frontend_contract_schemas():
     assert "/positions/logical/{position_id}/close-conditions/{condition_id}" in spec["paths"]
 
 
-def test_api_returns_strategy_summaries_with_runtime_state():
+def test_api_returns_strategy_summaries_with_runtime_state(monkeypatch, tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(
+        id="breakout",
+        name="Breakout",
+        enabled=True,
+        target_instruments=["ETH-USDT-SWAP"],
+        entry_signal={"type": "price_above", "symbol": "self", "value": 100},
+        default_rules={"close_conditions": [{
+            "purpose": "stop_loss",
+            "expression": {"type": "price_below", "symbol": "self", "value": 90},
+        }]},
+        metadata={
+            "position_side": "long",
+            "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+        },
+    )
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     runner = DaemonRunner()
     runner.register(StrategyApiMockService(dry_run=True))
     runner.runtime.set_value(
@@ -742,7 +760,7 @@ def test_api_returns_strategy_summaries_with_runtime_state():
 
     assert response.status_code == 200
     strategy = response.json()[0]
-    assert strategy["id"] == "momentum_swap"
+    assert strategy["id"] == "breakout"
     assert strategy["enabled"] is True
     assert strategy["runtime"]["dry_run"] is True
     assert strategy["runtime"]["service"]["name"] == "strategy"
@@ -793,22 +811,29 @@ def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):
             "kind": "signal",
             "enabled": False,
             "target_instruments": ["ETH-USDT-SWAP"],
-            "entry_signal": {"type": "price_above", "value": 3000},
-            "default_rules": {"stop_loss_pct": 0.02},
-            "metadata": {"owner": "operator"},
+            "entry_signal": {"type": "price_above", "symbol": "self", "value": 3000},
+            "default_rules": {"close_conditions": [{
+                "purpose": "stop_loss",
+                "expression": {"type": "price_below", "symbol": "self", "value": 2800},
+            }]},
+            "metadata": {
+                "owner": "operator",
+                "position_side": "long",
+                "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+            },
         },
     )
     updated = client.patch(
         "/strategies/breakout",
-        json={"enabled": True, "target_instruments": ["ETH-USDT-SWAP", "SOL-USDT-SWAP"]},
+        json={"target_instruments": ["ETH-USDT-SWAP", "SOL-USDT-SWAP"]},
     )
 
     assert created.status_code == 201
     assert created.json()["id"] == "breakout"
     assert updated.status_code == 200
-    assert updated.json()["enabled"] is True
+    assert updated.json()["enabled"] is False
     assert updated.json()["target_instruments"] == ["ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-    assert store.get("breakout").enabled is True
+    assert store.get("breakout").enabled is False
 
 
 def test_api_enables_and_disables_persisted_strategy(monkeypatch, tmp_path):
@@ -817,7 +842,16 @@ def test_api_enables_and_disables_persisted_strategy(monkeypatch, tmp_path):
         id="breakout",
         name="Breakout",
         enabled=False,
+        target_instruments=["ETH-USDT-SWAP"],
         entry_signal={"type": "price_above", "symbol": "BTC-USDT-SWAP", "value": 65000},
+        default_rules={"close_conditions": [{
+            "purpose": "stop_loss",
+            "expression": {"type": "price_below", "symbol": "self", "value": 90},
+        }]},
+        metadata={
+            "position_side": "long",
+            "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+        },
     )
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
@@ -845,7 +879,33 @@ def test_api_rejects_enable_when_strategy_signal_is_invalid(monkeypatch, tmp_pat
     response = client.post("/strategies/breakout/enable")
 
     assert response.status_code == 400
-    assert "Strategy signal validation failed" in response.json()["detail"]["message"]
+    assert "Strategy is not executable" in response.json()["detail"]["message"]
+
+
+def test_api_disables_enabled_strategy_when_edit_makes_it_invalid(monkeypatch, tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(
+        id="breakout",
+        name="Breakout",
+        enabled=True,
+        target_instruments=["ETH-USDT-SWAP"],
+        entry_signal={"type": "price_above", "symbol": "self", "value": 100},
+        default_rules={"close_conditions": [{
+            "purpose": "stop_loss",
+            "expression": {"type": "price_below", "symbol": "self", "value": 90},
+        }]},
+        metadata={
+            "position_side": "long",
+            "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+        },
+    )
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.patch("/strategies/breakout", json={"default_rules": {}})
+
+    assert response.status_code == 400
+    assert store.get("breakout").enabled is False
 
 
 def test_api_creates_and_lists_strategy_signal_expressions(monkeypatch, tmp_path):
@@ -894,7 +954,7 @@ def test_api_projects_open_trades_as_logical_positions(monkeypatch, tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     trade = TradeRecord(
         id="lp-1",
-        strategy_id="momentum_swap",
+        strategy_id="strategy-a",
         inst_id="ETH-USDT-SWAP",
         side="long",
         entry_price=3000.0,
@@ -953,7 +1013,7 @@ def test_api_projects_open_trades_as_logical_positions(monkeypatch, tmp_path):
     logical = response.json()[0]
     assert logical["id"] == trade.id
     assert logical["source"] == "strategy"
-    assert logical["strategy_id"] == "momentum_swap"
+    assert logical["strategy_id"] == "strategy-a"
     assert logical["trade_id"] == trade.id
     assert logical["metadata"]["backfilled_from_trade"] is True
     assert logical["close_conditions"][0]["id"] == "lp-stop-loss"

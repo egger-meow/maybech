@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 from src.exchange.client import OKXClient
-from src.strategies.base import Signal, TradeSetup
 from src.trading.instrument_constraints import InstrumentConstraints
 
 logger = logging.getLogger(__name__)
@@ -19,53 +18,71 @@ class Executor:
         self,
         client: OKXClient,
         dry_run: bool = True,
-        *,
-        order_sizes: dict[str, str] | None = None,
     ) -> None:
         self.client = client
         self.dry_run = dry_run
-        self.order_sizes = dict(order_sizes or {})
         self._constraints: dict[str, InstrumentConstraints] = {}
         if self.dry_run:
             logger.warning("Executor initialized in DRY-RUN mode. No real orders will be placed.")
 
-    def configure_order_sizes(self, order_sizes: dict[str, str]) -> None:
-        self.order_sizes = dict(order_sizes)
-
-    def execute(self, inst_id: str, setup: TradeSetup) -> dict[str, Any]:
-        """Place a validated limit entry with attached stop and take profit."""
-        requested_size = self.order_sizes.get(inst_id)
-        if self.dry_run:
-            size = requested_size or "1"
-            return {
-                "ordId": "mock_ord_123",
-                "tag": "dry_run",
-                "maybechRequestedSize": size,
-            }
-        if requested_size is None:
-            logger.error(
-                "Live entry blocked: strategy has no order_size_contracts value for %s",
-                inst_id,
-            )
-            return {}
+    def execute(
+        self,
+        *,
+        inst_id: str,
+        position_side: str,
+        entry_price: float,
+        requested_size: str,
+        stop_loss_price: float,
+        take_profit_price: float | None = None,
+    ) -> dict[str, Any]:
+        """Place a validated limit entry for a persisted strategy intent."""
+        normalized_side = position_side.lower()
+        if normalized_side not in {"long", "short"}:
+            raise ValueError("position_side must be 'long' or 'short'")
 
         try:
+            entry_value = float(entry_price)
+            stop_value = float(stop_loss_price)
+            take_profit_value = (
+                float(take_profit_price) if take_profit_price is not None else None
+            )
+            if normalized_side == "long" and stop_value >= entry_value:
+                raise ValueError("long stop loss must be below entry price")
+            if normalized_side == "short" and stop_value <= entry_value:
+                raise ValueError("short stop loss must be above entry price")
+            if take_profit_value is not None:
+                if normalized_side == "long" and take_profit_value <= entry_value:
+                    raise ValueError("long take profit must be above entry price")
+                if normalized_side == "short" and take_profit_value >= entry_value:
+                    raise ValueError("short take profit must be below entry price")
+            if float(requested_size) <= 0:
+                raise ValueError("requested size must be positive")
+            if self.dry_run:
+                return {
+                    "ordId": "mock_ord_123",
+                    "tag": "dry_run",
+                    "maybechRequestedSize": requested_size,
+                }
             constraints = self._instrument_constraints(inst_id)
             size = constraints.normalize_size(requested_size)
-            entry_price = constraints.normalize_price(setup.entry_price)
-            stop_loss = constraints.normalize_price(setup.stop_loss)
-            take_profit = constraints.normalize_price(setup.take_profit)
-            side = "buy" if setup.signal == Signal.LONG else "sell"
+            normalized_price = constraints.normalize_price(entry_price)
+            stop_loss = constraints.normalize_price(stop_loss_price)
+            take_profit = (
+                constraints.normalize_price(take_profit_price)
+                if take_profit_price is not None
+                else ""
+            )
+            side = "buy" if normalized_side == "long" else "sell"
             response = self.client.place_limit_order(
                 inst_id=inst_id,
                 side=side,
                 sz=size,
-                px=entry_price,
+                px=normalized_price,
                 td_mode="cross",
                 sl_trigger_px=stop_loss,
                 sl_ord_px="-1",
                 tp_trigger_px=take_profit,
-                tp_ord_px="-1",
+                tp_ord_px="-1" if take_profit else "",
                 confirm=True,
             )
             if not response:

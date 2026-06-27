@@ -100,7 +100,7 @@ def test_audit_event_store_filters_strategy_decisions_and_correlation(tmp_path):
         type="strategy.action_decision",
         source="strategy",
         payload={
-            "strategy_id": "momentum_swap",
+            "strategy_id": "strategy-a",
             "correlation_id": "decision-a",
             "allowed": True,
             "execution_status": "simulated",
@@ -110,7 +110,7 @@ def test_audit_event_store_filters_strategy_decisions_and_correlation(tmp_path):
         type="strategy.action_decision",
         source="strategy",
         payload={
-            "strategy_id": "momentum_swap",
+            "strategy_id": "strategy-a",
             "correlation_id": "decision-b",
             "allowed": False,
             "execution_status": "blocked",
@@ -118,15 +118,15 @@ def test_audit_event_store_filters_strategy_decisions_and_correlation(tmp_path):
     )
 
     allowed = store.list_strategy_decisions(
-        strategy_id="momentum_swap",
+        strategy_id="strategy-a",
         allowed=True,
     )
     blocked = store.list_strategy_decisions(
-        strategy_id="momentum_swap",
+        strategy_id="strategy-a",
         execution_status="blocked",
     )
     correlated = store.list(correlation_id="decision-a")
 
     assert [event.correlation_id for event in allowed] == ["decision-a"]
     assert [event.correlation_id for event in blocked] == ["decision-b"]
-    assert correlated[0].strategy_id == "momentum_swap"
+    assert correlated[0].strategy_id == "strategy-a"

@@ -149,7 +149,7 @@ class OKXClient:
         after: str = "",
         before: str = "",
     ) -> list[list]:
-        """Fetch historical candlestick data (for backtesting)."""
+        """Fetch historical candlestick data for analysis."""
         resp = self.market_api.get_history_candlesticks(
             instId=inst_id, bar=bar, limit=limit,
             after=after, before=before,

@@ -23,7 +23,7 @@ def test_execution_allocator_matches_order_and_handles_multiple_partial_fills(tm
     trade_store, position_store, audit_store = _stores(tmp_path)
     trade = TradeRecord(
         id="trade-a",
-        strategy_id="momentum_swap",
+        strategy_id="strategy-a",
         status="pending_open",
         metadata_json=json.dumps(
             {

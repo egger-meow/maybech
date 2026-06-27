@@ -63,7 +63,7 @@ def test_signal_engine_evaluation_reports_missing_market_context():
     assert result.evidence["missing"] == "price"
 
 
-def test_signal_engine_accepts_runtime_momentum_signal_shape():
+def test_signal_engine_rejects_removed_strategy_specific_signal_shape():
     result = SignalExpressionEngine().validate(
         {
             "type": "volume_price_gap",
@@ -74,4 +74,4 @@ def test_signal_engine_accepts_runtime_momentum_signal_shape():
         }
     )
 
-    assert result.valid is True
+    assert result.valid is False

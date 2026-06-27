@@ -13,7 +13,6 @@ PrimitiveSignalType = Literal[
     "rapid_drop",
     "rapid_rise",
     "volume_multiple",
-    "volume_price_gap",
 ]
 
 
@@ -42,11 +41,6 @@ SIGNAL_TEMPLATES: list[dict[str, Any]] = [
         "type": "volume_multiple",
         "description": "Matches when current volume is at least multiplier times baseline.",
         "required": ["symbol", "timeframe", "multiplier"],
-    },
-    {
-        "type": "volume_price_gap",
-        "description": "Momentum strategy primitive: volume multiple plus price-gap threshold.",
-        "required": ["k_long", "k_short", "gap_threshold"],
     },
 ]
 
@@ -148,11 +142,6 @@ class SignalExpressionEngine:
             self._require_positive_number(normalized, "multiplier", path, errors)
             if not normalized.get("timeframe"):
                 errors.append(f"{path}.timeframe: required for volume_multiple")
-        elif signal_type == "volume_price_gap":
-            self._require_positive_number(normalized, "k_long", path, errors)
-            self._require_positive_number(normalized, "k_short", path, errors)
-            self._require_positive_number(normalized, "gap_threshold", path, errors)
-
         return normalized
 
     def _require_symbol(self, expression: dict[str, Any], path: str, errors: list[str]) -> None:

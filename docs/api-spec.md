@@ -97,6 +97,30 @@ The Strategy Management page has a persisted strategy definition contract now:
 - `POST /strategies/{strategy_id}/signals`: create a persisted signal
   expression.
 
+An executable strategy uses this persisted shape:
+
+- `target_instruments`: OKX instruments to evaluate independently
+- `entry_signal`: the primary JSON signal AST; `entry` and `filter` child
+  expressions are combined with it using `and`
+- `metadata.position_side`: `long` or `short`
+- `metadata.candle_bar`: candle interval, defaulting to `1m`
+- `metadata.order_size_contracts`: positive OKX contract counts keyed by target
+- `default_rules.close_conditions`: enabled close-condition objects copied to
+  every logical position unit created by the strategy
+
+At least one enabled `stop_loss` must be an absolute, side-consistent self-price
+condition (`price_below` for long, `price_above` for short). It is attached to
+the OKX entry as exchange-side protection. A compatible `take_profit` is also
+attached when configured; other conditions remain software-managed per unit.
+
+Child expressions with purpose `exit` are also copied to each new logical unit
+as enabled generic exit conditions.
+
+Create and patch requests cannot leave a strategy enabled unless this complete
+execution contract validates. Editing an enabled strategy into an invalid state
+disables it. Runtime evaluation is edge-triggered through SQLite, so a condition
+that remains true across ticks or restarts does not repeatedly add exposure.
+
 The remaining target surface is:
 
 - `POST /strategies/{strategy_id}/backtest`: run or schedule backtest.
@@ -127,11 +151,10 @@ Signals should be reusable by both strategies and position close rules:
 The current implementation supports JSON expression objects:
 
 - primitives such as `price_above`, `price_below`, `rapid_drop`,
-  `rapid_rise`, `volume_multiple`, and the current `volume_price_gap` momentum
-  shape
+  `rapid_rise`, and `volume_multiple`
 - composites shaped as `{ "op": "and" | "or", "conditions": [...] }`
 
-Persisted strategies must have valid signal expressions before
+Persisted strategies must satisfy the complete execution contract before
 `POST /strategies/{strategy_id}/enable` succeeds.
 `POST /signals/evaluate` can use caller-provided context, or merge in runtime
 context with `use_runtime_context=true`. It can also fetch candle-derived

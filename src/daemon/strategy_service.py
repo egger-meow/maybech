@@ -1,18 +1,15 @@
-"""Daemon service for strategy evaluation and audited entry execution."""
+"""Daemon service for persisted signal-based strategy execution."""
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from src.config.strategy import StrategyConfig
 from src.daemon.service import DaemonService
 from src.data.candles import CandleManager
 from src.exchange.client import OKXClient
-from src.strategies.base import Signal, TradeSetup
-from src.strategies.momentum import MomentumStrategy
 from src.trading.action_policy import BTCRegimeActionPolicy
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.executor import Executor
@@ -21,17 +18,31 @@ from src.trading.logical_position_store import (
     LogicalPositionRecord,
     LogicalPositionStore,
 )
-from src.trading.rules import PositionRule, RuleGroup
+from src.trading.signal_context import (
+    build_signal_context_from_candles,
+    collect_signal_requirements,
+)
+from src.trading.signal_engine import SignalEvaluationResult, SignalExpressionEngine
+from src.trading.strategy_runtime import (
+    candle_bar,
+    close_condition_specs,
+    compose_entry_expression,
+    exchange_protection_prices,
+    order_size,
+    position_side,
+    resolve_self_symbol,
+    validate_strategy_for_execution,
+)
+from src.trading.strategy_store import StrategyRecord, StrategyStore
 from src.trading.trade_store import TradeRecord, TradeStore
 from src.utils.logger import setup_logger
 
 
 logger = setup_logger(__name__)
-TZ_TAIPEI = timezone(timedelta(hours=8))
 
 
 class StrategyService(DaemonService):
-    """Evaluate the configured strategy and retain an audited action lifecycle."""
+    """Evaluate enabled persisted strategies and execute signal edges once."""
 
     name = "strategy"
     interval = 10.0
@@ -42,93 +53,105 @@ class StrategyService(DaemonService):
         *,
         trade_store: TradeStore | None = None,
         audit_store: AuditEventStore | None = None,
+        strategy_store: StrategyStore | None = None,
     ) -> None:
         super().__init__()
         self.dry_run = dry_run
         self.trade_store = trade_store or TradeStore()
         self.position_store = LogicalPositionStore(self.trade_store.db_path)
         self.audit_store = audit_store or AuditEventStore(self.trade_store.db_path)
+        self.strategy_store = strategy_store or StrategyStore(self.trade_store.db_path)
         self.client: OKXClient | None = None
         self.candle_manager: CandleManager | None = None
-        self.strategy: MomentumStrategy | None = None
         self.executor: Executor | None = None
-        self.config: StrategyConfig | None = None
+        self.signal_engine = SignalExpressionEngine()
         self.action_policy = BTCRegimeActionPolicy()
         self.signals_history: list[dict[str, Any]] = []
         self.decisions_history: list[dict[str, Any]] = []
 
     def setup(self) -> None:
-        """Initialize exchange, candle, strategy, and execution components."""
         self.client = OKXClient()
         self.candle_manager = CandleManager(self.client)
-        self.config = StrategyConfig.load(self.trade_store.db_path)
-        self.strategy = MomentumStrategy(config=self.config.momentum)
-        self.executor = Executor(
-            self.client,
-            dry_run=self.dry_run,
-            order_sizes=self.config.order_size_contracts,
-        )
-        logger.info(
-            "StrategyService setup complete. Strategy: %s. Dry Run: %s",
-            self.strategy.name,
-            self.dry_run,
-        )
+        self.executor = Executor(self.client, dry_run=self.dry_run)
+        logger.info("StrategyService setup complete. Dry run: %s", self.dry_run)
 
     def tick(self) -> None:
-        """Fetch candles, evaluate setups, and execute allowed entries."""
-        if self.strategy is None or self.candle_manager is None or self.executor is None:
+        if self.candle_manager is None or self.executor is None:
             raise RuntimeError("StrategyService.setup() must complete before tick()")
 
-        config = StrategyConfig.load(self.trade_store.db_path)
-        self.config = config
-        self.strategy.config = config.momentum
-        self.strategy.k_long = config.momentum.k_long
-        self.strategy.k_short = config.momentum.k_short
-        self.strategy.gap_threshold = config.momentum.gap_threshold
-        self.executor.configure_order_sizes(config.order_size_contracts)
-
-        current_time = datetime.now(TZ_TAIPEI).isoformat()
+        observed_at = datetime.now(timezone.utc).isoformat()
         status: dict[str, Any] = {
             "status": "RUNNING",
-            "last_update": current_time,
-            "strategy": self.strategy.name,
+            "last_update": observed_at,
             "dry_run": self.dry_run,
+            "enabled_strategies": 0,
             "signals": self.signals_history[-10:],
             "decisions": self.decisions_history[-20:],
             "errors": [],
         }
 
-        for pair in config.target_instruments:
+        strategies = self.strategy_store.list(enabled=True)
+        status["enabled_strategies"] = len(strategies)
+        for strategy in strategies:
+            errors = validate_strategy_for_execution(strategy, self.strategy_store)
+            if errors:
+                message = f"Strategy {strategy.id} is not executable: {'; '.join(errors)}"
+                logger.error(message)
+                status["errors"].append(message)
+                continue
+            self._evaluate_strategy(strategy, observed_at, status)
+
+        if self.runtime is not None:
+            self.runtime.set_value("strategy.decisions", self.decisions_history[-20:])
+            self.runtime.set_value("strategy.status", status)
+
+    def _evaluate_strategy(
+        self,
+        strategy: StrategyRecord,
+        observed_at: str,
+        status: dict[str, Any],
+    ) -> None:
+        expression = compose_entry_expression(strategy, self.strategy_store)
+        side = position_side(strategy)
+        for pair in strategy.target_instruments:
             try:
-                frame = self.candle_manager.fetch(
+                resolved = resolve_self_symbol(expression, pair)
+                context = self._build_signal_context(strategy, pair, resolved)
+                evaluation = self.signal_engine.evaluate(resolved, context=context)
+                if not evaluation.valid:
+                    raise ValueError("; ".join(evaluation.errors))
+                should_trigger = self.strategy_store.record_evaluation(
+                    strategy.id,
                     pair,
-                    config.timeframe,
-                    limit=100,
+                    matched=evaluation.matched,
                 )
-                if frame.empty:
-                    logger.warning("No data for %s", pair)
-                    status["errors"].append(f"No data for {pair}")
-                    continue
-
-                signal = self.strategy.generate_signal(frame)
-                if signal == Signal.HOLD:
-                    continue
-
-                setup = self.strategy.create_setup(frame)
-                if setup is None:
-                    self._publish_signal_rejected(pair, signal, current_time)
-                    continue
-
-                btc_regime = (
-                    self.runtime.get_value("market.btc_regime")
-                    if self.runtime is not None
-                    else None
+                self.publish_event(
+                    "strategy.signal_evaluated",
+                    {
+                        "strategy_id": strategy.id,
+                        "pair": pair,
+                        "matched": evaluation.matched,
+                        "triggered": should_trigger,
+                        "evidence": evaluation.evidence,
+                        "time": observed_at,
+                    },
                 )
-                signal_entry = self._process_setup(
+                if not should_trigger:
+                    continue
+                entry_price = float(context["prices"][pair])
+                signal_entry = self._process_match(
+                    strategy=strategy,
                     pair=pair,
-                    setup=setup,
-                    btc_regime=btc_regime,
-                    observed_at=current_time,
+                    side=side,
+                    entry_price=entry_price,
+                    requested_size=order_size(strategy, pair) or "",
+                    evaluation=evaluation,
+                    btc_regime=(
+                        self.runtime.get_value("market.btc_regime")
+                        if self.runtime is not None
+                        else None
+                    ),
+                    observed_at=observed_at,
                 )
                 status["decisions"] = self.decisions_history[-20:]
                 if signal_entry is not None:
@@ -136,30 +159,72 @@ class StrategyService(DaemonService):
                     status["signals"] = self.signals_history[-10:]
                     self.publish_event("strategy.signal", signal_entry)
             except Exception as exc:
-                logger.exception("Error processing %s in StrategyService", pair)
-                status["errors"].append(f"Error in {pair}: {exc}")
+                logger.exception("Error evaluating strategy %s for %s", strategy.id, pair)
+                status["errors"].append(f"{strategy.id}/{pair}: {exc}")
                 self.publish_event(
                     "strategy.error",
-                    {"pair": pair, "time": current_time, "error": str(exc)},
+                    {
+                        "strategy_id": strategy.id,
+                        "pair": pair,
+                        "time": observed_at,
+                        "error": str(exc),
+                    },
                 )
 
-        if self.runtime is not None:
-            self.runtime.set_value("strategy.decisions", self.decisions_history[-20:])
+    def _build_signal_context(
+        self,
+        strategy: StrategyRecord,
+        pair: str,
+        expression: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.candle_manager is None:
+            raise RuntimeError("Candle manager is unavailable")
+        requirements = collect_signal_requirements(expression)
+        symbols = set(requirements["symbols"])
+        symbols.add(pair)
+        primary_bar = candle_bar(strategy)
+        bars = {primary_bar, *requirements["timeframes"]}
+        context: dict[str, Any] = {
+            "prices": {},
+            "changes_pct": {},
+            "volume_ratios": {},
+            "source": {},
+        }
+        for bar in bars:
+            candles = {
+                symbol: self.candle_manager.fetch(symbol, bar, limit=120)
+                for symbol in symbols
+            }
+            generated = build_signal_context_from_candles(
+                candles,
+                bar=bar,
+                windows_seconds=set(requirements["windows_seconds"]),
+            )
+            for key in ("prices", "changes_pct", "volume_ratios"):
+                context[key].update(generated[key])
+            context["source"][bar] = generated["source"]
+        if pair not in context["prices"]:
+            raise ValueError(f"No current price available for {pair}")
+        return context
 
-    def _process_setup(
+    def _process_match(
         self,
         *,
+        strategy: StrategyRecord,
         pair: str,
-        setup: TradeSetup,
+        side: str,
+        entry_price: float,
+        requested_size: str,
+        evaluation: SignalEvaluationResult,
         btc_regime: dict[str, Any] | None,
         observed_at: str,
     ) -> dict[str, Any] | None:
-        if self.strategy is None or self.executor is None:
-            raise RuntimeError("Strategy and executor are required")
+        if self.executor is None:
+            raise RuntimeError("Executor is required")
 
         decision = self.action_policy.evaluate(
             pair=pair,
-            setup=setup,
+            position_side=side,
             btc_regime=btc_regime,
         )
         decision_id = uuid4().hex
@@ -167,13 +232,12 @@ class StrategyService(DaemonService):
             **decision.to_dict(),
             "id": decision_id,
             "correlation_id": decision_id,
-            "strategy_id": self.strategy.name,
+            "strategy_id": strategy.id,
             "time": observed_at,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "setup_reason": setup.reason,
-            "entry_price": setup.entry_price,
-            "stop_loss": setup.stop_loss,
-            "take_profit": setup.take_profit,
+            "setup_reason": "persisted entry signal matched",
+            "entry_price": entry_price,
+            "signal_evidence": evaluation.evidence,
             "dry_run": self.dry_run,
             "execution_status": "pending" if decision.allowed else "blocked",
             "execution_result": {},
@@ -184,9 +248,7 @@ class StrategyService(DaemonService):
         self._publish_decision_snapshot()
 
         if not decision.allowed:
-            logger.info("Action blocked for %s: %s", pair, decision.reason)
             return None
-
         if not audit_saved and not self.dry_run:
             decision_entry.update(
                 {
@@ -200,7 +262,19 @@ class StrategyService(DaemonService):
             self._publish_decision_snapshot()
             return None
 
-        result = self.executor.execute(pair, setup) or {}
+        stop_loss_price, take_profit_price = exchange_protection_prices(
+            strategy,
+            self.strategy_store,
+            pair,
+        )
+        result = self.executor.execute(
+            inst_id=pair,
+            position_side=side,
+            entry_price=entry_price,
+            requested_size=requested_size,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+        ) or {}
         execution_status = (
             "simulated" if result and self.dry_run else "submitted" if result else "failed"
         )
@@ -210,45 +284,35 @@ class StrategyService(DaemonService):
             "order_id": self._extract_order_id(result),
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
-
         if result:
             try:
                 trade, position = self._record_open_unit(
+                    strategy=strategy,
                     pair=pair,
-                    setup=setup,
+                    side=side,
+                    entry_price=entry_price,
+                    evaluation=evaluation,
                     btc_regime=btc_regime,
                     decision_id=decision_id,
                     execution_result=result,
                 )
-                lifecycle.update(
-                    {
-                        "trade_id": trade.id,
-                        "position_id": position.id,
-                    }
-                )
+                lifecycle.update({"trade_id": trade.id, "position_id": position.id})
             except Exception as exc:
                 logger.exception("Failed to persist submitted strategy action %s", decision_id)
                 lifecycle.update(
-                    {
-                        "execution_status": "persistence_failed",
-                        "persistence_error": str(exc),
-                    }
+                    {"execution_status": "persistence_failed", "persistence_error": str(exc)}
                 )
 
         decision_entry.update(lifecycle)
         self._save_decision(decision_entry)
-        result_event_type = (
-            "strategy.execution_result"
-            if execution_status != "failed"
-            else "strategy.execution_failed"
-        )
-        self._save_and_publish_lifecycle_event(result_event_type, decision_entry)
+        event_type = "strategy.execution_result" if result else "strategy.execution_failed"
+        self._save_and_publish_lifecycle_event(event_type, decision_entry)
         self._publish_decision_snapshot()
-
         return {
+            "strategy_id": strategy.id,
             "pair": pair,
-            "signal": setup.signal.value,
-            "price": setup.entry_price,
+            "signal": side,
+            "price": entry_price,
             "time": observed_at,
             "result": execution_status,
             "decision": decision.reason,
@@ -258,8 +322,11 @@ class StrategyService(DaemonService):
     def _record_open_unit(
         self,
         *,
+        strategy: StrategyRecord,
         pair: str,
-        setup: TradeSetup,
+        side: str,
+        entry_price: float,
+        evaluation: SignalEvaluationResult,
         btc_regime: dict[str, Any] | None,
         decision_id: str,
         execution_result: dict[str, Any],
@@ -271,13 +338,14 @@ class StrategyService(DaemonService):
             "exchange_order_id": self._extract_order_id(execution_result),
             "expected_quantity": self._requested_size(execution_result),
             "order_action": "open",
+            "signal_evidence": evaluation.evidence,
         }
         trade = TradeRecord(
-            strategy_id=self.strategy.name if self.strategy is not None else "",
+            strategy_id=strategy.id,
             inst_id=pair,
-            side=setup.signal.value,
-            entry_price=setup.entry_price,
-            signal_reason=setup.reason,
+            side=side,
+            entry_price=entry_price,
+            signal_reason="persisted entry signal matched",
             btc_price_at_entry=btc_regime.get("price") if btc_regime else None,
             status="open" if self.dry_run else "pending_open",
             metadata_json=json.dumps(metadata, separators=(",", ":"), sort_keys=True),
@@ -286,6 +354,21 @@ class StrategyService(DaemonService):
         position = LogicalPositionRecord.from_trade(trade)
         self.position_store.save(position)
 
+        for index, spec in enumerate(close_condition_specs(strategy, self.strategy_store)):
+            created = self.position_store.create_close_condition(
+                position_id=position.id,
+                purpose=str(spec.get("purpose") or "exit"),
+                expression=resolve_self_symbol(spec["expression"], pair),
+                enabled=bool(spec.get("enabled", True)),
+                metadata={
+                    **(spec.get("metadata") if isinstance(spec.get("metadata"), dict) else {}),
+                    "source_strategy_id": strategy.id,
+                    "source_index": index,
+                },
+            )
+            if created is None:
+                raise RuntimeError("Failed to persist default close condition")
+
         if self.dry_run:
             updated = self.position_store.record_allocation(
                 LogicalPositionAllocation(
@@ -293,14 +376,11 @@ class StrategyService(DaemonService):
                     position_id=position.id,
                     action="open",
                     quantity=self._requested_size(execution_result),
-                    price=setup.entry_price,
+                    price=entry_price,
                     exchange_order_id=self._extract_order_id(execution_result) or "",
                     reason="confirmed dry-run entry",
                     metadata_json=json.dumps(
-                        {
-                            "confirmation_source": "dry_run",
-                            "correlation_id": decision_id,
-                        },
+                        {"confirmation_source": "dry_run", "correlation_id": decision_id},
                         separators=(",", ":"),
                         sort_keys=True,
                     ),
@@ -308,38 +388,14 @@ class StrategyService(DaemonService):
             )
             if updated is not None:
                 position = updated
-
-        stop_loss = PositionRule(
-            target="self",
-            metric="price",
-            operator="less_than" if setup.signal == Signal.LONG else "greater_than",
-            value=setup.stop_loss,
-        )
-        self.trade_store.attach_rule_group(
-            trade.id,
-            RuleGroup(name="Default Stop Loss", rules=[stop_loss]),
-        )
-        take_profit = PositionRule(
-            target="self",
-            metric="price",
-            operator="greater_than" if setup.signal == Signal.LONG else "less_than",
-            value=setup.take_profit,
-        )
-        self.trade_store.attach_rule_group(
-            trade.id,
-            RuleGroup(name="Default Take Profit", rules=[take_profit]),
-        )
         return trade, position
 
     @staticmethod
     def _requested_size(execution_result: dict[str, Any]) -> float:
         value = execution_result.get("maybechRequestedSize")
-        if value is None:
-            raise ValueError("Execution result is missing validated requested size")
-        quantity = float(value)
-        if quantity <= 0:
-            raise ValueError("Execution result requested size must be positive")
-        return quantity
+        if value is None or float(value) <= 0:
+            raise ValueError("Execution result is missing a positive validated size")
+        return float(value)
 
     def _save_decision(self, payload: dict[str, Any]) -> bool:
         try:
@@ -391,23 +447,6 @@ class StrategyService(DaemonService):
     def _publish_decision_snapshot(self) -> None:
         if self.runtime is not None:
             self.runtime.set_value("strategy.decisions", self.decisions_history[-20:])
-
-    def _publish_signal_rejected(
-        self,
-        pair: str,
-        signal: Signal,
-        observed_at: str,
-    ) -> None:
-        logger.warning("Signal %s but setup creation failed for %s", signal, pair)
-        self.publish_event(
-            "strategy.signal_rejected",
-            {
-                "pair": pair,
-                "signal": signal.value,
-                "time": observed_at,
-                "reason": "setup creation failed",
-            },
-        )
 
     @staticmethod
     def _extract_order_id(result: dict[str, Any]) -> str | None:

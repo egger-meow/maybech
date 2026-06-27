@@ -34,7 +34,7 @@ def _service_with_triggered_rule(tmp_path, *, dry_run: bool) -> tuple[PositionMa
     store = TradeStore(str(tmp_path / "trades.db"))
     trade = TradeRecord(
         id="trade-1",
-        strategy_id="momentum",
+        strategy_id="strategy-a",
         inst_id="ETH-USDT-SWAP",
         side="long",
         entry_price=100.0,
@@ -200,7 +200,7 @@ def test_position_manager_closes_trade_from_logical_close_condition(tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     trade = TradeRecord(
         id="trade-signal",
-        strategy_id="momentum",
+        strategy_id="strategy-a",
         inst_id="ETH-USDT-SWAP",
         side="long",
         entry_price=100.0,

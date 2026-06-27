@@ -5,6 +5,7 @@ import {
   disableService,
   enableService,
   listServices,
+  listStrategies,
   listPersistedStrategyDecisions,
   type ServiceStatus,
 } from "@/lib/api";
@@ -17,9 +18,11 @@ export default function Strategies() {
     listServices,
     { refreshInterval: 5000 },
   );
+  const { data: strategies, error: strategiesError } = useSWR("strategies", listStrategies);
+  const selectedStrategyId = strategies?.find((strategy) => strategy.enabled)?.id ?? strategies?.[0]?.id;
   const { data: decisions, error: decisionsError } = useSWR(
-    "strategy-decisions-momentum-swap",
-    () => listPersistedStrategyDecisions("momentum_swap", { limit: 50 }),
+    selectedStrategyId ? ["strategy-decisions", selectedStrategyId] : null,
+    () => listPersistedStrategyDecisions(selectedStrategyId!, { limit: 50 }),
     { refreshInterval: 5000 },
   );
 
@@ -91,7 +94,7 @@ export default function Strategies() {
         <div className="glass-panel" style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
           <h2 style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--text-secondary)" }}>Recent Decisions</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", flex: 1, overflowY: "auto", maxHeight: "400px" }}>
-            {decisionsError ? (
+            {strategiesError || decisionsError ? (
               <div style={{ color: "var(--accent-danger)", padding: "1rem" }}>Strategy decision API unavailable.</div>
             ) : decisions && decisions.length > 0 ? decisions.map((d, idx) => (
               <div key={d.id ?? idx} style={{ padding: "0.75rem", backgroundColor: "var(--bg-primary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)", fontSize: "0.9rem" }}>

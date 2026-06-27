@@ -15,18 +15,19 @@ from src.trading.sqlite_schema import (
     applied_schema_versions,
     configure_connection,
     initialize_schema,
+    record_schema_version,
 )
 
 
 _SCHEMA_COMPONENT = "strategies"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 3
 
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategies (
     id                      TEXT PRIMARY KEY,
     name                    TEXT NOT NULL,
-    kind                    TEXT NOT NULL DEFAULT 'custom',
+    kind                    TEXT NOT NULL DEFAULT 'signal',
     enabled                 INTEGER NOT NULL DEFAULT 0,
     target_instruments_json TEXT NOT NULL DEFAULT '[]',
     entry_signal_json       TEXT NOT NULL DEFAULT '{}',
@@ -49,6 +50,23 @@ CREATE TABLE IF NOT EXISTS signal_expressions (
 CREATE INDEX IF NOT EXISTS idx_strategies_enabled ON strategies(enabled);
 CREATE INDEX IF NOT EXISTS idx_signal_expressions_strategy
     ON signal_expressions(strategy_id);
+"""
+
+_SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS strategy_evaluation_state (
+    strategy_id TEXT NOT NULL,
+    inst_id     TEXT NOT NULL,
+    matched     INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (strategy_id, inst_id),
+    FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE
+);
+"""
+
+_SCHEMA_V3 = """
+DELETE FROM strategies
+WHERE kind = 'momentum'
+   OR json_extract(entry_signal_json, '$.type') = 'volume_price_gap';
 """
 
 
@@ -84,7 +102,7 @@ class StrategyRecord:
         *,
         id: str | None = None,
         name: str,
-        kind: str = "custom",
+        kind: str = "signal",
         enabled: bool = False,
         target_instruments_json: str = "[]",
         entry_signal_json: str = "{}",
@@ -189,8 +207,23 @@ class StrategyStore:
                 conn,
                 schema_sql=_SCHEMA,
                 component=_SCHEMA_COMPONENT,
-                version=_SCHEMA_VERSION,
+                version=1,
             )
+            versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
+            if 2 not in versions:
+                conn.executescript(_SCHEMA_V2)
+                record_schema_version(
+                    conn,
+                    component=_SCHEMA_COMPONENT,
+                    version=2,
+                )
+            if _SCHEMA_VERSION not in versions:
+                conn.executescript(_SCHEMA_V3)
+                record_schema_version(
+                    conn,
+                    component=_SCHEMA_COMPONENT,
+                    version=_SCHEMA_VERSION,
+                )
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -208,6 +241,28 @@ class StrategyStore:
     def applied_schema_versions(self) -> list[int]:
         with self._conn() as conn:
             return applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
+
+    def record_evaluation(self, strategy_id: str, inst_id: str, *, matched: bool) -> bool:
+        """Persist match state and return true only for a false-to-true edge."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """SELECT matched FROM strategy_evaluation_state
+                   WHERE strategy_id = ? AND inst_id = ?""",
+                (strategy_id, inst_id),
+            ).fetchone()
+            previous = bool(row["matched"]) if row is not None else False
+            conn.execute(
+                """INSERT INTO strategy_evaluation_state
+                   (strategy_id, inst_id, matched, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(strategy_id, inst_id) DO UPDATE SET
+                    matched = excluded.matched,
+                    updated_at = excluded.updated_at""",
+                (strategy_id, inst_id, 1 if matched else 0, now),
+            )
+        return matched and not previous
 
     def save(self, strategy: StrategyRecord) -> str:
         strategy.updated_at = datetime.now(timezone.utc).isoformat()
@@ -248,7 +303,7 @@ class StrategyStore:
         *,
         id: str | None = None,
         name: str,
-        kind: str = "custom",
+        kind: str = "signal",
         enabled: bool = False,
         target_instruments: list[str] | None = None,
         entry_signal: dict[str, Any] | None = None,

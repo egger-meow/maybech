@@ -1,9 +1,9 @@
 # Maybech
 
-Maybech is a local-first crypto trading, monitoring, and backtesting workspace
+Maybech is a local-first crypto trading and monitoring workspace
 for OKX perpetuals. The current system is a Python daemon runtime with a
 FastAPI/WebSocket control surface, a Next.js dashboard, dynamic position rules,
-BTC regime tracking, account snapshots, notifications, and backtesting tools.
+BTC regime tracking, account snapshots, notifications, and persisted signals.
 
 This project should be treated as an operator-assist system first. Dry-run mode
 is the default. Live strategy execution requires explicit `--live` startup and
@@ -19,9 +19,9 @@ remain unchanged until authenticated OKX fills confirm the exit.
   `src/runtime/`.
 - `src/api/` contains HTTP/WebSocket endpoints and Pydantic schemas.
 - `src/daemon/` contains background services and runtime state.
-- `src/trading/` contains execution, risk, trade persistence, and dynamic rules.
-- `src/market/`, `src/data/`, `src/backtesting/`, and `src/strategies/` contain
-  market analysis, candle storage, simulation, and strategy logic.
+- `src/trading/` contains signal evaluation, strategy execution, persistence,
+  logical positions, and dynamic close rules.
+- `src/market/` and `src/data/` contain market analysis and candle storage.
 - `frontend/` contains the Next.js dashboard.
 - `docs/` contains architecture, deployment, and runtime tracking notes.
 - `toImprove.md` tracks the current top improvement priorities.
@@ -85,7 +85,7 @@ Useful API endpoints:
 - `GET http://127.0.0.1:8000/account/snapshot`
 - `GET http://127.0.0.1:8000/market/btc-regime`
 - `GET http://127.0.0.1:8000/strategy/decisions`
-- `GET http://127.0.0.1:8000/strategies/momentum_swap/decisions`
+- `GET http://127.0.0.1:8000/strategies/{strategy_id}/decisions`
 - `GET http://127.0.0.1:8000/position/intents`
 - `GET http://127.0.0.1:8000/execution/fills/status`
 - `GET http://127.0.0.1:8000/positions/logical`

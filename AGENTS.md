@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Maybech is a Python crypto trading, monitoring, and backtesting application with a Next.js dashboard. Runtime startup lives in `src/runtime/`, with root compatibility wrappers `run_api.py` for the API-backed runtime and `run_services.py` for background services without a UI. Core code is under `src/`, organized by responsibility: `api/` for FastAPI endpoints, `exchange/` for OKX access, `trading/` for execution and risk, `strategies/` for strategy implementations, `backtesting/` for simulation and optimization, `data/` for market data and indicators, `notifications/` for LINE/email alerts, `daemon/` for services, and `monitor/` for account inspection helpers. Tests live in `tests/` and should mirror the behavior being changed. Documentation and images are in `docs/`; runtime data is in `data/`.
+Maybech is a Python signal-driven crypto trading and monitoring application with a Next.js dashboard. Runtime startup lives in `src/runtime/`, with root compatibility wrappers `run_api.py` for the API-backed runtime and `run_services.py` for background services without a UI. Core code is under `src/`, organized by responsibility: `api/` for FastAPI endpoints, `exchange/` for OKX access, `trading/` for persisted signals, execution, logical positions, and risk policy, `data/` for market data and indicators, `notifications/` for LINE/email alerts, `daemon/` for services, and `monitor/` for account inspection helpers. Tests live in `tests/` and should mirror the behavior being changed. Documentation and images are in `docs/`; runtime data is in `data/`.
 
 ## Build, Test, and Development Commands
 
@@ -25,7 +25,7 @@ uv run pytest --cov=src
 starts the daemon-backed FastAPI runtime used by the Next.js dashboard.
 `run_services.py` and `run_api.py` remain supported compatibility wrappers.
 `uv run pytest` runs the configured test suite from `tests/`; use `--cov=src`
-when touching shared strategy, exchange, daemon, or backtesting code.
+when touching shared strategy, exchange, or daemon code.
 
 ## Coding Style & Naming Conventions
 
@@ -39,7 +39,7 @@ in `src/config/` and avoid hard-coded credentials or account-specific values.
 
 ## Testing Guidelines
 
-Tests use `pytest`, with discovery configured for `tests/test_*.py` in `pyproject.toml`. Name tests after expected behavior, for example `test_momentum_logic.py` or `test_daemon_service.py`. Add focused unit tests for strategy logic, risk calculations, config handling, and service state transitions. For exchange or notification changes, mock external OKX, LINE, and email calls unless the test is explicitly an integration test.
+Tests use `pytest`, with discovery configured for `tests/test_*.py` in `pyproject.toml`. Name tests after expected behavior, for example `test_signal_engine.py` or `test_daemon_service.py`. Add focused unit tests for strategy logic, risk calculations, config handling, and service state transitions. For exchange or notification changes, mock external OKX, LINE, and email calls unless the test is explicitly an integration test.
 
 ## Commit & Pull Request Guidelines
 
