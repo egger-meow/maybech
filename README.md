@@ -89,6 +89,7 @@ Useful API endpoints:
 - `GET http://127.0.0.1:8000/position/intents`
 - `GET http://127.0.0.1:8000/execution/fills/status`
 - `GET http://127.0.0.1:8000/runtime/preflight`
+- `GET/PUT http://127.0.0.1:8000/risk/limits`
 - `GET http://127.0.0.1:8000/positions/logical`
 - `ws://127.0.0.1:8000/ws/events`
 
@@ -106,7 +107,8 @@ uv run python -m src.runtime services --no-strategy
 
 Order-capable demo or real execution additionally requires `--live`, valid OKX
 credentials, `MAYBECH_ARM_ORDERS=1`, a derivatives-capable account in
-`net_mode`, and passing strategy/instrument checks. Startup aborts before daemon
+`net_mode`, enabled SQLite account risk limits, and passing strategy/instrument
+checks. Startup aborts before daemon
 threads run if any preflight check fails. `OKX_FLAG=1` targets demo trading;
 `OKX_FLAG=0` targets real trading.
 

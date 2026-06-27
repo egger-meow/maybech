@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from src.exchange.client import OKXClient
+from src.trading.account_risk import (
+    AccountRiskGuard,
+    AccountRiskStore,
+    EntryRiskApproval,
+)
 from src.trading.instrument_constraints import InstrumentConstraints
 
 logger = logging.getLogger(__name__)
@@ -18,12 +25,49 @@ class Executor:
         self,
         client: OKXClient,
         dry_run: bool = True,
+        *,
+        risk_store: AccountRiskStore | None = None,
     ) -> None:
         self.client = client
         self.dry_run = dry_run
+        self.risk_guard = AccountRiskGuard(
+            client,
+            risk_store or AccountRiskStore(),
+        )
+        self._issued_risk_approvals: set[str] = set()
+        self._used_risk_approvals: set[str] = set()
         self._constraints: dict[str, InstrumentConstraints] = {}
         if self.dry_run:
             logger.warning("Executor initialized in DRY-RUN mode. No real orders will be placed.")
+
+    def approve_entry(
+        self,
+        *,
+        inst_id: str,
+        requested_size: object,
+        entry_price: object,
+    ) -> EntryRiskApproval:
+        """Return the approval that a live execute call must present unchanged."""
+        if not self.dry_run:
+            approval = self.risk_guard.approve_entry(
+                inst_id=inst_id,
+                requested_size=requested_size,
+                entry_price=entry_price,
+            )
+            self._issued_risk_approvals.add(approval.approval_id)
+            return approval
+        return EntryRiskApproval(
+            approval_id="dry-run",
+            inst_id=inst_id,
+            requested_size=Decimal(str(requested_size)),
+            entry_price=Decimal(str(entry_price)),
+            order_notional_usd=Decimal("0"),
+            existing_exposure_usd=Decimal("0"),
+            projected_exposure_usd=Decimal("0"),
+            leverage=Decimal("0"),
+            approved_at=datetime.now(timezone.utc).isoformat(),
+            dry_run=True,
+        )
 
     def execute(
         self,
@@ -35,6 +79,7 @@ class Executor:
         stop_loss_price: float,
         client_order_id: str,
         take_profit_price: float | None = None,
+        risk_approval: EntryRiskApproval | None = None,
     ) -> dict[str, Any]:
         """Place a validated limit entry for a persisted strategy intent."""
         normalized_side = position_side.lower()
@@ -65,6 +110,26 @@ class Executor:
                     "tag": "dry_run",
                     "maybechRequestedSize": requested_size,
                 }
+            if risk_approval is None or not risk_approval.matches(
+                inst_id=inst_id,
+                requested_size=requested_size,
+                entry_price=entry_price,
+            ):
+                raise PermissionError(
+                    "live entry requires a matching fresh account risk approval"
+                )
+            if risk_approval.approval_id in self._used_risk_approvals:
+                raise PermissionError("account risk approval has already been used")
+            if risk_approval.approval_id not in self._issued_risk_approvals:
+                raise PermissionError(
+                    "account risk approval was not issued by this executor"
+                )
+            approved_at = datetime.fromisoformat(risk_approval.approved_at)
+            age_seconds = (datetime.now(timezone.utc) - approved_at).total_seconds()
+            if age_seconds < 0 or age_seconds > 5:
+                raise PermissionError("account risk approval is stale")
+            self._issued_risk_approvals.remove(risk_approval.approval_id)
+            self._used_risk_approvals.add(risk_approval.approval_id)
             constraints = self._instrument_constraints(inst_id)
             size = constraints.normalize_size(requested_size)
             normalized_price = constraints.normalize_price(entry_price)

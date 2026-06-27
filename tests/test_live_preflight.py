@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,7 @@ from src.api.app import create_app
 from src.daemon.service import DaemonRunner
 from src.exchange.client import arm_order_placement, disarm_order_placement
 from src.runtime.live_preflight import LivePreflightError, run_live_preflight
+from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
 from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
 from src.trading.strategy_store import StrategyStore
 from src.trading.trade_store import TradeStore
@@ -74,6 +77,17 @@ def _valid_strategy(store):
     )
 
 
+def _valid_risk(db_path):
+    return AccountRiskStore(db_path).save(
+        AccountRiskLimits(
+            enabled=True,
+            max_order_notional_usd=Decimal("100"),
+            max_total_exposure_usd=Decimal("1000"),
+            max_leverage=Decimal("5"),
+        )
+    )
+
+
 def test_live_preflight_rejects_missing_local_safety_configuration(monkeypatch, tmp_path):
     for key in (
         "OKX_API_KEY",
@@ -99,6 +113,7 @@ def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypa
     _set_live_environment(monkeypatch)
     strategy_store = StrategyStore(str(tmp_path / "trades.db"))
     _valid_strategy(strategy_store)
+    _valid_risk(strategy_store.db_path)
     position_store = LogicalPositionStore(strategy_store.db_path)
     position_store.save(
         LogicalPositionRecord(
@@ -126,6 +141,7 @@ def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypa
     assert report.armed is False
     assert report.execution_mode == "demo"
     assert report.position_mode == "net_mode"
+    assert report.risk_limits_enabled is True
     assert report.instruments == ("BTC-USDT-SWAP", "ETH-USDT-SWAP")
     assert client.instrument_calls == [
         ("SWAP", "BTC-USDT-SWAP"),
@@ -151,6 +167,7 @@ def test_live_preflight_rejects_incompatible_exchange_state(
     _set_live_environment(monkeypatch)
     strategy_store = StrategyStore(str(tmp_path / "trades.db"))
     _valid_strategy(strategy_store)
+    _valid_risk(strategy_store.db_path)
 
     with pytest.raises(LivePreflightError, match=expected):
         run_live_preflight(
@@ -201,6 +218,7 @@ def test_live_preflight_skips_strategy_checks_when_service_is_disabled(monkeypat
     _set_live_environment(monkeypatch)
     strategy_store = StrategyStore(str(tmp_path / "trades.db"))
     strategy_store.create(id="invalid", name="Invalid", enabled=True)
+    _valid_risk(strategy_store.db_path)
 
     report = run_live_preflight(
         client=FakePreflightClient(),
@@ -211,6 +229,19 @@ def test_live_preflight_skips_strategy_checks_when_service_is_disabled(monkeypat
 
     assert report.passed is True
     assert report.enabled_strategies == 0
+
+
+def test_live_preflight_requires_enabled_persisted_risk_limits(monkeypatch, tmp_path):
+    _set_live_environment(monkeypatch)
+    strategy_store = StrategyStore(str(tmp_path / "trades.db"))
+
+    with pytest.raises(LivePreflightError, match="risk limits are not configured"):
+        run_live_preflight(
+            client=FakePreflightClient(),
+            strategy_store=strategy_store,
+            position_store=LogicalPositionStore(strategy_store.db_path),
+            include_strategy=False,
+        )
 
 
 def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_path):

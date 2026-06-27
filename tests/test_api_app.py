@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from src.api.app import create_app
 from src.daemon.service import DaemonRunner, DaemonService
 from src.daemon.position_manager_service import PositionManagerService
+from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.logical_position_store import (
     LogicalPositionAllocation,
@@ -43,6 +44,29 @@ class StrategyApiMockService(DaemonService):
 class ApiCloseExecutor:
     def close_position(self, **kwargs):
         return {"ordId": "api-close-order"}
+
+
+def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
+    store = AccountRiskStore(str(tmp_path / "trades.db"))
+    monkeypatch.setattr("src.api.app.AccountRiskStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    assert client.get("/risk/limits").status_code == 404
+
+    response = client.put(
+        "/risk/limits",
+        json={
+            "enabled": True,
+            "max_order_notional_usd": 100,
+            "max_total_exposure_usd": 500,
+            "max_leverage": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert response.json()["max_total_exposure_usd"] == 500
+    assert client.get("/risk/limits").json() == response.json()
 
 
 def test_api_lists_services_and_events():

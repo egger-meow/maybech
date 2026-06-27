@@ -27,8 +27,29 @@ class LivePreflightResponse(BaseModel):
     account_level: str = ""
     position_mode: str = ""
     enabled_strategies: int = 0
+    risk_limits_enabled: bool = False
     instruments: list[str] = Field(default_factory=list)
     checked_at: str
+
+
+class AccountRiskLimitsUpdate(BaseModel):
+    enabled: bool
+    max_order_notional_usd: float = Field(gt=0)
+    max_total_exposure_usd: float = Field(gt=0)
+    max_leverage: float = Field(gt=0, le=125)
+
+    @model_validator(mode="after")
+    def validate_envelope(self) -> "AccountRiskLimitsUpdate":
+        if self.max_order_notional_usd > self.max_total_exposure_usd:
+            raise ValueError(
+                "max_order_notional_usd cannot exceed max_total_exposure_usd"
+            )
+        return self
+
+
+class AccountRiskLimitsResponse(AccountRiskLimitsUpdate):
+    created_at: str
+    updated_at: str
 
 
 class ServiceStatusResponse(BaseModel):

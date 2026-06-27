@@ -11,6 +11,7 @@ from src.daemon.service import DaemonService
 from src.data.candles import CandleManager
 from src.exchange.client import OKXClient
 from src.trading.action_policy import BTCRegimeActionPolicy
+from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.executor import Executor
 from src.trading.logical_position_store import (
@@ -72,7 +73,11 @@ class StrategyService(DaemonService):
     def setup(self) -> None:
         self.client = OKXClient()
         self.candle_manager = CandleManager(self.client)
-        self.executor = Executor(self.client, dry_run=self.dry_run)
+        self.executor = Executor(
+            self.client,
+            dry_run=self.dry_run,
+            risk_store=AccountRiskStore(self.trade_store.db_path),
+        )
         logger.info("StrategyService setup complete. Dry run: %s", self.dry_run)
 
     def tick(self) -> None:
@@ -262,6 +267,31 @@ class StrategyService(DaemonService):
             self._publish_decision_snapshot()
             return None
 
+        try:
+            risk_approval = self.executor.approve_entry(
+                inst_id=pair,
+                requested_size=requested_size,
+                entry_price=entry_price,
+            )
+        except Exception as exc:
+            decision_entry.update(
+                {
+                    "allowed": False,
+                    "reason": f"blocked: account risk check failed: {exc}",
+                    "execution_status": "risk_blocked",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            self._save_decision(decision_entry)
+            self._save_and_publish_lifecycle_event(
+                "strategy.execution_blocked",
+                decision_entry,
+            )
+            self._publish_decision_snapshot()
+            return None
+
+        decision_entry["risk_approval"] = risk_approval.to_dict()
+
         stop_loss_price, take_profit_price = exchange_protection_prices(
             strategy,
             self.strategy_store,
@@ -303,6 +333,7 @@ class StrategyService(DaemonService):
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
             client_order_id=decision_id,
+            risk_approval=risk_approval,
         ) or {}
         execution_status = (
             "simulated" if result and self.dry_run else "submitted" if result else "failed"

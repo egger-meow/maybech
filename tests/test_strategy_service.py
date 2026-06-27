@@ -13,9 +13,25 @@ class FakeExecutor:
         self.result = result
         self.calls = []
 
+    def approve_entry(self, **kwargs):
+        return FakeRiskApproval(kwargs)
+
     def execute(self, **kwargs):
         self.calls.append(kwargs)
         return self.result
+
+
+class FakeRiskApproval:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def to_dict(self):
+        return self.payload
+
+
+class BlockingRiskExecutor(FakeExecutor):
+    def approve_entry(self, **kwargs):
+        raise RuntimeError("projected exposure exceeds limit")
 
 
 class FakeCandleManager:
@@ -147,6 +163,21 @@ def test_live_strategy_fails_closed_when_pre_execution_audit_fails(tmp_path):
     assert result is None
     assert executor.calls == []
     assert service.decisions_history[0]["execution_status"] == "audit_failed"
+
+
+def test_live_strategy_blocks_before_persisting_position_when_risk_fails(tmp_path):
+    service, strategy = _service(tmp_path, dry_run=False)
+    executor = BlockingRiskExecutor({"ordId": "must-not-run"})
+    service.executor = executor
+
+    result = _process(service, strategy)
+
+    assert result is None
+    assert executor.calls == []
+    assert service.trade_store.get_trade_history(status="pending_open") == []
+    decision = service.audit_store.list_strategy_decisions(strategy_id=strategy.id)[0]
+    assert decision.payload["execution_status"] == "risk_blocked"
+    assert "projected exposure exceeds limit" in decision.payload["reason"]
 
 
 def test_live_submission_creates_pending_unit_without_assuming_fill(tmp_path):

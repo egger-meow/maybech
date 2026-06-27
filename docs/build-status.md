@@ -33,11 +33,11 @@ capability moves from planned to partial or complete.
 | SQLite schema management | Partial | `TradeStore` and `ExecutionCursorStore` record version `1`, `AuditEventStore` records version `2`, `StrategyStore` records version `3`, and `LogicalPositionStore` records version `4` through explicit migration paths. All default to `MAYBECH_DB_PATH`. |
 | Live order protection | Built | Strategy contract counts are persisted per instrument. Entries and reduce-only closes validate OKX state, `minSz`, `lotSz`, and `tickSz`; entries require and attach a side-consistent exchange stop, with take profit attached when configured. |
 | Live startup preflight | Built | Importing configuration never arms orders. `--live` disarms first, validates credentials through OKX account config, derivatives account level, `net_mode`, enabled strategy contracts/stops, active logical-position instruments, and live SWAP precision, then arms or aborts startup. `/runtime/preflight` exposes the successful report. |
+| Account risk envelope | Built | One versioned SQLite record owns maximum order notional, gross account exposure, and leverage. Live startup requires it enabled; every entry uses fresh OKX positions, pending entries, contract metadata, and leverage to issue a single-use approval before intent persistence or submission. `GET/PUT /risk/limits` manages it. |
 
 ## Next Build Milestones
 
-1. Persist and enforce account-level exposure, order-notional, and leverage
-   limits before entries.
-2. Add private order websocket events while retaining durable REST catch-up.
+1. Add private order websocket events while retaining durable REST catch-up.
+2. Add an entry kill switch that preserves automatic reduce-only closes.
 3. Complete demo-account open, partial-fill, cancellation, close, and restart
    verification before arming a live account.

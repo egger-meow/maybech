@@ -13,6 +13,8 @@ backup, and does not require a separate database service.
   expression records.
 - `src/trading/audit_event_store.py`: durable action, decision, and evaluation
   evidence with filters for event type, source, logical position, and trade.
+- `src/trading/account_risk.py`: the singleton account risk envelope and live
+  entry approval logic.
 - `src/trading/sqlite_schema.py`: shared SQLite connection configuration and
   schema migration ledger helpers.
 
@@ -30,10 +32,9 @@ version was applied.
 The first versioned components are `trade_store` in `TradeStore`,
 `logical_positions` in `LogicalPositionStore`, `strategies` in
 `StrategyStore`, and `audit_events` in `AuditEventStore`.
-`logical_positions` is at schema version 3 after adding an indexed exchange
-order identifier for deterministic fill matching. `audit_events` is at version
-2 after adding indexed strategy and correlation identifiers; the other
-components are at version 1.
+`logical_positions` is at schema version 4. `audit_events` is at version 2,
+`strategies` is at version 3, and `account_risk`, `trade_store`, and
+`execution_cursors` are at version 1.
 Future changes should add explicit migration steps instead of editing existing
 schema assumptions in place.
 

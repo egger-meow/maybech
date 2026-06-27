@@ -19,6 +19,8 @@ These endpoints currently exist or are already documented in runtime status:
 
 - `GET /services`
 - `GET /runtime/preflight`
+- `GET /risk/limits`
+- `PUT /risk/limits`
 - `GET /events`
 - `GET /audit/events`
 - `GET /account/snapshot`
@@ -52,6 +54,11 @@ See `docs/runtime-status.md` for current payload behavior.
 placement is armed, demo/real/dry-run mode, OKX account and position mode, and
 the strategies/instruments validated before services started. Failed live
 preflight aborts startup, so no unhealthy live API remains running.
+
+`GET /risk/limits` returns the singleton SQLite risk envelope. `PUT
+/risk/limits` replaces it with explicit `enabled`, `max_order_notional_usd`,
+`max_total_exposure_usd`, and `max_leverage` values. The order limit cannot
+exceed the total exposure limit; all numeric limits must be positive.
 
 ## Runtime And Audit Events
 

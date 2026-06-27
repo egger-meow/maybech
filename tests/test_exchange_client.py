@@ -21,6 +21,19 @@ class FakeTradeApi:
             "data": [{"ordId": kwargs.get("ordId", "recovered-order"), "state": "live"}],
         }
 
+    def get_order_list(self, **kwargs):
+        self.kwargs = kwargs
+        return {"code": "0", "data": [{"ordId": "pending-a"}]}
+
+
+class FakeAccountApi:
+    def __init__(self):
+        self.kwargs = None
+
+    def get_leverage(self, **kwargs):
+        self.kwargs = kwargs
+        return {"code": "0", "data": [{"lever": "5"}]}
+
 
 class FakePublicApi:
     def __init__(self):
@@ -111,4 +124,18 @@ def test_okx_client_get_instruments_uses_public_endpoint():
     assert client.public_api.kwargs == {
         "instType": "SWAP",
         "instId": "ETH-USDT-SWAP",
+    }
+
+
+def test_okx_client_fetches_pending_orders_and_leverage():
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+    client.account_api = FakeAccountApi()
+
+    assert client.get_pending_orders("SWAP") == [{"ordId": "pending-a"}]
+    assert client.trade_api.kwargs == {"instType": "SWAP"}
+    assert client.get_leverage("ETH-USDT-SWAP", "cross") == [{"lever": "5"}]
+    assert client.account_api.kwargs == {
+        "instId": "ETH-USDT-SWAP",
+        "mgnMode": "cross",
     }

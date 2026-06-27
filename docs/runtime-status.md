@@ -43,7 +43,10 @@ Frontends must use `active`; there is no `state` field.
   or zeroed fields before the first poll.
 - `GET /runtime/preflight` returns the successful startup safety report,
   including dry-run/demo/real mode, armed state, OKX account and position mode,
-  enabled strategy count, validated instruments, and check time.
+  enabled strategy count, account-risk enabled state, validated instruments,
+  and check time.
+- `GET/PUT /risk/limits` reads or replaces the singleton SQLite account risk
+  envelope used for live order-notional, gross-exposure, and leverage checks.
 - `GET /strategies/{strategy_id}/decisions` returns restart-safe strategy
   decisions from SQLite, newest first. Filters cover allowed/blocked state,
   execution status, limit, and a `before` timestamp.
@@ -151,9 +154,16 @@ strategy's default close conditions.
   disarms first. With `--live`, startup requires non-empty private credentials,
   `MAYBECH_ARM_ORDERS=1`, `OKX_FLAG` of `0` or `1`, authenticated account config,
   account level `2`, `3`, or `4`, and `net_mode`. Enabled strategy definitions,
-  contract sizes, attached stops, active logical-position instruments, and live
-  SWAP metadata must validate before the factory arms order placement. Any
+  contract sizes, attached stops, active logical-position instruments, live
+  SWAP metadata, and an enabled SQLite account risk envelope must validate
+  before the factory arms order placement. Any
   failure aborts startup before service setup or daemon threads.
+- Immediately before a live entry, Maybech calculates requested USD notional
+  from current linear USDT-SWAP contract metadata. It adds gross `notionalUsd`
+  across open SWAP positions and the remaining notional of all non-reduce-only
+  pending SWAP orders, then checks the persisted order, total exposure, and
+  cross-leverage limits. Missing or malformed account data blocks the entry.
+  The resulting approval matches one exact order and can only be consumed once.
 - Automatic signal/rule exits do not ask for human confirmation. Live startup,
   `MAYBECH_ARM_ORDERS=1`, the reduce-only client guard, and durable pre-submit
   audit must all succeed before an order is sent.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from asyncio import QueueEmpty
 from datetime import datetime
+from decimal import Decimal
 import json
 from typing import Optional
 
@@ -17,6 +18,7 @@ from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
 from src.exchange.client import OKXClient
 
+from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
 from src.trading.audit_event_store import AuditEventRecord, AuditEventStore
 from src.trading.execution_allocation import (
     ConfirmedExecutionFill,
@@ -37,6 +39,8 @@ from src.trading.strategy_runtime import validate_strategy_for_execution
 from src.trading.strategy_store import SignalExpressionRecord, StrategyRecord, StrategyStore
 from src.trading.trade_store import TradeStore
 from src.api.schemas import (
+    AccountRiskLimitsResponse,
+    AccountRiskLimitsUpdate,
     AccountSnapshotResponse,
     AuditEventResponse,
     BTCRegimeResponse,
@@ -507,7 +511,7 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.MAYBECH_CORS_ORIGINS,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type"],
     )
     app.state.runner = runner
@@ -522,6 +526,27 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         if status is None:
             raise HTTPException(status_code=503, detail="Runtime preflight status unavailable")
         return LivePreflightResponse(**status)
+
+    @app.get("/risk/limits", response_model=AccountRiskLimitsResponse)
+    def get_account_risk_limits() -> AccountRiskLimitsResponse:
+        limits = AccountRiskStore().get()
+        if limits is None:
+            raise HTTPException(status_code=404, detail="Account risk limits are not configured")
+        return AccountRiskLimitsResponse(**limits.to_dict())
+
+    @app.put("/risk/limits", response_model=AccountRiskLimitsResponse)
+    def put_account_risk_limits(
+        payload: AccountRiskLimitsUpdate,
+    ) -> AccountRiskLimitsResponse:
+        saved = AccountRiskStore().save(
+            AccountRiskLimits(
+                enabled=payload.enabled,
+                max_order_notional_usd=Decimal(str(payload.max_order_notional_usd)),
+                max_total_exposure_usd=Decimal(str(payload.max_total_exposure_usd)),
+                max_leverage=Decimal(str(payload.max_leverage)),
+            )
+        )
+        return AccountRiskLimitsResponse(**saved.to_dict())
 
     @app.get("/services", response_model=dict[str, ServiceStatusResponse])
     def list_services() -> dict:

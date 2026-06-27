@@ -1,6 +1,80 @@
 {
   "components": {
     "schemas": {
+      "AccountRiskLimitsResponse": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "max_leverage": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 125.0,
+            "title": "Max Leverage",
+            "type": "number"
+          },
+          "max_order_notional_usd": {
+            "exclusiveMinimum": 0.0,
+            "title": "Max Order Notional Usd",
+            "type": "number"
+          },
+          "max_total_exposure_usd": {
+            "exclusiveMinimum": 0.0,
+            "title": "Max Total Exposure Usd",
+            "type": "number"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "max_order_notional_usd",
+          "max_total_exposure_usd",
+          "max_leverage",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AccountRiskLimitsResponse",
+        "type": "object"
+      },
+      "AccountRiskLimitsUpdate": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "max_leverage": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 125.0,
+            "title": "Max Leverage",
+            "type": "number"
+          },
+          "max_order_notional_usd": {
+            "exclusiveMinimum": 0.0,
+            "title": "Max Order Notional Usd",
+            "type": "number"
+          },
+          "max_total_exposure_usd": {
+            "exclusiveMinimum": 0.0,
+            "title": "Max Total Exposure Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "enabled",
+          "max_order_notional_usd",
+          "max_total_exposure_usd",
+          "max_leverage"
+        ],
+        "title": "AccountRiskLimitsUpdate",
+        "type": "object"
+      },
       "AccountSnapshotResponse": {
         "properties": {
           "orders": {
@@ -558,6 +632,11 @@
             "default": "",
             "title": "Position Mode",
             "type": "string"
+          },
+          "risk_limits_enabled": {
+            "default": false,
+            "title": "Risk Limits Enabled",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3444,6 +3523,60 @@
           }
         },
         "summary": "Update Logical Position Close Condition"
+      }
+    },
+    "/risk/limits": {
+      "get": {
+        "operationId": "get_account_risk_limits_risk_limits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountRiskLimitsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Account Risk Limits"
+      },
+      "put": {
+        "operationId": "put_account_risk_limits_risk_limits_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountRiskLimitsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountRiskLimitsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Account Risk Limits"
       }
     },
     "/runtime/preflight": {

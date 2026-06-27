@@ -94,6 +94,11 @@ class OKXClient:
         )
         return _extract(resp, label="get_positions")
 
+    def get_leverage(self, inst_id: str, mgn_mode: str = "cross") -> list[dict]:
+        """Fetch configured leverage for an instrument and margin mode."""
+        resp = self.account_api.get_leverage(instId=inst_id, mgnMode=mgn_mode)
+        return _extract(resp, label="get_leverage")
+
     def get_account_config(self) -> list[dict]:
         """Fetch current account configuration."""
         resp = self.account_api.get_account_config()
@@ -176,6 +181,11 @@ class OKXClient:
             instType=inst_type, limit=limit,
         )
         return _extract(resp, label="get_order_history")
+
+    def get_pending_orders(self, inst_type: str = "SWAP") -> list[dict]:
+        """Fetch all incomplete orders used by account exposure checks."""
+        resp = self.trade_api.get_order_list(instType=inst_type)
+        return _extract(resp, label="get_pending_orders")
 
     def get_fills_history(
         self,

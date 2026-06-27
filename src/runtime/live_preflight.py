@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.exchange.client import OKXClient
+from src.trading.account_risk import AccountRiskStore
 from src.trading.instrument_constraints import InstrumentConstraints
 from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.strategy_runtime import order_size, validate_strategy_for_execution
@@ -30,6 +31,7 @@ class LivePreflightReport:
     account_level: str
     position_mode: str
     enabled_strategies: int
+    risk_limits_enabled: bool
     instruments: tuple[str, ...]
     checked_at: str
 
@@ -49,6 +51,7 @@ def dry_run_preflight_report() -> dict[str, Any]:
         "account_level": "",
         "position_mode": "",
         "enabled_strategies": 0,
+        "risk_limits_enabled": False,
         "instruments": [],
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -59,6 +62,7 @@ def run_live_preflight(
     client: OKXClient | None = None,
     strategy_store: StrategyStore | None = None,
     position_store: LogicalPositionStore | None = None,
+    risk_store: AccountRiskStore | None = None,
     include_strategy: bool = True,
 ) -> LivePreflightReport:
     """Validate environment, account mode, strategies, and instruments."""
@@ -69,6 +73,7 @@ def run_live_preflight(
     client = client or OKXClient()
     strategy_store = strategy_store or StrategyStore()
     position_store = position_store or LogicalPositionStore(strategy_store.db_path)
+    risk_store = risk_store or AccountRiskStore(strategy_store.db_path)
     configured_flag = os.getenv("OKX_FLAG", "1")
     if str(client.flag) != configured_flag:
         raise LivePreflightError(["OKX client environment does not match OKX_FLAG"])
@@ -91,6 +96,17 @@ def run_live_preflight(
         )
     if position_mode != "net_mode":
         errors.append("OKX position mode must be net_mode for the current executor")
+
+    risk_limits = risk_store.get()
+    if risk_limits is None:
+        errors.append("account risk limits are not configured in SQLite")
+    elif not risk_limits.enabled:
+        errors.append("account risk limits are disabled")
+    else:
+        try:
+            risk_limits.validate()
+        except ValueError as exc:
+            errors.append(f"account risk limits: {exc}")
 
     enabled_strategies = strategy_store.list(enabled=True) if include_strategy else []
     instruments: set[str] = set()
@@ -136,6 +152,7 @@ def run_live_preflight(
         account_level=account_level,
         position_mode=position_mode,
         enabled_strategies=len(enabled_strategies),
+        risk_limits_enabled=bool(risk_limits and risk_limits.enabled),
         instruments=tuple(sorted(instruments)),
         checked_at=datetime.now(timezone.utc).isoformat(),
     )
