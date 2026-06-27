@@ -6,9 +6,9 @@ class FakeTradeApi:
     def __init__(self):
         self.kwargs = None
 
-    def get_fills(self, **kwargs):
+    def get_fills_history(self, **kwargs):
         self.kwargs = kwargs
-        return {"code": "0", "data": [{"tradeId": "fill-a"}]}
+        return {"code": "0", "data": [{"billId": "bill-a"}]}
 
     def place_order(self, **kwargs):
         self.kwargs = kwargs
@@ -28,17 +28,21 @@ class FakePublicApi:
         return {"code": "0", "data": [{"instId": kwargs["instId"]}]}
 
 
-def test_okx_client_get_fills_uses_authenticated_swap_endpoint():
+def test_okx_client_get_fills_history_paginates_by_bill_id():
     client = object.__new__(OKXClient)
     client.trade_api = FakeTradeApi()
 
-    fills = client.get_fills(inst_type="SWAP", limit="50", after="cursor-a")
+    fills = client.get_fills_history(
+        inst_type="SWAP",
+        limit="100",
+        after="bill-a",
+    )
 
-    assert fills == [{"tradeId": "fill-a"}]
+    assert fills == [{"billId": "bill-a"}]
     assert client.trade_api.kwargs == {
         "instType": "SWAP",
-        "limit": "50",
-        "after": "cursor-a",
+        "limit": "100",
+        "after": "bill-a",
     }
 
 

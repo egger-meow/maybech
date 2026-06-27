@@ -4,8 +4,8 @@ Only current blockers to dependable real-money operation belong here.
 
 ## Current Priorities
 
-1. Persist OKX fill-history catch-up cursors so more than 100 fills or a restart
-   cannot skip an execution.
+1. Persist a client order ID before submission and recover accepted OKX orders
+   after a crash between exchange acceptance and local order-ID persistence.
 2. Add authenticated private OKX order events for latency while retaining REST
    catch-up as the correctness layer.
 3. Complete demo-account open, partial-fill, cancellation, automatic close, and

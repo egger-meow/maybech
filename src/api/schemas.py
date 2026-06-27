@@ -63,6 +63,14 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     filled_awaiting_allocation: int = 0
     missing_fill_alerts: int = 0
     order_errors: int = 0
+    pages_fetched: int = 0
+    caught_up: bool = False
+    cursor_in_progress: bool = False
+    history_exhausted: bool = False
+    high_water_bill_id: str = ""
+    next_after_bill_id: str = ""
+    cursor_errors: int = 0
+    cursor_error: str = ""
     updated_at: str | None = None
 
 

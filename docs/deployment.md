@@ -23,9 +23,11 @@ counts are strategy data in SQLite; they are intentionally absent from `.env`.
 Before `--live`, populate `metadata.order_size_contracts` on the enabled
 strategy and verify each value as an OKX contract count rather than a base-asset
 quantity. The executor also checks current OKX instrument precision.
-`ExecutionFillService` uses the configured private OKX credentials to poll SWAP
-fills. Without valid credentials its daemon status will show tick errors; it
-never allocates fills whose order id is not linked to a Maybech logical unit.
+`ExecutionFillService` uses the configured private OKX credentials to paginate
+three-month SWAP fill history. Cursor checkpoints share `MAYBECH_DB_PATH` and
+survive restarts. Without valid credentials its daemon status will show cursor
+and tick errors; it never allocates fills whose order id is not linked to a
+Maybech logical unit.
 It also requests cancellation once for linked active orders older than five
 minutes. Position state changes only after OKX reports a terminal order state.
 

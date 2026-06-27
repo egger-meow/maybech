@@ -786,6 +786,9 @@ def test_api_returns_execution_fill_ingestion_status():
             "unmatched": 1,
             "invalid": 1,
             "conflicts": 0,
+            "pages_fetched": 3,
+            "caught_up": True,
+            "high_water_bill_id": "bill-300",
             "updated_at": "2026-06-27T00:00:00+00:00",
         },
     )
@@ -796,6 +799,9 @@ def test_api_returns_execution_fill_ingestion_status():
     assert response.status_code == 200
     assert response.json()["applied"] == 2
     assert response.json()["unmatched"] == 1
+    assert response.json()["caught_up"] is True
+    assert response.json()["pages_fetched"] == 3
+    assert response.json()["high_water_bill_id"] == "bill-300"
 
 
 def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):

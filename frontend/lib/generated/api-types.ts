@@ -67,6 +67,14 @@ export type ExecutionFillIngestionStatusResponse = {
   "filled_awaiting_allocation"?: number;
   "missing_fill_alerts"?: number;
   "order_errors"?: number;
+  "pages_fetched"?: number;
+  "caught_up"?: boolean;
+  "cursor_in_progress"?: boolean;
+  "history_exhausted"?: boolean;
+  "high_water_bill_id"?: string;
+  "next_after_bill_id"?: string;
+  "cursor_errors"?: number;
+  "cursor_error"?: string;
   "updated_at"?: string | null;
 };
 

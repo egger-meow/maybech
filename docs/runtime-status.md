@@ -39,7 +39,8 @@ Frontends must use `active`; there is no `state` field.
 - `GET /strategy/decisions` and `GET /position/intents` return empty lists when
   no runtime snapshot is available.
 - `GET /execution/fills/status` returns the latest authenticated OKX SWAP fill
-  polling counts, or zeroed fields before the first successful poll.
+  catch-up counts, cursor state, page progress, or zeroed fields before the
+  first poll.
 - `GET /strategies/{strategy_id}/decisions` returns restart-safe strategy
   decisions from SQLite, newest first. Filters cover allowed/blocked state,
   execution status, limit, and a `before` timestamp.
@@ -98,9 +99,15 @@ Live submissions now create `pending_open` trade/logical records with zero
 allocated quantity. A confirmed open fill atomically creates the allocation,
 updates weighted entry price and quantities, opens the unit for management, and
 updates the correlated strategy decision to `partially_filled` or `filled`.
-`ExecutionFillService` polls up to 100 recent authenticated SWAP fills every
-five seconds. It normalizes OKX fill payloads, matches indexed exchange order
-IDs, and replays safely because allocation IDs use immutable OKX trade IDs.
+`ExecutionFillService` polls authenticated three-month SWAP fill history every
+five seconds. It traverses at most five 100-record pages per tick using OKX
+`billId` pagination. SQLite stores a committed high-water bill ID separately
+from an in-progress target and next-page checkpoint. A page checkpoint advances
+only after every record is allocated, recognized as unmatched, or durably
+quarantined; the high-water mark advances only when the prior boundary is found
+or history is exhausted. Interrupted pages replay safely because allocation IDs
+are idempotent. It normalizes OKX fill payloads and matches indexed exchange
+order IDs.
 Unmatched manual/external orders remain unallocated and visible in status.
 The same poll checks every unit with an active exchange order id. Confirmed
 `canceled`, `rejected`, or `mmp_canceled` entry orders recover to `failed` when
@@ -110,6 +117,8 @@ one cancellation request and remain pending until OKX confirms a terminal state.
 If OKX reports `filled` but no matching fill details arrive for three consecutive
 polls, the unit emits one deduplicated durable
 `position.filled_without_allocation` alert for operator investigation.
+`GET /execution/fills/status` exposes `caught_up`, page counts, cursor progress,
+high-water/next-after bill IDs, history exhaustion, and cursor errors.
 
 ## Runtime Storage
 

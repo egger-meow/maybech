@@ -363,10 +363,30 @@
             "title": "Applied",
             "type": "integer"
           },
+          "caught_up": {
+            "default": false,
+            "title": "Caught Up",
+            "type": "boolean"
+          },
           "conflicts": {
             "default": 0,
             "title": "Conflicts",
             "type": "integer"
+          },
+          "cursor_error": {
+            "default": "",
+            "title": "Cursor Error",
+            "type": "string"
+          },
+          "cursor_errors": {
+            "default": 0,
+            "title": "Cursor Errors",
+            "type": "integer"
+          },
+          "cursor_in_progress": {
+            "default": false,
+            "title": "Cursor In Progress",
+            "type": "boolean"
           },
           "fetched": {
             "default": 0,
@@ -377,6 +397,16 @@
             "default": 0,
             "title": "Filled Awaiting Allocation",
             "type": "integer"
+          },
+          "high_water_bill_id": {
+            "default": "",
+            "title": "High Water Bill Id",
+            "type": "string"
+          },
+          "history_exhausted": {
+            "default": false,
+            "title": "History Exhausted",
+            "type": "boolean"
           },
           "idempotent": {
             "default": 0,
@@ -393,6 +423,11 @@
             "title": "Missing Fill Alerts",
             "type": "integer"
           },
+          "next_after_bill_id": {
+            "default": "",
+            "title": "Next After Bill Id",
+            "type": "string"
+          },
           "order_errors": {
             "default": 0,
             "title": "Order Errors",
@@ -401,6 +436,11 @@
           "orders_checked": {
             "default": 0,
             "title": "Orders Checked",
+            "type": "integer"
+          },
+          "pages_fetched": {
+            "default": 0,
+            "title": "Pages Fetched",
             "type": "integer"
           },
           "stale_cancel_requested": {

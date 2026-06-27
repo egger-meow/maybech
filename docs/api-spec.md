@@ -216,6 +216,10 @@ to a logical unit automatically.
 applied, idempotent, unmatched, invalid, conflicts, orders checked, terminal
 recoveries, stale cancellation requests, filled orders awaiting allocation,
 deduplicated missing-fill alerts, order errors, and update time.
+It also reports durable catch-up state: pages fetched, `caught_up`, whether a
+cursor cycle is in progress, history exhaustion, committed high-water bill ID,
+next `after` bill ID, and cursor errors. A committed high-water mark never moves
+past a page that was not fully ingested or durably quarantined.
 
 ## Target Visualization Endpoints
 

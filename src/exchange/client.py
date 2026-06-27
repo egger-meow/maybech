@@ -174,19 +174,19 @@ class OKXClient:
         )
         return _extract(resp, label="get_order_history")
 
-    def get_fills(
+    def get_fills_history(
         self,
         inst_type: str = "SWAP",
         limit: str = "100",
         after: str = "",
     ) -> list[dict]:
-        """Fetch recent authenticated fills for restart-safe ingestion."""
-        resp = self.trade_api.get_fills(
+        """Fetch up to three months of fills, paginated by OKX bill ID."""
+        resp = self.trade_api.get_fills_history(
             instType=inst_type,
             limit=limit,
             after=after,
         )
-        return _extract(resp, label="get_fills")
+        return _extract(resp, label="get_fills_history")
 
     def get_order(self, inst_id: str, order_id: str) -> list[dict]:
         """Fetch one authenticated order for pending-state reconciliation."""
