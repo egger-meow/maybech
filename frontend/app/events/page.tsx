@@ -8,7 +8,13 @@ export default function Events() {
   const [events, setEvents] = useState<RuntimeEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isAutoScroll, setIsAutoScroll] = useState(true);
   const eventsEndRef = useRef<HTMLDivElement>(null);
+  const isPausedRef = useRef(isPaused);
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   useEffect(() => {
     listRecentEvents(50)
@@ -23,7 +29,7 @@ export default function Events() {
     ws.onopen = () => setIsConnected(true);
     ws.onclose = () => setIsConnected(false);
     ws.onmessage = (msg) => {
-      if (isPaused) return;
+      if (isPausedRef.current) return;
       try {
         const data = JSON.parse(msg.data) as RuntimeEvent;
         setEvents((prev) => [...prev, data].slice(-200));
@@ -35,13 +41,19 @@ export default function Events() {
     return () => {
       ws.close();
     };
-  }, [isPaused]);
+  }, []);
 
   useEffect(() => {
-    if (!isPaused && eventsEndRef.current) {
+    if (!isPaused && isAutoScroll && eventsEndRef.current) {
       eventsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [events, isPaused]);
+  }, [events, isPaused, isAutoScroll]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setIsAutoScroll(isAtBottom);
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem", height: "100%" }}>
@@ -64,7 +76,13 @@ export default function Events() {
           </div>
           <button
             className={`btn ${isPaused ? "btn-primary" : "btn-outline"}`}
-            onClick={() => setIsPaused(!isPaused)}
+            onClick={() => {
+              setIsPaused(!isPaused);
+              if (isPaused) {
+                // If resuming, snap back to bottom auto-scroll
+                setIsAutoScroll(true);
+              }
+            }}
             style={{ padding: "0.5rem 1rem" }}
           >
             {isPaused ? <Play size={16} /> : <Square size={16} />}
@@ -75,6 +93,7 @@ export default function Events() {
 
       <div
         className="glass-panel"
+        onScroll={handleScroll}
         style={{
           flex: 1,
           backgroundColor: "#000000",
