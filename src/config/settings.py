@@ -39,14 +39,16 @@ class Settings:
     OKX_PASSPHRASE: str = field(default_factory=lambda: _get("OKX_PASSPHRASE"))
     OKX_FLAG: str = field(default_factory=lambda: _get("OKX_FLAG", "1"))
 
+    # Persistence
+    MAYBECH_DB_PATH: str = field(
+        default_factory=lambda: _get("MAYBECH_DB_PATH", "data/trades.db")
+    )
+
     # Trading
     TRADING_PAIRS: list[str] = field(
         default_factory=lambda: _get("TRADING_PAIRS", "BTC-USDT").split(",")
     )
     CANDLE_INTERVAL: str = field(default_factory=lambda: _get("CANDLE_INTERVAL", "15m"))
-    MAX_POSITION_RATIO: float = field(
-        default_factory=lambda: _get_float("MAX_POSITION_RATIO", 0.1)
-    )
     TRADE_QUANTITY_ETH: float = field(
         default_factory=lambda: _get_float("TRADE_QUANTITY_ETH", 0.1)
     )
@@ -61,8 +63,6 @@ class Settings:
     PRICE_GAP_THRESHOLD: float = field(
         default_factory=lambda: _get_float("PRICE_GAP_THRESHOLD", 3.0)
     )
-
-
     # Risk management (bear-market bias)
     STOP_LOSS_LONG_PCT: float = field(
         default_factory=lambda: _get_float("STOP_LOSS_LONG_PCT", 0.02)
@@ -75,17 +75,6 @@ class Settings:
     )
     TAKE_PROFIT_SHORT_PCT: float = field(
         default_factory=lambda: _get_float("TAKE_PROFIT_SHORT_PCT", 0.05)
-    )
-
-    # Backtesting
-    BACKTEST_MIN_WIN_RATE: float = field(
-        default_factory=lambda: _get_float("BACKTEST_MIN_WIN_RATE", 0.55)
-    )
-    BACKTEST_MIN_RETURN_RATE: float = field(
-        default_factory=lambda: _get_float("BACKTEST_MIN_RETURN_RATE", 0.10)
-    )
-    BACKTEST_LOOKBACK_DAYS: int = field(
-        default_factory=lambda: _get_int("BACKTEST_LOOKBACK_DAYS", 30)
     )
 
     # Notifications — LINE Bot

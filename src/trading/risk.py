@@ -2,12 +2,11 @@
 Risk management module.
 
 Responsibilities:
-- Position sizing based on account balance and MAX_POSITION_RATIO
+- Position sizing based on an explicit risk policy
 - Bear-market bias enforcement (asymmetric SL for long vs short)
 - Live performance monitoring — auto-stop strategy if metrics degrade
 """
 
-from src.config.settings import settings
 from src.strategies.base import Signal
 
 
@@ -17,7 +16,7 @@ class RiskManager:
     def calc_position_size(self, balance: float, signal: Signal) -> float:
         """Calculate the order size in USDT.
 
-        Applies MAX_POSITION_RATIO from settings.
+        The concrete policy must define its sizing limits explicitly.
         """
         raise NotImplementedError
 

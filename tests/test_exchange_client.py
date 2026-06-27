@@ -1,0 +1,53 @@
+import src.exchange.client as client_module
+from src.exchange.client import OKXClient
+
+
+class FakeTradeApi:
+    def __init__(self):
+        self.kwargs = None
+
+    def get_fills(self, **kwargs):
+        self.kwargs = kwargs
+        return {"code": "0", "data": [{"tradeId": "fill-a"}]}
+
+    def place_order(self, **kwargs):
+        self.kwargs = kwargs
+        return {"code": "0", "data": [{"ordId": "close-order"}]}
+
+
+def test_okx_client_get_fills_uses_authenticated_swap_endpoint():
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+
+    fills = client.get_fills(inst_type="SWAP", limit="50", after="cursor-a")
+
+    assert fills == [{"tradeId": "fill-a"}]
+    assert client.trade_api.kwargs == {
+        "instType": "SWAP",
+        "limit": "50",
+        "after": "cursor-a",
+    }
+
+
+def test_okx_client_places_guarded_reduce_only_close(monkeypatch):
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+    monkeypatch.setattr(client_module, "_ORDER_PLACEMENT_ARMED", True)
+
+    result = client.place_reduce_market_order(
+        inst_id="ETH-USDT-SWAP",
+        position_side="long",
+        sz="0.1",
+        confirm=True,
+    )
+
+    assert result == {"ordId": "close-order"}
+    assert client.trade_api.kwargs == {
+        "instId": "ETH-USDT-SWAP",
+        "tdMode": "cross",
+        "side": "sell",
+        "ordType": "market",
+        "sz": "0.1",
+        "posSide": "",
+        "reduceOnly": "true",
+    }

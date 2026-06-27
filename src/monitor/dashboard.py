@@ -79,10 +79,10 @@ class Dashboard:
 
         return positions
 
-    def get_recent_trades(self, limit: int = 20) -> list[dict]:
+    def get_recent_trades(self, limit: int = 20, inst_type: str = "SWAP") -> list[dict]:
         """Return recent completed trades for review."""
         raw_orders = self.client.get_order_history(
-            inst_type="SPOT", limit=str(limit),
+            inst_type=inst_type, limit=str(limit),
         )
         trades = []
         for order in raw_orders:
@@ -91,6 +91,7 @@ class Dashboard:
                 continue
 
             trades.append({
+                "order_id": order.get("ordId", ""),
                 "inst_id": order.get("instId", ""),
                 "side": order.get("side", ""),
                 "order_type": order.get("ordType", ""),

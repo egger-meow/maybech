@@ -91,3 +91,28 @@ class Executor:
 
         # Optional: Monitor and enforce backup soft-stops
         return []
+
+    def close_position(
+        self,
+        *,
+        inst_id: str,
+        position_side: str,
+        quantity: float,
+        pos_side: str = "",
+    ) -> dict:
+        """Submit a reduce-only market close without assuming it filled."""
+        if quantity <= 0:
+            raise ValueError("close quantity must be positive")
+        if self.dry_run:
+            return {"ordId": f"mock_close_{inst_id}", "tag": "dry_run"}
+        try:
+            return self.client.place_reduce_market_order(
+                inst_id=inst_id,
+                position_side=position_side,
+                sz=str(quantity),
+                pos_side=pos_side,
+                confirm=True,
+            )
+        except Exception as exc:
+            logger.error("Close submission failed for %s: %s", inst_id, exc)
+            return {}

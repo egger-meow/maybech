@@ -21,8 +21,23 @@ if _root not in sys.path:
 
 from src.config.settings import settings  # noqa: E402
 
+
+def _call_or_skip_okx_access(func, *args, **kwargs):
+    """Skip private OKX integration checks when account access is blocked."""
+    try:
+        return func(*args, **kwargs)
+    except RuntimeError as exc:
+        message = str(exc)
+        if "code=50110" in message or "IP whitelist" in message:
+            pytest.skip(f"OKX account API access unavailable: {message}")
+        raise
+
 # Skip entire module if API keys are not configured
-_has_keys = bool(settings.OKX_API_KEY and settings.OKX_API_SECRET)
+_has_keys = bool(
+    settings.OKX_API_KEY
+    and settings.OKX_API_SECRET
+    and settings.OKX_PASSPHRASE
+)
 pytestmark = pytest.mark.skipif(
     not _has_keys,
     reason="OKX API keys not configured in .env — skipping integration tests",
@@ -55,7 +70,7 @@ def dashboard(client):
 
 def test_get_balance(client):
     """Balance response contains account equity data."""
-    data = client.get_balance()
+    data = _call_or_skip_okx_access(client.get_balance)
     assert isinstance(data, list)
     assert len(data) >= 1
     acct = data[0]
@@ -65,7 +80,7 @@ def test_get_balance(client):
 
 def test_get_account_config(client):
     """Account config returns level and position mode."""
-    data = client.get_account_config()
+    data = _call_or_skip_okx_access(client.get_account_config)
     assert isinstance(data, list)
     assert len(data) >= 1
     config = data[0]
@@ -76,14 +91,14 @@ def test_get_account_config(client):
 
 def test_get_positions(client):
     """Positions list is returned (may be empty if no open positions)."""
-    data = client.get_positions()
+    data = _call_or_skip_okx_access(client.get_positions)
     assert isinstance(data, list)
     print(f"\n  Open positions count: {len(data)}")
 
 
 def test_get_fee_rates(client):
     """Fee rates for SPOT are returned."""
-    data = client.get_fee_rates(inst_type="SPOT")
+    data = _call_or_skip_okx_access(client.get_fee_rates, inst_type="SPOT")
     assert isinstance(data, list)
     assert len(data) >= 1
     fees = data[0]
@@ -94,7 +109,7 @@ def test_get_fee_rates(client):
 
 def test_get_interest_limits(client):
     """Borrow interest limits are returned."""
-    data = client.get_interest_limits(ccy="ETH")
+    data = _call_or_skip_okx_access(client.get_interest_limits, ccy="ETH")
     assert isinstance(data, list)
     assert len(data) >= 1
     print(f"\n  Interest data keys: {list(data[0].keys())}")
@@ -154,7 +169,7 @@ def test_candle_manager_fetch(candle_manager):
 
 def test_dashboard_summary(dashboard):
     """Dashboard.get_account_summary returns dict with equity fields."""
-    summary = dashboard.get_account_summary()
+    summary = _call_or_skip_okx_access(dashboard.get_account_summary)
     assert isinstance(summary, dict)
     assert "total_equity" in summary
     assert "available_equity" in summary

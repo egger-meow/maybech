@@ -165,6 +165,20 @@ class OKXClient:
         )
         return _extract(resp, label="get_order_history")
 
+    def get_fills(
+        self,
+        inst_type: str = "SWAP",
+        limit: str = "100",
+        after: str = "",
+    ) -> list[dict]:
+        """Fetch recent authenticated fills for restart-safe ingestion."""
+        resp = self.trade_api.get_fills(
+            instType=inst_type,
+            limit=limit,
+            after=after,
+        )
+        return _extract(resp, label="get_fills")
+
     # -- Trading (PROTECTED) -------------------------------------------------
 
     def place_limit_order(
@@ -253,4 +267,41 @@ class OKXClient:
         """Cancel an existing order."""
         resp = self.trade_api.cancel_order(instId=inst_id, ordId=order_id)
         data = _extract(resp, label="cancel_order")
+        return data[0] if data else {}
+
+    def place_reduce_market_order(
+        self,
+        *,
+        inst_id: str,
+        position_side: str,
+        sz: str,
+        td_mode: str = "cross",
+        pos_side: str = "",
+        confirm: bool = False,
+    ) -> dict:
+        """Submit a reduce-only market order for an existing position."""
+        if not _ORDER_PLACEMENT_ARMED:
+            raise PermissionError(
+                "Order placement is DISARMED. "
+                "Call arm_order_placement() or set MAYBECH_ARM_ORDERS=1 first."
+            )
+        if not confirm:
+            raise ValueError("confirm=True is required for a live reduce order")
+        normalized_side = position_side.lower()
+        if normalized_side not in {"long", "short"}:
+            raise ValueError("position_side must be 'long' or 'short'")
+        if float(sz) <= 0:
+            raise ValueError("reduce order size must be positive")
+
+        side = "sell" if normalized_side == "long" else "buy"
+        response = self.trade_api.place_order(
+            instId=inst_id,
+            tdMode=td_mode,
+            side=side,
+            ordType="market",
+            sz=sz,
+            posSide=pos_side,
+            reduceOnly="true",
+        )
+        data = _extract(response, label="place_reduce_market_order")
         return data[0] if data else {}
