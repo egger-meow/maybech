@@ -61,6 +61,25 @@ def test_api_lists_services_and_events():
     assert events.json()[-1]["type"] == "test.event"
 
 
+def test_api_cors_allows_configured_local_frontend_and_rejects_other_origins():
+    client = TestClient(create_app(DaemonRunner()))
+    headers = {
+        "Origin": "http://localhost:3000",
+        "Access-Control-Request-Method": "GET",
+    }
+
+    allowed = client.options("/services", headers=headers)
+    rejected = client.options(
+        "/services",
+        headers={**headers, "Origin": "https://example.com"},
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert rejected.status_code == 400
+    assert "access-control-allow-origin" not in rejected.headers
+
+
 def test_api_lists_persisted_audit_events(monkeypatch, tmp_path):
     store = AuditEventStore(str(tmp_path / "trades.db"))
     store.create(

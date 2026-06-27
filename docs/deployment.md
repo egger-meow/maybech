@@ -22,6 +22,11 @@ service or scheduled-task deployments where the working directory may vary.
 fills. Without valid credentials its daemon status will show tick errors; it
 never allocates fills whose order id is not linked to a Maybech logical unit.
 
+The dashboard calls FastAPI from a separate local origin in development.
+`MAYBECH_CORS_ORIGINS` defaults to `http://localhost:3000` and
+`http://127.0.0.1:3000`. Add another explicit local origin if Next.js uses a
+different port; do not use `*` while trading-control endpoints exist.
+
 ## Windows Auto-Start
 
 For a personal PC, the simplest always-on setup is Windows Task Scheduler:

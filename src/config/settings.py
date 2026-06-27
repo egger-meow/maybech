@@ -43,6 +43,16 @@ class Settings:
     MAYBECH_DB_PATH: str = field(
         default_factory=lambda: _get("MAYBECH_DB_PATH", "data/trades.db")
     )
+    MAYBECH_CORS_ORIGINS: list[str] = field(
+        default_factory=lambda: [
+            origin.strip()
+            for origin in _get(
+                "MAYBECH_CORS_ORIGINS",
+                "http://localhost:3000,http://127.0.0.1:3000",
+            ).split(",")
+            if origin.strip()
+        ]
+    )
 
     # Trading
     TRADING_PAIRS: list[str] = field(

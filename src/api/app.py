@@ -9,6 +9,7 @@ import json
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.config.settings import settings
 from src.config.strategy import StrategyConfig
@@ -523,6 +524,13 @@ def _signal_candle_context(
 def create_app(runner: DaemonRunner) -> FastAPI:
     """Create an API app bound to a daemon runner."""
     app = FastAPI(title="Maybech Runtime API", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.MAYBECH_CORS_ORIGINS,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type"],
+    )
     app.state.runner = runner
 
     @app.get("/health", response_model=HealthResponse)

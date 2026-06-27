@@ -30,7 +30,7 @@ function formatNumber(value: number | null | undefined, digits = 2): string {
 }
 
 export default function Positions() {
-  const { data: trades, mutate } = useSWR("open-trades", listOpenTrades, { refreshInterval: 5000 });
+  const { data: trades, error, mutate } = useSWR("open-trades", listOpenTrades, { refreshInterval: 5000 });
   const [selectedTrade, setSelectedTrade] = useState<TradeDetail | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [ruleName, setRuleName] = useState("");
@@ -99,7 +99,11 @@ export default function Positions() {
       </header>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-        {trades ? trades.map((trade) => {
+        {error ? (
+          <div className="glass-panel" style={{ padding: "1.5rem", color: "var(--accent-danger)" }}>
+            Backend positions API unavailable. Check the API process and CORS configuration.
+          </div>
+        ) : trades ? trades.map((trade) => {
           const side = trade.side.toLowerCase();
           const pnl = trade.pnl ?? 0;
           const activeRules = trade.active_rules ?? [];

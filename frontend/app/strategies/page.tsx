@@ -12,12 +12,12 @@ import { Play, Square, Settings, CheckCircle2, AlertCircle } from "lucide-react"
 import { useState } from "react";
 
 export default function Strategies() {
-  const { data: services, mutate: mutateServices } = useSWR<Record<string, ServiceStatus>>(
+  const { data: services, error: servicesError, mutate: mutateServices } = useSWR<Record<string, ServiceStatus>>(
     "services",
     listServices,
     { refreshInterval: 5000 },
   );
-  const { data: decisions } = useSWR(
+  const { data: decisions, error: decisionsError } = useSWR(
     "strategy-decisions-momentum-swap",
     () => listPersistedStrategyDecisions("momentum_swap", { limit: 50 }),
     { refreshInterval: 5000 },
@@ -57,7 +57,9 @@ export default function Strategies() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {services ? Object.entries(services).map(([name, status]) => {
+            {servicesError ? (
+              <div style={{ color: "var(--accent-danger)", padding: "1rem" }}>Backend services API unavailable.</div>
+            ) : services ? Object.entries(services).map(([name, status]) => {
               const isRunning = status?.active === true;
               const isLoading = loadingAction === name;
 
@@ -89,7 +91,9 @@ export default function Strategies() {
         <div className="glass-panel" style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
           <h2 style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--text-secondary)" }}>Recent Decisions</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", flex: 1, overflowY: "auto", maxHeight: "400px" }}>
-            {decisions && decisions.length > 0 ? decisions.map((d, idx) => (
+            {decisionsError ? (
+              <div style={{ color: "var(--accent-danger)", padding: "1rem" }}>Strategy decision API unavailable.</div>
+            ) : decisions && decisions.length > 0 ? decisions.map((d, idx) => (
               <div key={d.id ?? idx} style={{ padding: "0.75rem", backgroundColor: "var(--bg-primary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)", fontSize: "0.9rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", marginBottom: "0.25rem" }}>
                   <span style={{ fontWeight: 600 }}>{d.pair ?? "strategy"}</span>

@@ -8,7 +8,7 @@ function formatNumber(value: number | null | undefined): string {
 }
 
 export default function History() {
-  const { data: history } = useSWR("trade-history", () => listTradeHistory(100), { refreshInterval: 10000 });
+  const { data: history, error } = useSWR("trade-history", () => listTradeHistory(100), { refreshInterval: 10000 });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
@@ -18,7 +18,11 @@ export default function History() {
       </header>
 
       <div className="glass-panel" style={{ padding: "1.5rem", overflowX: "auto" }}>
-        {history ? (
+        {error ? (
+          <div style={{ padding: "1rem", color: "var(--accent-danger)" }}>
+            Backend history API unavailable. Check the API process and CORS configuration.
+          </div>
+        ) : history ? (
           <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border-color)" }}>

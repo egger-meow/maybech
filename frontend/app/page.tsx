@@ -35,7 +35,11 @@ export default function Dashboard() {
         <p style={{ color: "var(--text-muted)" }}>Runtime account and market state.</p>
       </header>
 
-      {loading ? (
+      {accountError ? (
+        <div className="glass-panel" style={{ padding: "1.5rem", color: "var(--accent-danger)" }}>
+          Backend account API unavailable. Check that FastAPI is running on the configured API URL.
+        </div>
+      ) : loading ? (
         <div className="flex-center" style={{ height: "200px", color: "var(--text-muted)" }}>Loading...</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1.5rem" }}>
@@ -72,7 +76,11 @@ export default function Dashboard() {
 
       <h2 style={{ fontSize: "1.5rem", fontWeight: 600, marginTop: "1rem" }}>Market Overview</h2>
 
-      {regimeLoading ? (
+      {regimeError ? (
+        <div className="glass-panel" style={{ padding: "1.5rem", color: "var(--accent-danger)" }}>
+          BTC regime API unavailable. The backend may still be starting or may lack market data.
+        </div>
+      ) : regimeLoading ? (
         <div className="flex-center" style={{ height: "100px", color: "var(--text-muted)" }}>Loading...</div>
       ) : (
         <div className="glass-panel" style={{ padding: "1.5rem", display: "flex", alignItems: "center", gap: "2rem", flexWrap: "wrap" }}>

@@ -119,6 +119,8 @@ npm run dev
 
 The dashboard reads `NEXT_PUBLIC_API_URL`, defaulting to
 `http://127.0.0.1:8000`.
+FastAPI accepts browser requests from the comma-separated local origins in
+`MAYBECH_CORS_ORIGINS`.
 
 Check frontend quality gates:
 
