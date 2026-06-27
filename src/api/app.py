@@ -236,6 +236,7 @@ def _logical_position_response(
         entry_time=position.entry_time,
         status=position.status,
         exchange_order_id=position.exchange_order_id,
+        client_order_id=position.client_order_id,
         exchange_position_key=position.exchange_position_key,
         metadata=metadata,
         created_at=position.created_at,

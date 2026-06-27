@@ -105,6 +105,13 @@ quantity. Each confirmed fill is recorded once by its exchange fill id and
 increases that unit's opened/remaining quantity. Multiple fills calculate a
 weighted unit entry price without merging the unit into earlier entries.
 
+Before either an entry or close is sent, the logical unit stores a unique OKX
+client order ID (`clOrdId`). The eventual exchange order ID is linked by order
+response, authenticated order lookup, or fill. A restart therefore cannot lose
+an accepted order in the gap between exchange acceptance and local response
+persistence. If OKX has no matching order after the stale threshold, the
+prepared entry fails or the prepared close returns to `open`.
+
 ## Exit Action
 
 An exit action reduces or closes one logical position unit according to its own

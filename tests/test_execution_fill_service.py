@@ -30,8 +30,8 @@ class FakeFillClient:
             return result
         return self.fills if not after else []
 
-    def get_order(self, inst_id, order_id):
-        order = self.orders.get(order_id)
+    def get_order(self, inst_id, order_id="", client_order_id=""):
+        order = self.orders.get(order_id or client_order_id)
         return [] if order is None else [order]
 
     def cancel_order(self, inst_id, order_id):
@@ -39,11 +39,12 @@ class FakeFillClient:
         return {"ordId": order_id, "sCode": "0"}
 
 
-def _raw_fill(fill_id="fill-a", order_id="order-a", bill_id=None):
+def _raw_fill(fill_id="fill-a", order_id="order-a", bill_id=None, client_order_id=""):
     return {
         "billId": bill_id or f"bill-{fill_id}",
         "tradeId": fill_id,
         "ordId": order_id,
+        "clOrdId": client_order_id,
         "instId": "ETH-USDT-SWAP",
         "side": "buy",
         "posSide": "net",
@@ -285,6 +286,79 @@ def test_execution_fill_service_recovers_canceled_entry_and_close_orders(tmp_pat
     assert position_store.get("close-unit").status == "open"
     assert position_store.get("close-unit").remaining_quantity == 0.06
     assert position_store.get("close-unit").exchange_order_id == ""
+
+
+def test_execution_fill_service_links_order_recovered_by_client_id(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="entry-unit",
+            inst_id="ETH-USDT-SWAP",
+            status="pending_open",
+            client_order_id="entryclient1",
+        )
+    )
+    client = FakeFillClient(
+        [],
+        orders={"entryclient1": {"ordId": "entry-order", "state": "live"}},
+    )
+    service = ExecutionFillService(
+        client=client,
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+    )
+    runner = DaemonRunner()
+    runner.register(service)
+
+    service.tick()
+
+    position = position_store.get("entry-unit")
+    assert position.exchange_order_id == "entry-order"
+    assert position.client_order_id == "entryclient1"
+    assert runner.runtime.get_value("execution.fills.status")["client_orders_linked"] == 1
+
+
+def test_execution_fill_service_recovers_stale_client_intent_missing_from_okx(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    trade_store.save_trade(TradeRecord(id="entry-unit", status="pending_open"))
+    position_store.save(
+        LogicalPositionRecord(
+            id="entry-unit",
+            trade_id="entry-unit",
+            inst_id="ETH-USDT-SWAP",
+            status="pending_open",
+            client_order_id="entryclient1",
+        )
+    )
+    service = ExecutionFillService(
+        client=FakeFillClient([]),
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+        stale_after_seconds=0,
+    )
+    runner = DaemonRunner()
+    runner.register(service)
+
+    service.tick()
+
+    position = position_store.get("entry-unit")
+    assert position.status == "failed"
+    assert position.client_order_id == ""
+    assert trade_store.get_trade("entry-unit").status == "failed"
+    assert (
+        runner.runtime.get_value("execution.fills.status")[
+            "missing_client_orders_recovered"
+        ]
+        == 1
+    )
 
 
 def test_execution_fill_service_requests_stale_cancel_once(tmp_path):

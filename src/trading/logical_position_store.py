@@ -126,6 +126,7 @@ class LogicalPositionRecord:
         "entry_time",
         "status",
         "exchange_order_id",
+        "client_order_id",
         "exchange_position_key",
         "metadata_json",
         "created_at",
@@ -147,6 +148,7 @@ class LogicalPositionRecord:
         entry_time: str = "",
         status: LogicalPositionStatus = "open",
         exchange_order_id: str = "",
+        client_order_id: str = "",
         exchange_position_key: str = "",
         metadata_json: str = "{}",
         created_at: str = "",
@@ -165,6 +167,7 @@ class LogicalPositionRecord:
         self.entry_time = entry_time or now
         self.status = status
         self.exchange_order_id = exchange_order_id
+        self.client_order_id = client_order_id
         self.exchange_position_key = exchange_position_key
         self.metadata_json = metadata_json
         self.created_at = created_at or now
@@ -203,6 +206,7 @@ class LogicalPositionRecord:
             entry_time=trade.entry_time,
             status=status,
             exchange_order_id=str(metadata.get("exchange_order_id") or ""),
+            client_order_id=str(metadata.get("client_order_id") or ""),
             metadata_json=_json_dumps(metadata),
             created_at=trade.entry_time,
             updated_at=trade.exit_time or trade.entry_time,
@@ -271,7 +275,7 @@ class LogicalPositionCloseCondition:
 
 
 _SCHEMA_COMPONENT = "logical_positions"
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 _SCHEMA = """
@@ -352,10 +356,11 @@ class LogicalPositionStore:
                 component=_SCHEMA_COMPONENT,
                 version=2,
             )
-            if _SCHEMA_VERSION not in applied_schema_versions(
-                conn, component=_SCHEMA_COMPONENT
-            ):
+            versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
+            if 3 not in versions:
                 self._migrate_v3(conn)
+            if _SCHEMA_VERSION not in versions:
+                self._migrate_v4(conn)
 
     @staticmethod
     def _migrate_v3(conn: sqlite3.Connection) -> None:
@@ -373,6 +378,23 @@ class LogicalPositionStore:
             "ON logical_positions(exchange_order_id)"
         )
         record_schema_version(conn, component=_SCHEMA_COMPONENT, version=3)
+
+    @staticmethod
+    def _migrate_v4(conn: sqlite3.Connection) -> None:
+        columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(logical_positions)").fetchall()
+        }
+        if "client_order_id" not in columns:
+            conn.execute(
+                "ALTER TABLE logical_positions "
+                "ADD COLUMN client_order_id TEXT NOT NULL DEFAULT ''"
+            )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_logical_positions_client_order "
+            "ON logical_positions(client_order_id) WHERE client_order_id != ''"
+        )
+        record_schema_version(conn, component=_SCHEMA_COMPONENT, version=4)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -394,9 +416,10 @@ class LogicalPositionStore:
                 """INSERT INTO logical_positions
                    (id, source, strategy_id, trade_id, inst_id, side,
                     opened_quantity, remaining_quantity, entry_price, entry_time,
-                    status, exchange_order_id, exchange_position_key, metadata_json, created_at,
+                    status, exchange_order_id, client_order_id, exchange_position_key,
+                    metadata_json, created_at,
                     updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                     source = excluded.source,
                     strategy_id = excluded.strategy_id,
@@ -409,6 +432,7 @@ class LogicalPositionStore:
                     entry_time = excluded.entry_time,
                     status = excluded.status,
                     exchange_order_id = excluded.exchange_order_id,
+                    client_order_id = excluded.client_order_id,
                     exchange_position_key = excluded.exchange_position_key,
                     metadata_json = excluded.metadata_json,
                     created_at = excluded.created_at,
@@ -426,6 +450,7 @@ class LogicalPositionStore:
                     position.entry_time,
                     position.status,
                     position.exchange_order_id,
+                    position.client_order_id,
                     position.exchange_position_key,
                     position.metadata_json,
                     position.created_at,
@@ -454,11 +479,23 @@ class LogicalPositionStore:
             ).fetchone()
         return None if row is None else LogicalPositionRecord.from_row(row)
 
+    def get_by_client_order_id(self, client_order_id: str) -> LogicalPositionRecord | None:
+        if not client_order_id:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM logical_positions
+                   WHERE client_order_id = ?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (client_order_id,),
+            ).fetchone()
+        return None if row is None else LogicalPositionRecord.from_row(row)
+
     def list_pending_executions(self, *, limit: int = 500) -> list[LogicalPositionRecord]:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM logical_positions
-                   WHERE exchange_order_id != ''
+                   WHERE (exchange_order_id != '' OR client_order_id != '')
                      AND status IN ('pending_open', 'open', 'reducing', 'closing')
                    ORDER BY updated_at
                    LIMIT ?""",
@@ -537,6 +574,7 @@ class LogicalPositionStore:
         *,
         expected_status: LogicalPositionStatus,
         status: LogicalPositionStatus,
+        client_order_id: str,
         metadata: dict[str, Any],
     ) -> LogicalPositionRecord | None:
         with self._conn() as conn:
@@ -553,10 +591,12 @@ class LogicalPositionStore:
             updated_at = datetime.now(timezone.utc).isoformat()
             cursor = conn.execute(
                 """UPDATE logical_positions SET
-                   status = ?, exchange_order_id = '', metadata_json = ?, updated_at = ?
+                   status = ?, exchange_order_id = '', client_order_id = ?,
+                   metadata_json = ?, updated_at = ?
                    WHERE id = ? AND status = ?""",
                 (
                     status,
+                    client_order_id,
                     _json_dumps({**current_metadata, **metadata}),
                     updated_at,
                     position_id,
@@ -589,7 +629,8 @@ class LogicalPositionStore:
             metadata["execution_status"] = "submission_failed"
             conn.execute(
                 """UPDATE logical_positions SET
-                   status = ?, exchange_order_id = ?, metadata_json = ?, updated_at = ?
+                   status = ?, exchange_order_id = ?, client_order_id = '',
+                   metadata_json = ?, updated_at = ?
                    WHERE id = ?""",
                 (
                     restore_status,
@@ -597,6 +638,88 @@ class LogicalPositionStore:
                     _json_dumps(metadata),
                     datetime.now(timezone.utc).isoformat(),
                     position_id,
+                ),
+            )
+        return self.get(position_id)
+
+    def link_exchange_order(
+        self,
+        position_id: str,
+        *,
+        client_order_id: str,
+        exchange_order_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> LogicalPositionRecord | None:
+        if not client_order_id or not exchange_order_id:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT metadata_json FROM logical_positions "
+                "WHERE id = ? AND client_order_id = ?",
+                (position_id, client_order_id),
+            ).fetchone()
+            if row is None:
+                return None
+            current_metadata = _json_loads(row["metadata_json"], {})
+            if not isinstance(current_metadata, dict):
+                current_metadata = {}
+            conn.execute(
+                """UPDATE logical_positions SET
+                   exchange_order_id = ?, metadata_json = ?, updated_at = ?
+                   WHERE id = ? AND client_order_id = ?""",
+                (
+                    exchange_order_id,
+                    _json_dumps({**current_metadata, **(metadata or {})}),
+                    datetime.now(timezone.utc).isoformat(),
+                    position_id,
+                    client_order_id,
+                ),
+            )
+        return self.get(position_id)
+
+    def recover_client_order_intent(
+        self,
+        position_id: str,
+        *,
+        client_order_id: str,
+        execution_status: str,
+    ) -> LogicalPositionRecord | None:
+        """Release a pre-submitted intent when OKX confirms no matching order."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM logical_positions WHERE id = ? AND client_order_id = ? "
+                "AND exchange_order_id = ''",
+                (position_id, client_order_id),
+            ).fetchone()
+            if row is None:
+                return self.get(position_id)
+            position = LogicalPositionRecord.from_row(row)
+            if position.status == "pending_open":
+                recovered_status: LogicalPositionStatus = "failed"
+            elif position.status in {"closing", "reducing"}:
+                recovered_status = "open"
+            else:
+                return position
+            metadata = _json_loads(position.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata.update(
+                {
+                    "execution_status": execution_status,
+                    "recovered_client_order_id": client_order_id,
+                    "recovered_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            conn.execute(
+                """UPDATE logical_positions SET
+                   status = ?, client_order_id = '', metadata_json = ?, updated_at = ?
+                   WHERE id = ? AND client_order_id = ? AND exchange_order_id = ''""",
+                (
+                    recovered_status,
+                    _json_dumps(metadata),
+                    datetime.now(timezone.utc).isoformat(),
+                    position_id,
+                    client_order_id,
                 ),
             )
         return self.get(position_id)
@@ -645,7 +768,8 @@ class LogicalPositionStore:
             )
             conn.execute(
                 """UPDATE logical_positions SET
-                   status = ?, exchange_order_id = '', metadata_json = ?, updated_at = ?
+                   status = ?, exchange_order_id = '', client_order_id = '',
+                   metadata_json = ?, updated_at = ?
                    WHERE id = ? AND exchange_order_id = ?""",
                 (
                     recovered_status,
@@ -684,10 +808,11 @@ class LogicalPositionStore:
                 metadata["completed_at"] = datetime.now(timezone.utc).isoformat()
             conn.execute(
                 """UPDATE logical_positions SET
-                   exchange_order_id = ?, metadata_json = ?, updated_at = ?
+                   exchange_order_id = ?, client_order_id = ?, metadata_json = ?, updated_at = ?
                    WHERE id = ? AND exchange_order_id = ?""",
                 (
                     "" if completed else exchange_order_id,
+                    "" if completed else position.client_order_id,
                     _json_dumps(metadata),
                     datetime.now(timezone.utc).isoformat(),
                     position_id,

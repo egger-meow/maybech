@@ -215,11 +215,16 @@ to a logical unit automatically.
 `GET /execution/fills/status` exposes the latest polling counts: fetched,
 applied, idempotent, unmatched, invalid, conflicts, orders checked, terminal
 recoveries, stale cancellation requests, filled orders awaiting allocation,
-deduplicated missing-fill alerts, order errors, and update time.
+deduplicated missing-fill alerts, order errors, client orders linked to an
+eventual exchange order ID, stale client intents recovered, and update time.
 It also reports durable catch-up state: pages fetched, `caught_up`, whether a
 cursor cycle is in progress, history exhaustion, committed high-water bill ID,
 next `after` bill ID, and cursor errors. A committed high-water mark never moves
 past a page that was not fully ingested or durably quarantined.
+
+Logical position responses expose both `client_order_id` and
+`exchange_order_id`. The client ID exists before submission and remains until
+the order reaches a completed or safely recovered state.
 
 ## Target Visualization Endpoints
 

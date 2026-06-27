@@ -29,6 +29,7 @@ class ConfirmedExecutionFill:
     action: AllocationAction | None = None
     position_id: str = ""
     exchange_order_id: str = ""
+    client_order_id: str = ""
     correlation_id: str = ""
     fee: float | None = None
     occurred_at: str = ""
@@ -140,8 +141,21 @@ class ExecutionAllocationService:
             position = self.position_store.get_by_exchange_order_id(
                 fill.exchange_order_id
             )
+            if position is None and fill.client_order_id:
+                position = self.position_store.get_by_client_order_id(
+                    fill.client_order_id
+                )
+                if position is not None and fill.exchange_order_id:
+                    linked = self.position_store.link_exchange_order(
+                        position.id,
+                        client_order_id=fill.client_order_id,
+                        exchange_order_id=fill.exchange_order_id,
+                        metadata={"execution_status": "exchange_order_recovered_from_fill"},
+                    )
+                    if linked is not None:
+                        position = linked
         if position is None:
-            reference = fill.position_id or fill.exchange_order_id
+            reference = fill.position_id or fill.exchange_order_id or fill.client_order_id
             raise LookupError(f"No logical position matches confirmed fill {reference!r}")
         return position
 

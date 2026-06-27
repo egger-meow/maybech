@@ -11,6 +11,7 @@ from src.trading.execution_allocation import ConfirmedExecutionFill
 def normalize_okx_fill(payload: dict[str, Any]) -> ConfirmedExecutionFill:
     fill_id = str(payload.get("tradeId") or payload.get("fillId") or "")
     order_id = str(payload.get("ordId") or "")
+    client_order_id = str(payload.get("clOrdId") or "")
     if not fill_id:
         raise ValueError("OKX fill is missing tradeId")
     if not order_id:
@@ -23,6 +24,7 @@ def normalize_okx_fill(payload: dict[str, Any]) -> ConfirmedExecutionFill:
     return ConfirmedExecutionFill(
         fill_id=fill_id,
         exchange_order_id=order_id,
+        client_order_id=client_order_id,
         quantity=quantity,
         price=price,
         fee=fee,
@@ -33,6 +35,7 @@ def normalize_okx_fill(payload: dict[str, Any]) -> ConfirmedExecutionFill:
             "inst_id": str(payload.get("instId") or ""),
             "side": str(payload.get("side") or ""),
             "position_side": str(payload.get("posSide") or ""),
+            "client_order_id": client_order_id,
             "fee_currency": str(payload.get("feeCcy") or ""),
             "execution_type": str(payload.get("execType") or ""),
         },

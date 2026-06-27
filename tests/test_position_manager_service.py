@@ -136,6 +136,7 @@ def test_live_close_submission_waits_for_confirmed_partial_fills(tmp_path):
     assert submitted.status == "closing"
     assert submitted.remaining_quantity == 0.1
     assert submitted.exchange_order_id == "close-order-a"
+    assert submitted.client_order_id
     assert store.get_trade(trade_id).status == "open"
     assert position_store.list_allocations(trade_id) == []
     assert close_executor.calls == [
@@ -143,6 +144,7 @@ def test_live_close_submission_waits_for_confirmed_partial_fills(tmp_path):
             "inst_id": "ETH-USDT-SWAP",
             "position_side": "long",
             "quantity": 0.1,
+            "client_order_id": submitted.client_order_id,
             "pos_side": "",
         }
     ]
@@ -193,6 +195,7 @@ def test_failed_live_close_submission_releases_position_claim(tmp_path):
     assert intent["action"] == "close_submission_failed"
     assert position.status == "open"
     assert position.exchange_order_id == ""
+    assert position.client_order_id == ""
     assert store.get_trade(trade_id).status == "open"
 
 

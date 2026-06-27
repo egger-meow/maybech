@@ -91,3 +91,31 @@ def test_execution_allocator_rejects_unmatched_order(tmp_path):
                 confirmation_source="okx_fill",
             )
         )
+
+
+def test_execution_allocator_recovers_position_by_client_order_id(tmp_path):
+    trade_store, position_store, audit_store = _stores(tmp_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="unit-a",
+            status="pending_open",
+            client_order_id="entryclient1",
+            metadata_json='{"expected_quantity":0.1,"order_action":"open"}',
+        )
+    )
+    service = ExecutionAllocationService(trade_store, position_store, audit_store)
+
+    result = service.ingest(
+        ConfirmedExecutionFill(
+            fill_id="fill-a",
+            exchange_order_id="order-a",
+            client_order_id="entryclient1",
+            quantity=0.1,
+            price=2000,
+            confirmation_source="okx_fill",
+        )
+    )
+
+    assert result.position.status == "open"
+    assert result.position.opened_quantity == 0.1
+    assert position_store.list_allocations("unit-a")[0].exchange_order_id == "order-a"

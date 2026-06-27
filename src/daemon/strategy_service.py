@@ -267,6 +267,34 @@ class StrategyService(DaemonService):
             self.strategy_store,
             pair,
         )
+        try:
+            trade, position = self._prepare_open_unit(
+                strategy=strategy,
+                pair=pair,
+                side=side,
+                entry_price=entry_price,
+                requested_size=requested_size,
+                evaluation=evaluation,
+                btc_regime=btc_regime,
+                decision_id=decision_id,
+            )
+        except Exception as exc:
+            logger.exception("Failed to persist entry intent %s", decision_id)
+            decision_entry.update(
+                {
+                    "execution_status": "persistence_failed",
+                    "persistence_error": str(exc),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            self._save_decision(decision_entry)
+            self._save_and_publish_lifecycle_event(
+                "strategy.execution_failed",
+                decision_entry,
+            )
+            self._publish_decision_snapshot()
+            return None
+
         result = self.executor.execute(
             inst_id=pair,
             position_side=side,
@@ -274,6 +302,7 @@ class StrategyService(DaemonService):
             requested_size=requested_size,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
+            client_order_id=decision_id,
         ) or {}
         execution_status = (
             "simulated" if result and self.dry_run else "submitted" if result else "failed"
@@ -282,26 +311,34 @@ class StrategyService(DaemonService):
             "execution_status": execution_status,
             "execution_result": result,
             "order_id": self._extract_order_id(result),
+            "trade_id": trade.id,
+            "position_id": position.id,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         if result:
             try:
-                trade, position = self._record_open_unit(
-                    strategy=strategy,
-                    pair=pair,
-                    side=side,
-                    entry_price=entry_price,
-                    evaluation=evaluation,
-                    btc_regime=btc_regime,
-                    decision_id=decision_id,
+                position = self._record_entry_submission(
+                    trade=trade,
+                    position=position,
+                    client_order_id=decision_id,
+                    requested_size=float(requested_size),
                     execution_result=result,
                 )
-                lifecycle.update({"trade_id": trade.id, "position_id": position.id})
             except Exception as exc:
                 logger.exception("Failed to persist submitted strategy action %s", decision_id)
                 lifecycle.update(
                     {"execution_status": "persistence_failed", "persistence_error": str(exc)}
                 )
+        else:
+            self.position_store.recover_client_order_intent(
+                position.id,
+                client_order_id=decision_id,
+                execution_status="submission_failed",
+            )
+            self.trade_store.mark_trade_failed(
+                trade.id,
+                reason="entry order submission failed",
+            )
 
         decision_entry.update(lifecycle)
         self._save_decision(decision_entry)
@@ -319,24 +356,23 @@ class StrategyService(DaemonService):
             "correlation_id": decision_id,
         }
 
-    def _record_open_unit(
+    def _prepare_open_unit(
         self,
         *,
         strategy: StrategyRecord,
         pair: str,
         side: str,
         entry_price: float,
+        requested_size: str,
         evaluation: SignalEvaluationResult,
         btc_regime: dict[str, Any] | None,
         decision_id: str,
-        execution_result: dict[str, Any],
     ) -> tuple[TradeRecord, LogicalPositionRecord]:
         metadata = {
             "correlation_id": decision_id,
-            "execution_status": "simulated" if self.dry_run else "submitted",
-            "execution_result": execution_result,
-            "exchange_order_id": self._extract_order_id(execution_result),
-            "expected_quantity": self._requested_size(execution_result),
+            "client_order_id": decision_id,
+            "execution_status": "prepared",
+            "expected_quantity": float(requested_size),
             "order_action": "open",
             "signal_evidence": evaluation.evidence,
         }
@@ -347,11 +383,12 @@ class StrategyService(DaemonService):
             entry_price=entry_price,
             signal_reason="persisted entry signal matched",
             btc_price_at_entry=btc_regime.get("price") if btc_regime else None,
-            status="open" if self.dry_run else "pending_open",
+            status="pending_open",
             metadata_json=json.dumps(metadata, separators=(",", ":"), sort_keys=True),
         )
         self.trade_store.save_trade(trade)
         position = LogicalPositionRecord.from_trade(trade)
+        position.client_order_id = decision_id
         self.position_store.save(position)
 
         for index, spec in enumerate(close_condition_specs(strategy, self.strategy_store)):
@@ -369,18 +406,49 @@ class StrategyService(DaemonService):
             if created is None:
                 raise RuntimeError("Failed to persist default close condition")
 
+        return trade, position
+
+    def _record_entry_submission(
+        self,
+        *,
+        trade: TradeRecord,
+        position: LogicalPositionRecord,
+        client_order_id: str,
+        requested_size: float,
+        execution_result: dict[str, Any],
+    ) -> LogicalPositionRecord:
+        order_id = self._extract_order_id(execution_result)
+        if not order_id:
+            raise ValueError("Order submission response is missing ordId")
+        linked = self.position_store.link_exchange_order(
+            position.id,
+            client_order_id=client_order_id,
+            exchange_order_id=order_id,
+            metadata={
+                "execution_status": "simulated" if self.dry_run else "submitted",
+                "execution_result": execution_result,
+                "exchange_order_id": order_id,
+            },
+        )
+        if linked is None:
+            raise RuntimeError("Prepared position could not link exchange order")
+        position = linked
+
         if self.dry_run:
             updated = self.position_store.record_allocation(
                 LogicalPositionAllocation(
-                    id=f"dry-fill-{decision_id}",
+                    id=f"dry-fill-{client_order_id}",
                     position_id=position.id,
                     action="open",
-                    quantity=self._requested_size(execution_result),
-                    price=entry_price,
-                    exchange_order_id=self._extract_order_id(execution_result) or "",
+                    quantity=requested_size,
+                    price=position.entry_price,
+                    exchange_order_id=order_id,
                     reason="confirmed dry-run entry",
                     metadata_json=json.dumps(
-                        {"confirmation_source": "dry_run", "correlation_id": decision_id},
+                        {
+                            "confirmation_source": "dry_run",
+                            "correlation_id": client_order_id,
+                        },
                         separators=(",", ":"),
                         sort_keys=True,
                     ),
@@ -388,14 +456,16 @@ class StrategyService(DaemonService):
             )
             if updated is not None:
                 position = updated
-        return trade, position
-
-    @staticmethod
-    def _requested_size(execution_result: dict[str, Any]) -> float:
-        value = execution_result.get("maybechRequestedSize")
-        if value is None or float(value) <= 0:
-            raise ValueError("Execution result is missing a positive validated size")
-        return float(value)
+            self.trade_store.mark_trade_open(trade.id, entry_price=position.entry_price)
+            tracked = self.position_store.update_execution_tracking(
+                position.id,
+                exchange_order_id=order_id,
+                execution_status="filled",
+                completed=True,
+            )
+            if tracked is not None:
+                position = tracked
+        return position
 
     def _save_decision(self, payload: dict[str, Any]) -> bool:
         try:

@@ -513,8 +513,10 @@ class PositionManagerService(DaemonService):
                 position.id,
                 expected_status="open",
                 status="closing",
+                client_order_id=correlation_id,
                 metadata={
                     "correlation_id": correlation_id,
+                    "client_order_id": correlation_id,
                     "order_action": "close",
                     "close_reason": exit_reason,
                     "close_quantity": close_quantity,
@@ -534,6 +536,7 @@ class PositionManagerService(DaemonService):
                     inst_id=position.inst_id,
                     position_side=position.side,
                     quantity=close_quantity,
+                    client_order_id=correlation_id,
                     pos_side=self._exchange_position_side(position),
                 )
             except Exception as exc:
@@ -568,6 +571,7 @@ class PositionManagerService(DaemonService):
                     "correlation_id": correlation_id,
                     "order_action": "close",
                     "close_order_id": order_id,
+                    "client_order_id": correlation_id,
                     "close_reason": exit_reason,
                     "close_quantity": close_quantity,
                     "execution_status": "submitted",

@@ -16,7 +16,10 @@ class FakeTradeApi:
 
     def get_order(self, **kwargs):
         self.kwargs = kwargs
-        return {"code": "0", "data": [{"ordId": kwargs["ordId"], "state": "live"}]}
+        return {
+            "code": "0",
+            "data": [{"ordId": kwargs.get("ordId", "recovered-order"), "state": "live"}],
+        }
 
 
 class FakePublicApi:
@@ -55,6 +58,7 @@ def test_okx_client_places_guarded_reduce_only_close(monkeypatch):
         inst_id="ETH-USDT-SWAP",
         position_side="long",
         sz="0.1",
+        client_order_id="closeclient1",
         confirm=True,
     )
 
@@ -64,6 +68,7 @@ def test_okx_client_places_guarded_reduce_only_close(monkeypatch):
         "tdMode": "cross",
         "side": "sell",
         "ordType": "market",
+        "clOrdId": "closeclient1",
         "sz": "0.1",
         "posSide": "",
         "reduceOnly": "true",
@@ -80,6 +85,19 @@ def test_okx_client_get_order_uses_instrument_and_order_id():
     assert client.trade_api.kwargs == {
         "instId": "ETH-USDT-SWAP",
         "ordId": "order-a",
+    }
+
+
+def test_okx_client_get_order_can_recover_by_client_order_id():
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+
+    orders = client.get_order("ETH-USDT-SWAP", client_order_id="entryclient1")
+
+    assert orders[0]["ordId"] == "recovered-order"
+    assert client.trade_api.kwargs == {
+        "instId": "ETH-USDT-SWAP",
+        "clOrdId": "entryclient1",
     }
 
 

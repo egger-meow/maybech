@@ -33,6 +33,7 @@ class Executor:
         entry_price: float,
         requested_size: str,
         stop_loss_price: float,
+        client_order_id: str,
         take_profit_price: float | None = None,
     ) -> dict[str, Any]:
         """Place a validated limit entry for a persisted strategy intent."""
@@ -60,6 +61,7 @@ class Executor:
             if self.dry_run:
                 return {
                     "ordId": "mock_ord_123",
+                    "clOrdId": client_order_id,
                     "tag": "dry_run",
                     "maybechRequestedSize": requested_size,
                 }
@@ -83,6 +85,7 @@ class Executor:
                 sl_ord_px="-1",
                 tp_trigger_px=take_profit,
                 tp_ord_px="-1" if take_profit else "",
+                client_order_id=client_order_id,
                 confirm=True,
             )
             if not response:
@@ -102,13 +105,18 @@ class Executor:
         inst_id: str,
         position_side: str,
         quantity: float,
+        client_order_id: str,
         pos_side: str = "",
     ) -> dict:
         """Submit a precision-validated reduce-only market close."""
         if quantity <= 0:
             raise ValueError("close quantity must be positive")
         if self.dry_run:
-            return {"ordId": f"mock_close_{inst_id}", "tag": "dry_run"}
+            return {
+                "ordId": f"mock_close_{inst_id}",
+                "clOrdId": client_order_id,
+                "tag": "dry_run",
+            }
         try:
             size = self._instrument_constraints(inst_id).normalize_size(quantity)
             return self.client.place_reduce_market_order(
@@ -116,6 +124,7 @@ class Executor:
                 position_side=position_side,
                 sz=size,
                 pos_side=pos_side,
+                client_order_id=client_order_id,
                 confirm=True,
             )
         except Exception as exc:

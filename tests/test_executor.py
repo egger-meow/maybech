@@ -34,6 +34,7 @@ def test_live_entry_rejects_missing_contract_size():
         entry_price=2000,
         requested_size="",
         stop_loss_price=1900,
+        client_order_id="entryclient1",
     ) == {}
     assert client.entry is None
 
@@ -48,6 +49,7 @@ def test_live_entry_normalizes_size_and_price_from_okx_metadata():
         entry_price=2000.126,
         requested_size="0.3",
         stop_loss_price=1900.124,
+        client_order_id="entryclient2",
         take_profit_price=2200.125,
     )
 
@@ -59,6 +61,7 @@ def test_live_entry_normalizes_size_and_price_from_okx_metadata():
     assert client.entry["sl_ord_px"] == "-1"
     assert client.entry["tp_trigger_px"] == "2200.13"
     assert client.entry["tp_ord_px"] == "-1"
+    assert client.entry["client_order_id"] == "entryclient2"
 
 
 def test_live_close_rejects_quantity_outside_lot_precision():
@@ -69,6 +72,7 @@ def test_live_close_rejects_quantity_outside_lot_precision():
         inst_id="ETH-USDT-SWAP",
         position_side="long",
         quantity=0.15,
+        client_order_id="closeclient1",
     ) == {}
     assert client.close is None
 
@@ -83,5 +87,6 @@ def test_entry_rejects_stop_on_wrong_side_before_submission():
         entry_price=2000,
         requested_size="1",
         stop_loss_price=2100,
+        client_order_id="entryclient3",
     ) == {}
     assert client.entry is None

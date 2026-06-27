@@ -67,6 +67,8 @@ export type ExecutionFillIngestionStatusResponse = {
   "filled_awaiting_allocation"?: number;
   "missing_fill_alerts"?: number;
   "order_errors"?: number;
+  "client_orders_linked"?: number;
+  "missing_client_orders_recovered"?: number;
   "pages_fetched"?: number;
   "caught_up"?: boolean;
   "cursor_in_progress"?: boolean;
@@ -159,6 +161,7 @@ export type LogicalPositionUnitResponse = {
   "entry_time": string;
   "status": string;
   "exchange_order_id"?: string;
+  "client_order_id"?: string;
   "exchange_position_key"?: string;
   "metadata"?: Record<string, unknown>;
   "created_at": string;

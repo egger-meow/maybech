@@ -63,6 +63,8 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     filled_awaiting_allocation: int = 0
     missing_fill_alerts: int = 0
     order_errors: int = 0
+    client_orders_linked: int = 0
+    missing_client_orders_recovered: int = 0
     pages_fetched: int = 0
     caught_up: bool = False
     cursor_in_progress: bool = False
@@ -405,6 +407,7 @@ class LogicalPositionUnitResponse(BaseModel):
     entry_time: str
     status: str
     exchange_order_id: str = ""
+    client_order_id: str = ""
     exchange_position_key: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str

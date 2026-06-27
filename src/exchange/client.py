@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 import okx.Account as Account
 import okx.MarketData as MarketData
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 # When False, place_limit_order() will refuse to execute.
 # ---------------------------------------------------------------------------
 _ORDER_PLACEMENT_ARMED = os.getenv("MAYBECH_ARM_ORDERS", "0") == "1"
+_CLIENT_ORDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{1,32}$")
 
 
 def arm_order_placement() -> None:
@@ -188,9 +190,22 @@ class OKXClient:
         )
         return _extract(resp, label="get_fills_history")
 
-    def get_order(self, inst_id: str, order_id: str) -> list[dict]:
+    def get_order(
+        self,
+        inst_id: str,
+        order_id: str = "",
+        client_order_id: str = "",
+    ) -> list[dict]:
         """Fetch one authenticated order for pending-state reconciliation."""
-        resp = self.trade_api.get_order(instId=inst_id, ordId=order_id)
+        if not order_id and not client_order_id:
+            raise ValueError("order_id or client_order_id is required")
+        params = {"instId": inst_id}
+        if order_id:
+            params["ordId"] = order_id
+        else:
+            _validate_client_order_id(client_order_id)
+            params["clOrdId"] = client_order_id
+        resp = self.trade_api.get_order(**params)
         return _extract(resp, label="get_order")
 
     # -- Trading (PROTECTED) -------------------------------------------------
@@ -207,6 +222,7 @@ class OKXClient:
         tp_ord_px: str = "",
         sl_trigger_px: str = "",
         sl_ord_px: str = "",
+        client_order_id: str = "",
         confirm: bool = False,
     ) -> dict:
         """Place a LIMIT order (限價單) with optional TP/SL.
@@ -254,6 +270,7 @@ class OKXClient:
             raise ValueError(f"sz must be positive, got '{sz}'")
         if float(px) <= 0:
             raise ValueError(f"px must be positive, got '{px}'")
+        _validate_client_order_id(client_order_id)
 
         logger.warning(
             "📤 PLACING LIMIT ORDER: %s %s %s @ %s (mode=%s, tp=%s, sl=%s)",
@@ -266,6 +283,7 @@ class OKXClient:
             tdMode=td_mode,
             side=side,
             ordType="limit",
+            clOrdId=client_order_id,
             sz=sz,
             px=px,
             tpTriggerPx=tp_trigger_px,
@@ -291,6 +309,7 @@ class OKXClient:
         sz: str,
         td_mode: str = "cross",
         pos_side: str = "",
+        client_order_id: str = "",
         confirm: bool = False,
     ) -> dict:
         """Submit a reduce-only market order for an existing position."""
@@ -306,6 +325,7 @@ class OKXClient:
             raise ValueError("position_side must be 'long' or 'short'")
         if float(sz) <= 0:
             raise ValueError("reduce order size must be positive")
+        _validate_client_order_id(client_order_id)
 
         side = "sell" if normalized_side == "long" else "buy"
         response = self.trade_api.place_order(
@@ -313,9 +333,15 @@ class OKXClient:
             tdMode=td_mode,
             side=side,
             ordType="market",
+            clOrdId=client_order_id,
             sz=sz,
             posSide=pos_side,
             reduceOnly="true",
         )
         data = _extract(response, label="place_reduce_market_order")
         return data[0] if data else {}
+
+
+def _validate_client_order_id(client_order_id: str) -> None:
+    if not _CLIENT_ORDER_ID_PATTERN.fullmatch(client_order_id):
+        raise ValueError("client_order_id must be 1-32 ASCII alphanumeric characters")

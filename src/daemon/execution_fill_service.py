@@ -67,6 +67,8 @@ class ExecutionFillService(DaemonService):
             "filled_awaiting_allocation": 0,
             "missing_fill_alerts": 0,
             "order_errors": 0,
+            "client_orders_linked": 0,
+            "missing_client_orders_recovered": 0,
             "pages_fetched": 0,
             "caught_up": False,
             "cursor_in_progress": False,
@@ -239,17 +241,77 @@ class ExecutionFillService(DaemonService):
             return
         for position in self.allocator.position_store.list_pending_executions():
             order_id = position.exchange_order_id
+            client_order_id = position.client_order_id
             try:
-                orders = self.client.get_order(position.inst_id, order_id)
+                orders = self.client.get_order(
+                    position.inst_id,
+                    order_id=order_id,
+                    client_order_id=client_order_id,
+                )
             except Exception as exc:
                 status["order_errors"] += 1
                 logger.warning("Failed to inspect OKX order %s: %s", order_id, exc)
                 continue
             status["orders_checked"] += 1
             if not orders:
+                if (
+                    client_order_id
+                    and not order_id
+                    and self._position_age_seconds(position) >= self.stale_after_seconds
+                ):
+                    recovered = self.allocator.position_store.recover_client_order_intent(
+                        position.id,
+                        client_order_id=client_order_id,
+                        execution_status="client_order_not_found",
+                    )
+                    if recovered is not None:
+                        if recovered.status == "failed" and recovered.trade_id:
+                            self.allocator.trade_store.mark_trade_failed(
+                                recovered.trade_id,
+                                reason="prepared client order not found on OKX",
+                            )
+                        status["missing_client_orders_recovered"] += 1
+                        self.allocator.audit_store.create(
+                            type="position.client_order_not_found",
+                            source=self.name,
+                            payload={
+                                "strategy_id": recovered.strategy_id,
+                                "position_id": recovered.id,
+                                "trade_id": recovered.trade_id,
+                                "client_order_id": client_order_id,
+                                "recovered_status": recovered.status,
+                            },
+                        )
+                    continue
                 status["order_errors"] += 1
                 continue
             order = orders[0]
+            recovered_order_id = str(order.get("ordId") or order_id or "")
+            if not order_id and client_order_id and recovered_order_id:
+                linked = self.allocator.position_store.link_exchange_order(
+                    position.id,
+                    client_order_id=client_order_id,
+                    exchange_order_id=recovered_order_id,
+                    metadata={"execution_status": "exchange_order_recovered"},
+                )
+                if linked is not None:
+                    position = linked
+                    order_id = recovered_order_id
+                    status["client_orders_linked"] += 1
+                    self.allocator.audit_store.create(
+                        type="position.exchange_order_recovered",
+                        source=self.name,
+                        payload={
+                            "strategy_id": position.strategy_id,
+                            "position_id": position.id,
+                            "trade_id": position.trade_id,
+                            "client_order_id": client_order_id,
+                            "exchange_order_id": order_id,
+                        },
+                    )
+            if not order_id:
+                status["order_errors"] += 1
+                continue
             order_state = str(order.get("state") or "").lower()
             if order_state in self.TERMINAL_ORDER_STATES:
                 recovered = self.allocator.position_store.recover_terminal_order(
@@ -379,6 +441,14 @@ class ExecutionFillService(DaemonService):
         raw_timestamp = order.get("uTime") or order.get("cTime")
         try:
             timestamp = int(str(raw_timestamp)) / 1000
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, datetime.now(timezone.utc).timestamp() - timestamp)
+
+    @staticmethod
+    def _position_age_seconds(position: Any) -> float:
+        try:
+            timestamp = datetime.fromisoformat(position.updated_at).timestamp()
         except (TypeError, ValueError):
             return 0.0
         return max(0.0, datetime.now(timezone.utc).timestamp() - timestamp)

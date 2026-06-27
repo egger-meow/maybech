@@ -47,10 +47,10 @@ def test_logical_position_store_saves_and_lists_independent_units(tmp_path):
 def test_logical_position_store_records_schema_version(tmp_path):
     store = LogicalPositionStore(str(tmp_path / "positions.db"))
 
-    assert store.applied_schema_versions() == [2, 3]
+    assert store.applied_schema_versions() == [2, 3, 4]
 
 
-def test_logical_position_store_migrates_exchange_order_lookup(tmp_path):
+def test_logical_position_store_migrates_order_lookups(tmp_path):
     db_path = str(tmp_path / "positions.db")
     conn = sqlite3.connect(db_path)
     try:
@@ -88,12 +88,14 @@ def test_logical_position_store_migrates_exchange_order_lookup(tmp_path):
         LogicalPositionRecord(
             id="unit-a",
             exchange_order_id="order-a",
+            client_order_id="entryclient1",
             status="pending_open",
         )
     )
 
-    assert store.applied_schema_versions() == [2, 3]
+    assert store.applied_schema_versions() == [2, 3, 4]
     assert store.get_by_exchange_order_id("order-a").id == "unit-a"
+    assert store.get_by_client_order_id("entryclient1").id == "unit-a"
 
 
 def test_logical_position_store_backfills_from_trade_once(tmp_path):
@@ -389,14 +391,53 @@ def test_pending_execution_claim_is_compare_and_set(tmp_path):
         "unit-a",
         expected_status="open",
         status="closing",
+        client_order_id="closeclient1",
         metadata={"correlation_id": "close-a"},
     )
     second = store.claim_pending_execution(
         "unit-a",
         expected_status="open",
         status="closing",
+        client_order_id="closeclient2",
         metadata={"correlation_id": "close-b"},
     )
 
     assert first.status == "closing"
+    assert first.client_order_id == "closeclient1"
     assert second is None
+
+
+def test_client_order_intent_can_link_exchange_order_or_recover(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "positions.db"))
+    store.save(
+        LogicalPositionRecord(
+            id="unit-a",
+            status="pending_open",
+            client_order_id="entryclient1",
+        )
+    )
+
+    linked = store.link_exchange_order(
+        "unit-a",
+        client_order_id="entryclient1",
+        exchange_order_id="order-a",
+    )
+
+    assert linked.exchange_order_id == "order-a"
+    assert store.get_by_client_order_id("entryclient1").id == "unit-a"
+
+    store.save(
+        LogicalPositionRecord(
+            id="unit-b",
+            status="pending_open",
+            client_order_id="entryclient2",
+        )
+    )
+    recovered = store.recover_client_order_intent(
+        "unit-b",
+        client_order_id="entryclient2",
+        execution_status="client_order_not_found",
+    )
+
+    assert recovered.status == "failed"
+    assert recovered.client_order_id == ""
