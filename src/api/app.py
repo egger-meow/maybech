@@ -44,6 +44,7 @@ from src.api.schemas import (
     ConfirmedPositionFillResponse,
     ExecutionFillIngestionStatusResponse,
     HealthResponse,
+    LivePreflightResponse,
     LogicalPositionUnitResponse,
     LogicalPositionCloseConditionCreate,
     LogicalPositionCloseConditionResponse,
@@ -514,6 +515,13 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return {"ok": True, "running": runner.running}
+
+    @app.get("/runtime/preflight", response_model=LivePreflightResponse)
+    def get_live_preflight() -> LivePreflightResponse:
+        status = runner.runtime.get_value("runtime.live_preflight")
+        if status is None:
+            raise HTTPException(status_code=503, detail="Runtime preflight status unavailable")
+        return LivePreflightResponse(**status)
 
     @app.get("/services", response_model=dict[str, ServiceStatusResponse])
     def list_services() -> dict:

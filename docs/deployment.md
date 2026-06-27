@@ -23,6 +23,12 @@ counts are strategy data in SQLite; they are intentionally absent from `.env`.
 Before `--live`, populate `metadata.order_size_contracts` on the enabled
 strategy and verify each value as an OKX contract count rather than a base-asset
 quantity. The executor also checks current OKX instrument precision.
+Live startup first forces order placement off, then authenticates account
+configuration and requires a derivatives-capable account in `net_mode`. It also
+validates every enabled strategy and every configured or actively managed SWAP
+instrument. Only a complete pass honors `MAYBECH_ARM_ORDERS=1`; otherwise the
+process exits before daemon services start. Inspect the successful report at
+`GET /runtime/preflight` when using the API runtime.
 `ExecutionFillService` uses the configured private OKX credentials to paginate
 three-month SWAP fill history. Cursor checkpoints share `MAYBECH_DB_PATH` and
 survive restarts. Without valid credentials its daemon status will show cursor

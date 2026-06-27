@@ -1,0 +1,265 @@
+import pytest
+from fastapi.testclient import TestClient
+
+import src.exchange.client as client_module
+import src.daemon.runtime as runtime_module
+from src.api.app import create_app
+from src.daemon.service import DaemonRunner
+from src.exchange.client import arm_order_placement, disarm_order_placement
+from src.runtime.live_preflight import LivePreflightError, run_live_preflight
+from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
+from src.trading.strategy_store import StrategyStore
+from src.trading.trade_store import TradeStore
+
+
+class FakePreflightClient:
+    def __init__(self, *, position_mode="net_mode", account_level="2", instruments=None):
+        self.flag = "1"
+        self.position_mode = position_mode
+        self.account_level = account_level
+        self.instruments = instruments or {}
+        self.instrument_calls = []
+
+    def get_account_config(self):
+        return [{"acctLv": self.account_level, "posMode": self.position_mode}]
+
+    def get_instruments(self, *, inst_type, inst_id):
+        self.instrument_calls.append((inst_type, inst_id))
+        payload = self.instruments.get(inst_id)
+        return [] if payload is None else [payload]
+
+
+def _set_live_environment(monkeypatch):
+    monkeypatch.setenv("OKX_API_KEY", "key")
+    monkeypatch.setenv("OKX_API_SECRET", "secret")
+    monkeypatch.setenv("OKX_PASSPHRASE", "passphrase")
+    monkeypatch.setenv("OKX_FLAG", "1")
+    monkeypatch.setenv("MAYBECH_ARM_ORDERS", "1")
+
+
+def _instrument(inst_id, *, state="live", minimum="0.1", lot="0.1"):
+    return {
+        "instId": inst_id,
+        "state": state,
+        "minSz": minimum,
+        "lotSz": lot,
+        "tickSz": "0.01",
+        "ctVal": "0.01",
+    }
+
+
+def _valid_strategy(store):
+    return store.create(
+        id="strategy-a",
+        name="Strategy A",
+        enabled=True,
+        target_instruments=["ETH-USDT-SWAP"],
+        entry_signal={"type": "price_above", "symbol": "self", "value": 100},
+        default_rules={
+            "close_conditions": [
+                {
+                    "purpose": "stop_loss",
+                    "expression": {
+                        "type": "price_below",
+                        "symbol": "self",
+                        "value": 90,
+                    },
+                }
+            ]
+        },
+        metadata={
+            "position_side": "long",
+            "order_size_contracts": {"ETH-USDT-SWAP": "0.2"},
+        },
+    )
+
+
+def test_live_preflight_rejects_missing_local_safety_configuration(monkeypatch, tmp_path):
+    for key in (
+        "OKX_API_KEY",
+        "OKX_API_SECRET",
+        "OKX_PASSPHRASE",
+        "MAYBECH_ARM_ORDERS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    store = StrategyStore(str(tmp_path / "trades.db"))
+
+    with pytest.raises(LivePreflightError) as exc_info:
+        run_live_preflight(
+            client=FakePreflightClient(),
+            strategy_store=store,
+            position_store=LogicalPositionStore(store.db_path),
+        )
+
+    assert "OKX_API_KEY is required" in exc_info.value.errors
+    assert "MAYBECH_ARM_ORDERS must be exactly '1'" in str(exc_info.value)
+
+
+def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypatch, tmp_path):
+    _set_live_environment(monkeypatch)
+    strategy_store = StrategyStore(str(tmp_path / "trades.db"))
+    _valid_strategy(strategy_store)
+    position_store = LogicalPositionStore(strategy_store.db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="position-a",
+            inst_id="BTC-USDT-SWAP",
+            status="open",
+            opened_quantity=1,
+            remaining_quantity=1,
+        )
+    )
+    client = FakePreflightClient(
+        instruments={
+            "BTC-USDT-SWAP": _instrument("BTC-USDT-SWAP"),
+            "ETH-USDT-SWAP": _instrument("ETH-USDT-SWAP"),
+        }
+    )
+
+    report = run_live_preflight(
+        client=client,
+        strategy_store=strategy_store,
+        position_store=position_store,
+    )
+
+    assert report.passed is True
+    assert report.armed is False
+    assert report.execution_mode == "demo"
+    assert report.position_mode == "net_mode"
+    assert report.instruments == ("BTC-USDT-SWAP", "ETH-USDT-SWAP")
+    assert client.instrument_calls == [
+        ("SWAP", "BTC-USDT-SWAP"),
+        ("SWAP", "ETH-USDT-SWAP"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("position_mode", "instrument", "expected"),
+    [
+        ("long_short_mode", _instrument("ETH-USDT-SWAP"), "must be net_mode"),
+        ("net_mode", _instrument("ETH-USDT-SWAP", state="suspend"), "not tradable"),
+        ("net_mode", _instrument("ETH-USDT-SWAP", lot="0.3"), "not a multiple"),
+    ],
+)
+def test_live_preflight_rejects_incompatible_exchange_state(
+    monkeypatch,
+    tmp_path,
+    position_mode,
+    instrument,
+    expected,
+):
+    _set_live_environment(monkeypatch)
+    strategy_store = StrategyStore(str(tmp_path / "trades.db"))
+    _valid_strategy(strategy_store)
+
+    with pytest.raises(LivePreflightError, match=expected):
+        run_live_preflight(
+            client=FakePreflightClient(
+                position_mode=position_mode,
+                instruments={"ETH-USDT-SWAP": instrument},
+            ),
+            strategy_store=strategy_store,
+            position_store=LogicalPositionStore(strategy_store.db_path),
+        )
+
+
+def test_order_arming_requires_preflight_result():
+    disarm_order_placement()
+    with pytest.raises(PermissionError, match="after live preflight"):
+        arm_order_placement()
+    assert client_module._ORDER_PLACEMENT_ARMED is False
+
+    arm_order_placement(preflight_passed=True)
+    assert client_module._ORDER_PLACEMENT_ARMED is True
+    disarm_order_placement()
+
+
+def test_runtime_preflight_endpoint_exposes_verified_state():
+    runner = DaemonRunner()
+    runner.runtime.set_value(
+        "runtime.live_preflight",
+        {
+            "passed": True,
+            "armed": True,
+            "execution_mode": "real",
+            "account_level": "2",
+            "position_mode": "net_mode",
+            "enabled_strategies": 1,
+            "instruments": ["ETH-USDT-SWAP"],
+            "checked_at": "2026-06-28T00:00:00+00:00",
+        },
+    )
+
+    response = TestClient(create_app(runner)).get("/runtime/preflight")
+
+    assert response.status_code == 200
+    assert response.json()["armed"] is True
+    assert response.json()["position_mode"] == "net_mode"
+
+
+def test_live_preflight_skips_strategy_checks_when_service_is_disabled(monkeypatch, tmp_path):
+    _set_live_environment(monkeypatch)
+    strategy_store = StrategyStore(str(tmp_path / "trades.db"))
+    strategy_store.create(id="invalid", name="Invalid", enabled=True)
+
+    report = run_live_preflight(
+        client=FakePreflightClient(),
+        strategy_store=strategy_store,
+        position_store=LogicalPositionStore(strategy_store.db_path),
+        include_strategy=False,
+    )
+
+    assert report.passed is True
+    assert report.enabled_strategies == 0
+
+
+def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    monkeypatch.setattr(runtime_module, "TradeStore", lambda: store)
+    preflight_calls = []
+
+    class Report:
+        passed = True
+
+        @staticmethod
+        def to_dict(*, armed):
+            return {
+                "passed": True,
+                "armed": armed,
+                "execution_mode": "demo",
+                "account_level": "2",
+                "position_mode": "net_mode",
+                "enabled_strategies": 0,
+                "instruments": [],
+                "checked_at": "2026-06-28T00:00:00+00:00",
+            }
+
+    def successful_preflight(**kwargs):
+        preflight_calls.append(kwargs)
+        return Report()
+
+    monkeypatch.setattr(runtime_module, "run_live_preflight", successful_preflight)
+
+    runner = runtime_module.create_default_runner(dry_run=False, include_strategy=False)
+
+    assert client_module._ORDER_PLACEMENT_ARMED is True
+    assert runner.runtime.get_value("runtime.live_preflight")["armed"] is True
+    assert preflight_calls[0]["include_strategy"] is False
+    runner.teardown_services()
+    assert client_module._ORDER_PLACEMENT_ARMED is False
+
+
+def test_failed_runner_preflight_leaves_orders_disarmed(monkeypatch, tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    monkeypatch.setattr(runtime_module, "TradeStore", lambda: store)
+    arm_order_placement(preflight_passed=True)
+
+    def failed_preflight(**kwargs):
+        raise LivePreflightError(["wrong account mode"])
+
+    monkeypatch.setattr(runtime_module, "run_live_preflight", failed_preflight)
+
+    with pytest.raises(LivePreflightError, match="wrong account mode"):
+        runtime_module.create_default_runner(dry_run=False)
+
+    assert client_module._ORDER_PLACEMENT_ARMED is False

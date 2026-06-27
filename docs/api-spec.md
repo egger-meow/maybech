@@ -18,6 +18,7 @@ surface before frontend/backend work expands.
 These endpoints currently exist or are already documented in runtime status:
 
 - `GET /services`
+- `GET /runtime/preflight`
 - `GET /events`
 - `GET /audit/events`
 - `GET /account/snapshot`
@@ -46,6 +47,11 @@ These endpoints currently exist or are already documented in runtime status:
 - `WS /ws/events`
 
 See `docs/runtime-status.md` for current payload behavior.
+
+`GET /runtime/preflight` reports whether startup checks passed, whether order
+placement is armed, demo/real/dry-run mode, OKX account and position mode, and
+the strategies/instruments validated before services started. Failed live
+preflight aborts startup, so no unhealthy live API remains running.
 
 ## Runtime And Audit Events
 

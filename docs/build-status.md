@@ -32,11 +32,12 @@ capability moves from planned to partial or complete.
 | Structured persistence | Partial | SQLite stores exist for trades, logical positions, allocations, strategies, signal expressions, position-manager audits, and strategy decision/execution history; most general runtime events remain in-memory. |
 | SQLite schema management | Partial | `TradeStore` and `ExecutionCursorStore` record version `1`, `AuditEventStore` records version `2`, `StrategyStore` records version `3`, and `LogicalPositionStore` records version `4` through explicit migration paths. All default to `MAYBECH_DB_PATH`. |
 | Live order protection | Built | Strategy contract counts are persisted per instrument. Entries and reduce-only closes validate OKX state, `minSz`, `lotSz`, and `tickSz`; entries require and attach a side-consistent exchange stop, with take profit attached when configured. |
+| Live startup preflight | Built | Importing configuration never arms orders. `--live` disarms first, validates credentials through OKX account config, derivatives account level, `net_mode`, enabled strategy contracts/stops, active logical-position instruments, and live SWAP precision, then arms or aborts startup. `/runtime/preflight` exposes the successful report. |
 
 ## Next Build Milestones
 
-1. Add a live startup preflight for OKX account/position mode and runtime safety
-   assumptions.
+1. Persist and enforce account-level exposure, order-notional, and leverage
+   limits before entries.
 2. Add private order websocket events while retaining durable REST catch-up.
 3. Complete demo-account open, partial-fill, cancellation, close, and restart
    verification before arming a live account.

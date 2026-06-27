@@ -89,6 +89,17 @@ export type HealthResponse = {
   "running": boolean;
 };
 
+export type LivePreflightResponse = {
+  "passed": boolean;
+  "armed": boolean;
+  "execution_mode": "dry_run" | "demo" | "real";
+  "account_level"?: string;
+  "position_mode"?: string;
+  "enabled_strategies"?: number;
+  "instruments"?: string[];
+  "checked_at": string;
+};
+
 export type LogicalPositionAllocationResponse = {
   "id": string;
   "position_id": string;
@@ -424,6 +435,7 @@ export type ApiSchemas = {
   "ExecutionFillIngestionStatusResponse": ExecutionFillIngestionStatusResponse;
   "HTTPValidationError": HTTPValidationError;
   "HealthResponse": HealthResponse;
+  "LivePreflightResponse": LivePreflightResponse;
   "LogicalPositionAllocationResponse": LogicalPositionAllocationResponse;
   "LogicalPositionCloseConditionCreate": LogicalPositionCloseConditionCreate;
   "LogicalPositionCloseConditionResponse": LogicalPositionCloseConditionResponse;

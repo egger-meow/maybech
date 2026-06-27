@@ -8,7 +8,6 @@ directly — makes it easy to mock in tests and swap exchanges later.
 from __future__ import annotations
 
 import logging
-import os
 import re
 
 import okx.Account as Account
@@ -21,18 +20,20 @@ from src.config.settings import settings
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Safety flag — set via env or at runtime to allow real order placement.
+# Process-local safety flag set only after runtime live preflight.
 # When False, place_limit_order() will refuse to execute.
 # ---------------------------------------------------------------------------
-_ORDER_PLACEMENT_ARMED = os.getenv("MAYBECH_ARM_ORDERS", "0") == "1"
+_ORDER_PLACEMENT_ARMED = False
 _CLIENT_ORDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{1,32}$")
 
 
-def arm_order_placement() -> None:
-    """Explicitly arm order placement.  Call this ONLY when you are ready."""
+def arm_order_placement(*, preflight_passed: bool = False) -> None:
+    """Arm order placement only after runtime preflight succeeds."""
+    if not preflight_passed:
+        raise PermissionError("Order placement can only be armed after live preflight")
     global _ORDER_PLACEMENT_ARMED  # noqa: PLW0603
     _ORDER_PLACEMENT_ARMED = True
-    logger.warning("⚠️  Order placement is now ARMED — real orders CAN be sent.")
+    logger.warning("Order placement is ARMED after successful live preflight")
 
 
 def disarm_order_placement() -> None:
@@ -228,8 +229,7 @@ class OKXClient:
         """Place a LIMIT order (限價單) with optional TP/SL.
 
         ⚠️  SAFETY GUARDS (all must pass):
-        1. ``_ORDER_PLACEMENT_ARMED`` must be True
-           (call ``arm_order_placement()`` or set env MAYBECH_ARM_ORDERS=1).
+        1. ``_ORDER_PLACEMENT_ARMED`` must be True after live preflight.
         2. ``confirm`` kwarg must be explicitly ``True``.
         3. ``side`` must be 'buy' or 'sell'.
         4. ``sz`` must be a positive number.
@@ -250,7 +250,7 @@ class OKXClient:
         if not _ORDER_PLACEMENT_ARMED:
             raise PermissionError(
                 "Order placement is DISARMED. "
-                "Call arm_order_placement() or set MAYBECH_ARM_ORDERS=1 first."
+                "Start the runtime with --live and pass live preflight first."
             )
 
         # --- guard 2: explicit confirm ---
@@ -316,7 +316,7 @@ class OKXClient:
         if not _ORDER_PLACEMENT_ARMED:
             raise PermissionError(
                 "Order placement is DISARMED. "
-                "Call arm_order_placement() or set MAYBECH_ARM_ORDERS=1 first."
+                "Start the runtime with --live and pass live preflight first."
             )
         if not confirm:
             raise ValueError("confirm=True is required for a live reduce order")

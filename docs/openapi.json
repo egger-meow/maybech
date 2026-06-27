@@ -514,6 +514,61 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "LivePreflightResponse": {
+        "properties": {
+          "account_level": {
+            "default": "",
+            "title": "Account Level",
+            "type": "string"
+          },
+          "armed": {
+            "title": "Armed",
+            "type": "boolean"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "enabled_strategies": {
+            "default": 0,
+            "title": "Enabled Strategies",
+            "type": "integer"
+          },
+          "execution_mode": {
+            "enum": [
+              "dry_run",
+              "demo",
+              "real"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "instruments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Instruments",
+            "type": "array"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "position_mode": {
+            "default": "",
+            "title": "Position Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "passed",
+          "armed",
+          "execution_mode",
+          "checked_at"
+        ],
+        "title": "LivePreflightResponse",
+        "type": "object"
+      },
       "LogicalPositionAllocationResponse": {
         "properties": {
           "action": {
@@ -3389,6 +3444,24 @@
           }
         },
         "summary": "Update Logical Position Close Condition"
+      }
+    },
+    "/runtime/preflight": {
+      "get": {
+        "operationId": "get_live_preflight_runtime_preflight_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivePreflightResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Live Preflight"
       }
     },
     "/services": {

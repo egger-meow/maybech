@@ -41,6 +41,9 @@ Frontends must use `active`; there is no `state` field.
 - `GET /execution/fills/status` returns the latest authenticated OKX SWAP fill
   catch-up counts, client-order recovery counts, cursor state, page progress,
   or zeroed fields before the first poll.
+- `GET /runtime/preflight` returns the successful startup safety report,
+  including dry-run/demo/real mode, armed state, OKX account and position mode,
+  enabled strategy count, validated instruments, and check time.
 - `GET /strategies/{strategy_id}/decisions` returns restart-safe strategy
   decisions from SQLite, newest first. Filters cover allowed/blocked state,
   execution status, limit, and a `before` timestamp.
@@ -144,6 +147,13 @@ strategy's default close conditions.
 
 ## Safety Notes
 
+- Importing `src.exchange.client` never arms orders. Every runtime factory
+  disarms first. With `--live`, startup requires non-empty private credentials,
+  `MAYBECH_ARM_ORDERS=1`, `OKX_FLAG` of `0` or `1`, authenticated account config,
+  account level `2`, `3`, or `4`, and `net_mode`. Enabled strategy definitions,
+  contract sizes, attached stops, active logical-position instruments, and live
+  SWAP metadata must validate before the factory arms order placement. Any
+  failure aborts startup before service setup or daemon threads.
 - Automatic signal/rule exits do not ask for human confirmation. Live startup,
   `MAYBECH_ARM_ORDERS=1`, the reduce-only client guard, and durable pre-submit
   audit must all succeed before an order is sent.

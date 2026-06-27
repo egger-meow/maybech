@@ -503,6 +503,15 @@ class LogicalPositionStore:
             ).fetchall()
         return [LogicalPositionRecord.from_row(row) for row in rows]
 
+    def list_active(self) -> list[LogicalPositionRecord]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM logical_positions
+                   WHERE status IN ('pending_open', 'open', 'reducing', 'closing')
+                   ORDER BY updated_at"""
+            ).fetchall()
+        return [LogicalPositionRecord.from_row(row) for row in rows]
+
     def list(
         self,
         *,

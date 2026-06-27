@@ -5,7 +5,7 @@ Daemon framework for running multiple background services.
 import time
 import traceback
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 from datetime import datetime
 
 from src.daemon.events import RuntimeState
@@ -54,6 +54,8 @@ class DaemonRunner:
         self.services: Dict[str, DaemonService] = {}
         self.runtime = runtime or RuntimeState()
         self.running = False
+        self._setup_complete = False
+        self._shutdown_callbacks: list[Callable[[], None]] = []
 
     def register(self, service: DaemonService) -> None:
         """Register a new service."""
@@ -109,25 +111,59 @@ class DaemonRunner:
     def _record_service_status(self, name: str) -> None:
         self.get_service_status(name)
 
-    def run_forever(self) -> None:
-        """Run the main loop across all registered services."""
-        logger.info("Starting DaemonRunner main loop...")
-        
-        # Initial setup for all services
+    def add_shutdown_callback(self, callback: Callable[[], None]) -> None:
+        self._shutdown_callbacks.append(callback)
+
+    def setup_services(self, *, required_services: set[str] | None = None) -> None:
+        """Set up services once, optionally failing startup for required ones."""
+        if self._setup_complete:
+            return
+        required = required_services or set()
         for name, svc in self.services.items():
             try:
                 svc.setup()
                 self._record_service_status(name)
                 self.runtime.events.publish("service.setup", name)
-            except Exception as e:
-                logger.error(f"Setup failed for service '{name}': {e}")
+            except Exception as exc:
+                logger.error(f"Setup failed for service '{name}': {exc}")
                 svc.active = False
                 svc.error_count += 1
                 self._record_service_status(name)
-                self.runtime.events.publish("service.error", name, {"stage": "setup", "error": str(e)})
+                self.runtime.events.publish(
+                    "service.error",
+                    name,
+                    {"stage": "setup", "error": str(exc)},
+                )
+                if name in required:
+                    self.teardown_services()
+                    raise RuntimeError(
+                        f"Required service '{name}' failed setup: {exc}"
+                    ) from exc
+        self._setup_complete = True
 
-        self.running = True
+    def teardown_services(self) -> None:
+        """Tear down services and run process-safety callbacks."""
+        for name, svc in reversed(list(self.services.items())):
+            try:
+                svc.teardown()
+            except Exception as exc:
+                logger.error(f"Teardown failed for service '{name}': {exc}")
+        callbacks = self._shutdown_callbacks
+        self._shutdown_callbacks = []
+        for callback in reversed(callbacks):
+            try:
+                callback()
+            except Exception as exc:
+                logger.error(f"Shutdown callback failed: {exc}")
+        self._setup_complete = False
+
+    def run_forever(self) -> None:
+        """Run the main loop across all registered services."""
+        logger.info("Starting DaemonRunner main loop...")
+
         try:
+            self.setup_services()
+            self.running = True
             while self.running:
                 now = time.time()
                 for name, svc in self.services.items():
@@ -162,8 +198,4 @@ class DaemonRunner:
             logger.info("DaemonRunner stopping (KeyboardInterrupt)...")
         finally:
             self.running = False
-            for name, svc in self.services.items():
-                try:
-                    svc.teardown()
-                except Exception as e:
-                    logger.error(f"Teardown failed for service '{name}': {e}")
+            self.teardown_services()

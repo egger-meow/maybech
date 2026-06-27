@@ -10,14 +10,29 @@ from src.daemon.position_intent_service import PositionIntentService
 from src.daemon.position_manager_service import PositionManagerService
 from src.daemon.service import DaemonRunner
 from src.daemon.strategy_service import StrategyService
+from src.exchange.client import arm_order_placement, disarm_order_placement
+from src.runtime.live_preflight import dry_run_preflight_report, run_live_preflight
+from src.trading.logical_position_store import LogicalPositionStore
+from src.trading.strategy_store import StrategyStore
 from src.trading.trade_store import TradeStore
 from src.trading.execution_allocation import ExecutionAllocationService
 
 
 def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True) -> DaemonRunner:
     """Create the standard daemon runner used by UI, API, and headless modes."""
+    disarm_order_placement()
     runner = DaemonRunner()
     store = TradeStore()
+    if dry_run:
+        preflight_status = dry_run_preflight_report()
+    else:
+        report = run_live_preflight(
+            strategy_store=StrategyStore(store.db_path),
+            position_store=LogicalPositionStore(store.db_path),
+            include_strategy=include_strategy,
+        )
+        preflight_status = report.to_dict(armed=False)
+    runner.runtime.set_value("runtime.live_preflight", preflight_status)
     
     runner.register(AccountSnapshotService())
     runner.register(BTCRegimeService())
@@ -34,4 +49,20 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
     if include_strategy:
         runner.register(StrategyService(dry_run=dry_run, trade_store=store))
     runner.register(NotificatorService())
+    if not dry_run:
+        required_services = {
+            "account",
+            "btc_regime",
+            "position_manager",
+            "execution_fills",
+        }
+        if include_strategy:
+            required_services.add("strategy")
+        runner.add_shutdown_callback(disarm_order_placement)
+        runner.setup_services(required_services=required_services)
+        arm_order_placement(preflight_passed=report.passed)
+        runner.runtime.set_value(
+            "runtime.live_preflight",
+            report.to_dict(armed=True),
+        )
     return runner

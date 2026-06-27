@@ -20,6 +20,17 @@ class HealthResponse(BaseModel):
     running: bool
 
 
+class LivePreflightResponse(BaseModel):
+    passed: bool
+    armed: bool
+    execution_mode: Literal["dry_run", "demo", "real"]
+    account_level: str = ""
+    position_mode: str = ""
+    enabled_strategies: int = 0
+    instruments: list[str] = Field(default_factory=list)
+    checked_at: str
+
+
 class ServiceStatusResponse(BaseModel):
     name: str
     active: bool
