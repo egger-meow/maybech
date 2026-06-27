@@ -102,6 +102,11 @@ updates the correlated strategy decision to `partially_filled` or `filled`.
 five seconds. It normalizes OKX fill payloads, matches indexed exchange order
 IDs, and replays safely because allocation IDs use immutable OKX trade IDs.
 Unmatched manual/external orders remain unallocated and visible in status.
+The same poll checks every unit with an active exchange order id. Confirmed
+`canceled`, `rejected`, or `mmp_canceled` entry orders recover to `failed` when
+unfilled or `open` when partially filled; canceled close/reduce orders recover
+to `open` while quantity remains. Active orders older than five minutes receive
+one cancellation request and remain pending until OKX confirms a terminal state.
 
 ## Runtime Storage
 

@@ -223,6 +223,19 @@ class TradeStore:
         trade.entry_price = entry_price
         return trade
 
+    def mark_trade_failed(self, trade_id: str, *, reason: str) -> TradeRecord | None:
+        trade = self.get_trade(trade_id)
+        if trade is None or trade.status != "pending_open":
+            return None
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE trades SET status = 'failed', exit_reason = ? WHERE id = ?",
+                (reason, trade_id),
+            )
+        trade.status = "failed"
+        trade.exit_reason = reason
+        return trade
+
     def get_trade_history(
         self,
         *,

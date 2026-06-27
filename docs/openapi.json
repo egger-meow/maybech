@@ -373,6 +373,11 @@
             "title": "Fetched",
             "type": "integer"
           },
+          "filled_awaiting_allocation": {
+            "default": 0,
+            "title": "Filled Awaiting Allocation",
+            "type": "integer"
+          },
           "idempotent": {
             "default": 0,
             "title": "Idempotent",
@@ -381,6 +386,26 @@
           "invalid": {
             "default": 0,
             "title": "Invalid",
+            "type": "integer"
+          },
+          "order_errors": {
+            "default": 0,
+            "title": "Order Errors",
+            "type": "integer"
+          },
+          "orders_checked": {
+            "default": 0,
+            "title": "Orders Checked",
+            "type": "integer"
+          },
+          "stale_cancel_requested": {
+            "default": 0,
+            "title": "Stale Cancel Requested",
+            "type": "integer"
+          },
+          "terminal_recovered": {
+            "default": 0,
+            "title": "Terminal Recovered",
             "type": "integer"
           },
           "unmatched": {

@@ -179,6 +179,11 @@ class OKXClient:
         )
         return _extract(resp, label="get_fills")
 
+    def get_order(self, inst_id: str, order_id: str) -> list[dict]:
+        """Fetch one authenticated order for pending-state reconciliation."""
+        resp = self.trade_api.get_order(instId=inst_id, ordId=order_id)
+        return _extract(resp, label="get_order")
+
     # -- Trading (PROTECTED) -------------------------------------------------
 
     def place_limit_order(

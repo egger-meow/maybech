@@ -67,9 +67,11 @@ def test_execution_allocator_matches_order_and_handles_multiple_partial_fills(tm
     )
 
     assert first.execution_status == "partially_filled"
+    assert first.position.exchange_order_id == "order-a"
     assert second.execution_status == "filled"
     assert second.position.opened_quantity == 0.1
     assert second.position.entry_price == 2060.0
+    assert second.position.exchange_order_id == ""
     assert duplicate.idempotent is True
     assert len(position_store.list_allocations("trade-a")) == 2
     assert len(audit_store.list(event_type="position.allocation_confirmed")) == 2

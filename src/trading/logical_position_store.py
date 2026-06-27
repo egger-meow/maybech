@@ -454,6 +454,18 @@ class LogicalPositionStore:
             ).fetchone()
         return None if row is None else LogicalPositionRecord.from_row(row)
 
+    def list_pending_executions(self, *, limit: int = 500) -> list[LogicalPositionRecord]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM logical_positions
+                   WHERE exchange_order_id != ''
+                     AND status IN ('pending_open', 'open', 'reducing', 'closing')
+                   ORDER BY updated_at
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [LogicalPositionRecord.from_row(row) for row in rows]
+
     def list(
         self,
         *,
@@ -588,6 +600,150 @@ class LogicalPositionStore:
                 ),
             )
         return self.get(position_id)
+
+    def recover_terminal_order(
+        self,
+        position_id: str,
+        *,
+        exchange_order_id: str,
+        order_state: str,
+    ) -> LogicalPositionRecord | None:
+        """Recover one pending unit after OKX confirms a terminal order state."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM logical_positions WHERE id = ?",
+                (position_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            position = LogicalPositionRecord.from_row(row)
+            if position.exchange_order_id != exchange_order_id:
+                return position
+            if position.status == "pending_open":
+                recovered_status: LogicalPositionStatus = (
+                    "open" if (position.opened_quantity or 0.0) > 0 else "failed"
+                )
+            elif position.status in {"closing", "reducing"}:
+                recovered_status = (
+                    "closed" if (position.remaining_quantity or 0.0) == 0 else "open"
+                )
+            elif position.status == "open":
+                recovered_status = "open"
+            else:
+                return position
+
+            metadata = _json_loads(position.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata.update(
+                {
+                    "execution_status": "terminal_recovered",
+                    "terminal_order_state": order_state,
+                    "terminal_order_id": exchange_order_id,
+                    "recovered_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            conn.execute(
+                """UPDATE logical_positions SET
+                   status = ?, exchange_order_id = '', metadata_json = ?, updated_at = ?
+                   WHERE id = ? AND exchange_order_id = ?""",
+                (
+                    recovered_status,
+                    _json_dumps(metadata),
+                    datetime.now(timezone.utc).isoformat(),
+                    position_id,
+                    exchange_order_id,
+                ),
+            )
+        return self.get(position_id)
+
+    def update_execution_tracking(
+        self,
+        position_id: str,
+        *,
+        exchange_order_id: str,
+        execution_status: str,
+        completed: bool,
+    ) -> LogicalPositionRecord | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM logical_positions WHERE id = ?",
+                (position_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            position = LogicalPositionRecord.from_row(row)
+            if position.exchange_order_id != exchange_order_id:
+                return position
+            metadata = _json_loads(position.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata["execution_status"] = execution_status
+            if completed:
+                metadata["completed_order_id"] = exchange_order_id
+                metadata["completed_at"] = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                """UPDATE logical_positions SET
+                   exchange_order_id = ?, metadata_json = ?, updated_at = ?
+                   WHERE id = ? AND exchange_order_id = ?""",
+                (
+                    "" if completed else exchange_order_id,
+                    _json_dumps(metadata),
+                    datetime.now(timezone.utc).isoformat(),
+                    position_id,
+                    exchange_order_id,
+                ),
+            )
+        return self.get(position_id)
+
+    def mark_order_cancel_requested(
+        self,
+        position_id: str,
+        *,
+        exchange_order_id: str,
+    ) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT metadata_json FROM logical_positions "
+                "WHERE id = ? AND exchange_order_id = ?",
+                (position_id, exchange_order_id),
+            ).fetchone()
+            if row is None:
+                return False
+            metadata = _json_loads(row["metadata_json"], {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if metadata.get("cancel_requested_at"):
+                return False
+            metadata["cancel_requested_at"] = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "UPDATE logical_positions SET metadata_json = ?, updated_at = ? "
+                "WHERE id = ? AND exchange_order_id = ?",
+                (
+                    _json_dumps(metadata),
+                    datetime.now(timezone.utc).isoformat(),
+                    position_id,
+                    exchange_order_id,
+                ),
+            )
+        return True
+
+    def is_order_cancel_requested(
+        self,
+        position_id: str,
+        *,
+        exchange_order_id: str,
+    ) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT metadata_json FROM logical_positions "
+                "WHERE id = ? AND exchange_order_id = ?",
+                (position_id, exchange_order_id),
+            ).fetchone()
+        if row is None:
+            return False
+        metadata = _json_loads(row["metadata_json"], {})
+        return isinstance(metadata, dict) and bool(metadata.get("cancel_requested_at"))
 
     def update_reconciliation(
         self,

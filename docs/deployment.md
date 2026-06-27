@@ -21,6 +21,8 @@ service or scheduled-task deployments where the working directory may vary.
 `ExecutionFillService` uses the configured private OKX credentials to poll SWAP
 fills. Without valid credentials its daemon status will show tick errors; it
 never allocates fills whose order id is not linked to a Maybech logical unit.
+It also requests cancellation once for linked active orders older than five
+minutes. Position state changes only after OKX reports a terminal order state.
 
 The dashboard calls FastAPI from a separate local origin in development.
 `MAYBECH_CORS_ORIGINS` defaults to `http://localhost:3000` and

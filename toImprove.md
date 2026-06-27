@@ -5,8 +5,8 @@ working on Maybech. Maintain at least three active items at all times.
 
 ## Current Top Priorities
 
-1. Handle exchange order cancellation, rejection, and timeout so `pending_open`
-   and `closing` units recover safely without duplicate submissions.
+1. Reconcile and alert when OKX reports an order `filled` but fill details remain
+   unavailable across repeated REST polls.
 2. Add authenticated private OKX order websocket events for low-latency fills,
    cancellations, and unfilled remainders while retaining REST fill catch-up.
 3. Normalize OKX contract/lot units and validate instrument minimum size and

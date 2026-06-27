@@ -190,7 +190,9 @@ decision. Unknown exchange orders are counted as unmatched and never assigned
 to a logical unit automatically.
 
 `GET /execution/fills/status` exposes the latest polling counts: fetched,
-applied, idempotent, unmatched, invalid, conflicts, and update time.
+applied, idempotent, unmatched, invalid, conflicts, orders checked, terminal
+recoveries, stale cancellation requests, filled orders awaiting allocation,
+order errors, and update time.
 
 ## Target Visualization Endpoints
 

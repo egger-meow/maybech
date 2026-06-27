@@ -61,6 +61,11 @@ export type ExecutionFillIngestionStatusResponse = {
   "unmatched"?: number;
   "invalid"?: number;
   "conflicts"?: number;
+  "orders_checked"?: number;
+  "terminal_recovered"?: number;
+  "stale_cancel_requested"?: number;
+  "filled_awaiting_allocation"?: number;
+  "order_errors"?: number;
   "updated_at"?: string | null;
 };
 

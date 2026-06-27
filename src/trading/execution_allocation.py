@@ -97,6 +97,14 @@ class ExecutionAllocationService:
             raise LookupError(f"Logical position {position.id!r} no longer exists")
 
         execution_status = self._update_trade_and_status(updated, allocation)
+        tracked = self.position_store.update_execution_tracking(
+            updated.id,
+            exchange_order_id=allocation.exchange_order_id,
+            execution_status=execution_status,
+            completed=execution_status in {"filled", "closed"},
+        )
+        if tracked is not None:
+            updated = tracked
         if existing is None:
             self._record_allocation_audit(
                 updated,
