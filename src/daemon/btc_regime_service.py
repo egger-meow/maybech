@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.config.settings import settings
+from src.config.strategy import StrategyConfig
 from src.daemon.service import DaemonService
 from src.data.candles import CandleManager
 from src.exchange.client import OKXClient
@@ -38,7 +38,7 @@ class BTCRegimeService(DaemonService):
 
         df = self.candle_manager.fetch(
             self.symbol,
-            settings.CANDLE_INTERVAL,
+            StrategyConfig.load().timeframe,
             limit=120,
         )
         regime = self.analyzer.analyze(df, symbol=self.symbol)

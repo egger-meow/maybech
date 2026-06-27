@@ -1,101 +1,102 @@
-"""
-Strategy Configuration Loader.
+"""SQLite-backed runtime strategy configuration."""
 
-Loads mutable parameters from `strategy_params.json`.
-"""
+from __future__ import annotations
 
-from typing import Any, Dict
-import json
-import logging
-from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
-from src.config.settings import settings
+if TYPE_CHECKING:
+    from src.trading.strategy_store import StrategyRecord, StrategyStore
 
-logger = logging.getLogger(__name__)
+
+DEFAULT_STRATEGY_ID = "momentum_swap"
 
 
 @dataclass
 class MomentumConfig:
-    """Configuration for Momentum Strategy."""
-    k_long: float
-    k_short: float
-    gap_threshold: float
+    k_long: float = 12.0
+    k_short: float = 10.0
+    gap_threshold: float = 10.0
     stop_win_ratio: float = 1.0
     stop_win_vol_ratio: bool = False
-
-    @classmethod
-    def default(cls) -> "MomentumConfig":
-        return cls(
-            k_long=settings.MOMENTUM_K_LONG,
-            k_short=settings.MOMENTUM_K_SHORT,
-            gap_threshold=settings.PRICE_GAP_THRESHOLD,
-            stop_win_ratio=1.0,
-            stop_win_vol_ratio=False,
-        )
 
 
 @dataclass
 class StrategyConfig:
-    """Global Strategy Configuration holding all strategy parameters."""
-    momentum: MomentumConfig
+    """Parameters consumed by the current momentum runtime."""
+
+    momentum: MomentumConfig = field(default_factory=MomentumConfig)
     active_strategy: str = "momentum"
+    target_instruments: list[str] = field(
+        default_factory=lambda: ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
+    )
+    timeframe: str = "1m"
+    order_size_contracts: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def default(cls) -> "StrategyConfig":
-        """Return default configuration."""
-        return cls(
-            momentum=MomentumConfig.default(),
-            active_strategy="momentum"
-        )
-
-    def save(self) -> None:
-        """Save current config to JSON."""
-        path = Path("src/config/strategy_params.json")
-        try:
-            with open(path, "w") as f:
-                json.dump(asdict(self), f, indent=4)
-            logger.info("Saved strategy config to %s", path)
-        except Exception as e:
-            logger.error("Failed to save strategy config: %s", e)
+        return cls()
 
     @classmethod
-    def load(cls) -> "StrategyConfig":
-        """Load from JSON or return default."""
-        path = Path("src/config/strategy_params.json")
-        if not path.exists():
-            return cls.default()
-        
-        try:
-            with open(path, "r") as f:
-                data = json.load(f)
-            
-            # Helper to safely load submodule configs
-            
-            # Active Strategy (default 'momentum' if missing)
-            active_strat = data.get("active_strategy", "momentum")
+    def from_record(cls, record: "StrategyRecord") -> "StrategyConfig":
+        entry = record.entry_signal
+        rules = record.default_rules
+        metadata = record.metadata
+        raw_sizes = metadata.get("order_size_contracts", {})
+        sizes = (
+            {str(key): str(value) for key, value in raw_sizes.items()}
+            if isinstance(raw_sizes, dict)
+            else {}
+        )
+        return cls(
+            momentum=MomentumConfig(
+                k_long=float(entry.get("k_long", 12.0)),
+                k_short=float(entry.get("k_short", 10.0)),
+                gap_threshold=float(entry.get("gap_threshold", 10.0)),
+                stop_win_ratio=float(rules.get("stop_win_ratio", 1.0)),
+                stop_win_vol_ratio=bool(rules.get("stop_win_vol_ratio", False)),
+            ),
+            active_strategy=record.id,
+            target_instruments=[str(item) for item in record.target_instruments],
+            timeframe=str(entry.get("timeframe", "1m")),
+            order_size_contracts=sizes,
+        )
 
-            # If "momentum" key is missing, or entire file is old format, fallback safely
-            momentum_data = data.get("momentum")
-            if not momentum_data:
-                # Attempt to read old flat format if it exists, else default
-                # Old format had k_long, k_short at root
-                # If these keys are present and momentum is not, assume migration
-                if "k_long" in data:
-                    momentum_conf = MomentumConfig(
-                        k_long=data.get("k_long", settings.MOMENTUM_K_LONG),
-                        k_short=data.get("k_short", settings.MOMENTUM_K_SHORT),
-                        gap_threshold=data.get("gap_threshold", settings.PRICE_GAP_THRESHOLD),
-                        stop_win_ratio=data.get("stop_win_ratio", 1.0),
-                        stop_win_vol_ratio=data.get("stop_win_vol_ratio", False),
-                    )
-                else:
-                    momentum_conf = MomentumConfig.default()
-            else:
-                momentum_conf = MomentumConfig(**momentum_data)
+    @classmethod
+    def load(cls, db_path: str | None = None) -> "StrategyConfig":
+        from src.trading.strategy_store import StrategyStore
 
-            return cls(momentum=momentum_conf, active_strategy=active_strat)
+        store = StrategyStore(db_path)
+        record = ensure_default_strategy(store)
+        return cls.from_record(record)
 
-        except Exception as e:
-            logger.warning("Failed to load strategy config, using defaults: %s", e)
-            return cls.default()
+
+def default_strategy_definition() -> dict[str, Any]:
+    """Return the one-time seed for a new database."""
+    config = StrategyConfig.default()
+    return {
+        "id": DEFAULT_STRATEGY_ID,
+        "name": "Momentum Swap",
+        "kind": "momentum",
+        "enabled": True,
+        "target_instruments": config.target_instruments,
+        "entry_signal": {
+            "type": "volume_price_gap",
+            "timeframe": config.timeframe,
+            "k_long": config.momentum.k_long,
+            "k_short": config.momentum.k_short,
+            "gap_threshold": config.momentum.gap_threshold,
+        },
+        "default_rules": {
+            "stop_win_ratio": config.momentum.stop_win_ratio,
+            "stop_win_vol_ratio": config.momentum.stop_win_vol_ratio,
+        },
+        "metadata": {
+            "order_size_contracts": {},
+            "seeded_from_code_defaults": True,
+        },
+    }
+
+
+def ensure_default_strategy(store: "StrategyStore") -> "StrategyRecord":
+    return store.ensure(**default_strategy_definition())

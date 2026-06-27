@@ -19,6 +19,15 @@ class FakeTradeApi:
         return {"code": "0", "data": [{"ordId": kwargs["ordId"], "state": "live"}]}
 
 
+class FakePublicApi:
+    def __init__(self):
+        self.kwargs = None
+
+    def get_instruments(self, **kwargs):
+        self.kwargs = kwargs
+        return {"code": "0", "data": [{"instId": kwargs["instId"]}]}
+
+
 def test_okx_client_get_fills_uses_authenticated_swap_endpoint():
     client = object.__new__(OKXClient)
     client.trade_api = FakeTradeApi()
@@ -67,4 +76,17 @@ def test_okx_client_get_order_uses_instrument_and_order_id():
     assert client.trade_api.kwargs == {
         "instId": "ETH-USDT-SWAP",
         "ordId": "order-a",
+    }
+
+
+def test_okx_client_get_instruments_uses_public_endpoint():
+    client = object.__new__(OKXClient)
+    client.public_api = FakePublicApi()
+
+    instruments = client.get_instruments(inst_type="SWAP", inst_id="ETH-USDT-SWAP")
+
+    assert instruments == [{"instId": "ETH-USDT-SWAP"}]
+    assert client.public_api.kwargs == {
+        "instType": "SWAP",
+        "instId": "ETH-USDT-SWAP",
     }

@@ -15,7 +15,7 @@ from collections import deque
 from typing import Any
 from uuid import uuid4
 
-from src.config.settings import settings
+from src.config.strategy import StrategyConfig
 from src.data.candles import CandleManager
 from src.daemon.service import DaemonService
 from src.exchange.client import OKXClient
@@ -62,7 +62,7 @@ class PositionManagerService(DaemonService):
         self.dry_run = dry_run
         self.candle_manager = candle_manager
         self.enable_candle_context = enable_candle_context
-        self.candle_bar = candle_bar or settings.CANDLE_INTERVAL
+        self.candle_bar = candle_bar or StrategyConfig.load(store.db_path).timeframe
         self.candle_limit = candle_limit
         self.audit_store = audit_store or AuditEventStore(store.db_path)
         self.close_executor = close_executor

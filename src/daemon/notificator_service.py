@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
-from src.config.settings import settings
+from src.config.strategy import StrategyConfig
 from src.config.notificator import NotificatorConfig
 from src.data.candles import CandleManager
 from src.data.candle_miner import CandleMiner, PeakValley, Fluctuation
@@ -65,7 +65,7 @@ class NotificatorService(DaemonService):
         if not self.config.enabled:
             return
 
-        for pair in settings.TRADING_PAIRS:
+        for pair in StrategyConfig.load().target_instruments:
             try:
                 ticker = self.client.get_ticker(pair)
                 if not ticker or not isinstance(ticker, list):

@@ -21,10 +21,6 @@ def _get(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
-def _get_float(key: str, default: float = 0.0) -> float:
-    return float(os.getenv(key, str(default)))
-
-
 def _get_int(key: str, default: int = 0) -> int:
     return int(os.getenv(key, str(default)))
 
@@ -52,39 +48,6 @@ class Settings:
             ).split(",")
             if origin.strip()
         ]
-    )
-
-    # Trading
-    TRADING_PAIRS: list[str] = field(
-        default_factory=lambda: _get("TRADING_PAIRS", "BTC-USDT").split(",")
-    )
-    CANDLE_INTERVAL: str = field(default_factory=lambda: _get("CANDLE_INTERVAL", "15m"))
-    TRADE_QUANTITY_ETH: float = field(
-        default_factory=lambda: _get_float("TRADE_QUANTITY_ETH", 0.1)
-    )
-
-    # Momentum Strategy
-    MOMENTUM_K_LONG: float = field(
-        default_factory=lambda: _get_float("MOMENTUM_K_LONG", 10.0)
-    )
-    MOMENTUM_K_SHORT: float = field(
-        default_factory=lambda: _get_float("MOMENTUM_K_SHORT", 5.0)
-    )
-    PRICE_GAP_THRESHOLD: float = field(
-        default_factory=lambda: _get_float("PRICE_GAP_THRESHOLD", 3.0)
-    )
-    # Risk management (bear-market bias)
-    STOP_LOSS_LONG_PCT: float = field(
-        default_factory=lambda: _get_float("STOP_LOSS_LONG_PCT", 0.02)
-    )
-    STOP_LOSS_SHORT_PCT: float = field(
-        default_factory=lambda: _get_float("STOP_LOSS_SHORT_PCT", 0.04)
-    )
-    TAKE_PROFIT_LONG_PCT: float = field(
-        default_factory=lambda: _get_float("TAKE_PROFIT_LONG_PCT", 0.03)
-    )
-    TAKE_PROFIT_SHORT_PCT: float = field(
-        default_factory=lambda: _get_float("TAKE_PROFIT_SHORT_PCT", 0.05)
     )
 
     # Notifications — LINE Bot

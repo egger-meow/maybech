@@ -107,6 +107,15 @@ class OKXClient:
         )
         return _extract(resp, label="get_fee_rates")
 
+    def get_instruments(
+        self,
+        inst_type: str = "SWAP",
+        inst_id: str = "",
+    ) -> list[dict]:
+        """Fetch public instrument constraints used before order submission."""
+        resp = self.public_api.get_instruments(instType=inst_type, instId=inst_id)
+        return _extract(resp, label="get_instruments")
+
     def get_interest_limits(self, ccy: str = "") -> list[dict]:
         """Fetch borrow interest rate and limit."""
         resp = self.account_api.get_interest_limits(ccy=ccy)

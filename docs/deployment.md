@@ -18,6 +18,11 @@ It also exposes `GET /market/btc-regime`, `GET /strategy/decisions`, and `GET /p
 Copy `.env.example` to `.env` for local operator settings. All backend stores
 share `MAYBECH_DB_PATH` (`data/trades.db` by default). Use an absolute path for
 service or scheduled-task deployments where the working directory may vary.
+Trading instruments, timeframe, signals, default close rules, and contract
+counts are strategy data in SQLite; they are intentionally absent from `.env`.
+Before `--live`, populate `metadata.order_size_contracts` on the enabled
+strategy and verify each value as an OKX contract count rather than a base-asset
+quantity. The executor also checks current OKX instrument precision.
 `ExecutionFillService` uses the configured private OKX credentials to poll SWAP
 fills. Without valid credentials its daemon status will show tick errors; it
 never allocates fills whose order id is not linked to a Maybech logical unit.

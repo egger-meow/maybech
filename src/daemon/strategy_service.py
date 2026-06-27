@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from src.config.settings import settings
 from src.config.strategy import StrategyConfig
 from src.daemon.service import DaemonService
 from src.data.candles import CandleManager
@@ -53,6 +52,7 @@ class StrategyService(DaemonService):
         self.candle_manager: CandleManager | None = None
         self.strategy: MomentumStrategy | None = None
         self.executor: Executor | None = None
+        self.config: StrategyConfig | None = None
         self.action_policy = BTCRegimeActionPolicy()
         self.signals_history: list[dict[str, Any]] = []
         self.decisions_history: list[dict[str, Any]] = []
@@ -61,9 +61,13 @@ class StrategyService(DaemonService):
         """Initialize exchange, candle, strategy, and execution components."""
         self.client = OKXClient()
         self.candle_manager = CandleManager(self.client)
-        config = StrategyConfig.load()
-        self.strategy = MomentumStrategy(config=config.momentum)
-        self.executor = Executor(self.client, dry_run=self.dry_run)
+        self.config = StrategyConfig.load(self.trade_store.db_path)
+        self.strategy = MomentumStrategy(config=self.config.momentum)
+        self.executor = Executor(
+            self.client,
+            dry_run=self.dry_run,
+            order_sizes=self.config.order_size_contracts,
+        )
         logger.info(
             "StrategyService setup complete. Strategy: %s. Dry Run: %s",
             self.strategy.name,
@@ -75,11 +79,13 @@ class StrategyService(DaemonService):
         if self.strategy is None or self.candle_manager is None or self.executor is None:
             raise RuntimeError("StrategyService.setup() must complete before tick()")
 
-        config = StrategyConfig.load()
+        config = StrategyConfig.load(self.trade_store.db_path)
+        self.config = config
         self.strategy.config = config.momentum
         self.strategy.k_long = config.momentum.k_long
         self.strategy.k_short = config.momentum.k_short
         self.strategy.gap_threshold = config.momentum.gap_threshold
+        self.executor.configure_order_sizes(config.order_size_contracts)
 
         current_time = datetime.now(TZ_TAIPEI).isoformat()
         status: dict[str, Any] = {
@@ -92,11 +98,11 @@ class StrategyService(DaemonService):
             "errors": [],
         }
 
-        for pair in settings.TRADING_PAIRS:
+        for pair in config.target_instruments:
             try:
                 frame = self.candle_manager.fetch(
                     pair,
-                    settings.CANDLE_INTERVAL,
+                    config.timeframe,
                     limit=100,
                 )
                 if frame.empty:
@@ -263,7 +269,7 @@ class StrategyService(DaemonService):
             "execution_status": "simulated" if self.dry_run else "submitted",
             "execution_result": execution_result,
             "exchange_order_id": self._extract_order_id(execution_result),
-            "expected_quantity": settings.TRADE_QUANTITY_ETH,
+            "expected_quantity": self._requested_size(execution_result),
             "order_action": "open",
         }
         trade = TradeRecord(
@@ -286,7 +292,7 @@ class StrategyService(DaemonService):
                     id=f"dry-fill-{decision_id}",
                     position_id=position.id,
                     action="open",
-                    quantity=settings.TRADE_QUANTITY_ETH,
+                    quantity=self._requested_size(execution_result),
                     price=setup.entry_price,
                     exchange_order_id=self._extract_order_id(execution_result) or "",
                     reason="confirmed dry-run entry",
@@ -324,6 +330,16 @@ class StrategyService(DaemonService):
             RuleGroup(name="Default Take Profit", rules=[take_profit]),
         )
         return trade, position
+
+    @staticmethod
+    def _requested_size(execution_result: dict[str, Any]) -> float:
+        value = execution_result.get("maybechRequestedSize")
+        if value is None:
+            raise ValueError("Execution result is missing validated requested size")
+        quantity = float(value)
+        if quantity <= 0:
+            raise ValueError("Execution result requested size must be positive")
+        return quantity
 
     def _save_decision(self, payload: dict[str, Any]) -> bool:
         try:

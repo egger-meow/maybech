@@ -20,7 +20,6 @@ Risk Management:
 
 import pandas as pd
 
-from src.config.settings import settings
 from src.config.strategy import StrategyConfig, MomentumConfig
 from src.strategies.base import BaseStrategy, Signal
 
@@ -42,24 +41,23 @@ class MomentumStrategy(BaseStrategy):
         if config:
             self.config = config
         else:
-            # Load global config and extract momentum part
-            self.config = StrategyConfig.load().momentum
+            self.config = StrategyConfig.default().momentum
         
         # Shortcuts for logic
         self.k_long = self.config.k_long
         self.k_short = self.config.k_short
         self.gap_threshold = self.config.gap_threshold
         self.stop_loss_long_pct = (
-            settings.STOP_LOSS_LONG_PCT if stop_loss_long_pct is None else stop_loss_long_pct
+            0.02 if stop_loss_long_pct is None else stop_loss_long_pct
         )
         self.stop_loss_short_pct = (
-            settings.STOP_LOSS_SHORT_PCT if stop_loss_short_pct is None else stop_loss_short_pct
+            0.04 if stop_loss_short_pct is None else stop_loss_short_pct
         )
         self.take_profit_long_pct = (
-            settings.TAKE_PROFIT_LONG_PCT if take_profit_long_pct is None else take_profit_long_pct
+            0.03 if take_profit_long_pct is None else take_profit_long_pct
         )
         self.take_profit_short_pct = (
-            settings.TAKE_PROFIT_SHORT_PCT if take_profit_short_pct is None else take_profit_short_pct
+            0.05 if take_profit_short_pct is None else take_profit_short_pct
         )
 
     def generate_signal(self, df: pd.DataFrame) -> Signal:

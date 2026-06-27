@@ -747,7 +747,6 @@ def test_api_returns_strategy_summaries_with_runtime_state():
     assert strategy["runtime"]["dry_run"] is True
     assert strategy["runtime"]["service"]["name"] == "strategy"
     assert strategy["runtime"]["latest_decisions"][0]["pair"] == "ETH-USDT-SWAP"
-    assert strategy["metadata"]["seeded_from_runtime_config"] is True
 
 
 def test_api_returns_404_for_unknown_strategy():

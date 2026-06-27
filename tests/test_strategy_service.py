@@ -44,7 +44,9 @@ def _service(tmp_path, *, dry_run=True, audit_store=None):
 
 def test_strategy_service_persists_correlated_dry_run_lifecycle(tmp_path):
     service = _service(tmp_path)
-    service.executor = FakeExecutor({"ordId": "mock-order"})
+    service.executor = FakeExecutor(
+        {"ordId": "mock-order", "maybechRequestedSize": "1"}
+    )
 
     signal = service._process_setup(
         pair="ETH-USDT-SWAP",
@@ -66,7 +68,7 @@ def test_strategy_service_persists_correlated_dry_run_lifecycle(tmp_path):
     assert decision.payload["order_id"] == "mock-order"
     assert decision.payload["trade_id"] == trades[0].id
     assert decision.payload["position_id"] == trades[0].id
-    assert service.position_store.get(trades[0].id).opened_quantity == 0.1
+    assert service.position_store.get(trades[0].id).opened_quantity == 1.0
     assert len(lifecycle) == 1
     assert lifecycle[0].trade_id == trades[0].id
 
@@ -110,7 +112,9 @@ def test_live_strategy_fails_closed_when_pre_execution_audit_fails(tmp_path):
 
 def test_live_submission_creates_pending_unit_without_assuming_fill(tmp_path):
     service = _service(tmp_path, dry_run=False)
-    service.executor = FakeExecutor({"data": [{"ordId": "live-order"}]})
+    service.executor = FakeExecutor(
+        {"data": [{"ordId": "live-order"}], "maybechRequestedSize": "2"}
+    )
 
     signal = service._process_setup(
         pair="ETH-USDT-SWAP",

@@ -47,7 +47,7 @@ Recent history follows Conventional Commit prefixes such as `feat:`, `fix:`, and
 
 ## Security & Configuration Tips
 
-Create local secrets from `.env.example` and never commit `.env`. Treat OKX API keys, LINE tokens, and notification targets as sensitive. Review changes to `src/config/strategy_params.json` and `src/config/notificator_config.json` carefully because they can alter live trading or alert behavior.
+Create local secrets from `.env.example` and never commit `.env`. Treat OKX API keys, LINE tokens, and notification targets as sensitive. Review strategy records in SQLite and changes to `src/config/notificator_config.json` carefully because they can alter live trading or alert behavior. Strategy instruments, signals, close rules, and contract sizing do not belong in `.env`.
 
 ## Agent Operating Notes
 
@@ -59,3 +59,8 @@ relevant docs under `docs/`. Start with `docs/README.md`,
 `docs/deployment.md` for runtime or deployment work. Keep `toImprove.md` current
 with at least three active improvement points. When you complete or deprioritize
 one, replace it with the next concrete risk or quality gap.
+
+When the persisted signal-based strategy model covers a legacy strategy path,
+remove the superseded runtime code, configuration, tests, documentation, and
+hardcoded frontend references. Do not keep parallel strategy implementations as
+permanent compatibility fallbacks.

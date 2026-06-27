@@ -43,8 +43,8 @@ Frontends must use `active`; there is no `state` field.
 - `GET /strategies/{strategy_id}/decisions` returns restart-safe strategy
   decisions from SQLite, newest first. Filters cover allowed/blocked state,
   execution status, limit, and a `before` timestamp.
-- `GET /strategies` returns a typed read-only strategy summary for the current
-  momentum strategy, including runtime service status, signal parameters,
+- `GET /strategies` returns typed persisted strategy summaries, including
+  runtime service status, signal parameters,
   target instruments, default rule parameters, and latest decisions.
 - `GET /positions/logical` returns typed read-only logical position units from
   `LogicalPositionStore`, with compatibility backfill from `TradeStore` records.
@@ -118,11 +118,23 @@ All SQLite stores resolve `MAYBECH_DB_PATH`, which defaults to
 setting for tests and isolated tools. Keep all production stores on one path so
 the API and daemon observe the same schema and records.
 
+Mutable strategy configuration is stored in the `strategies` table, not in
+`.env` or `src/config/strategy_params.json`. The current runtime reads target
+instruments, candle timeframe, compatibility parameters, default exit rules,
+and `metadata.order_size_contracts` from the persisted strategy record. The
+legacy momentum evaluator remains transitional until the daemon executes
+generic persisted signal expressions directly.
+
 ## Safety Notes
 
 - Automatic signal/rule exits do not ask for human confirmation. Live startup,
   `MAYBECH_ARM_ORDERS=1`, the reduce-only client guard, and durable pre-submit
   audit must all succeed before an order is sent.
+- Live entries require an explicit contract count for their instrument in the
+  strategy record's `metadata.order_size_contracts`. Before entry or reduce-only
+  close submission, Maybech fetches OKX metadata and rejects halted instruments,
+  sizes below `minSz`, and sizes outside `lotSz`; limit and trigger prices are
+  normalized to `tickSz` with decimal arithmetic.
 - `POST /positions/logical/{position_id}/close` is the separate manual operator
   command and requires `{ "confirm": true }` to prevent accidental clicks.
 - Rule deletion must be scoped by both `trade_id` and `group_id` so one trade

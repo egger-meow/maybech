@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config.settings import settings
-from src.config.strategy import StrategyConfig
+from src.config.strategy import default_strategy_definition, ensure_default_strategy
 from src.data.candles import CandleManager
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
@@ -299,30 +299,11 @@ def _validate_signal_or_400(expression: dict) -> None:
 
 
 def _default_strategy_definition() -> dict:
-    config = StrategyConfig.load()
-    return {
-        "id": "momentum_swap",
-        "name": "Momentum Swap",
-        "kind": "momentum",
-        "enabled": True,
-        "target_instruments": list(settings.TRADING_PAIRS),
-        "entry_signal": {
-            "type": "volume_price_gap",
-            "timeframe": settings.CANDLE_INTERVAL,
-            "k_long": config.momentum.k_long,
-            "k_short": config.momentum.k_short,
-            "gap_threshold": config.momentum.gap_threshold,
-        },
-        "default_rules": {
-            "stop_win_ratio": config.momentum.stop_win_ratio,
-            "stop_win_vol_ratio": config.momentum.stop_win_vol_ratio,
-        },
-        "metadata": {"seeded_from_runtime_config": True},
-    }
+    return default_strategy_definition()
 
 
 def _ensure_default_strategy(store: StrategyStore) -> StrategyRecord:
-    return store.ensure(**_default_strategy_definition())
+    return ensure_default_strategy(store)
 
 
 def _signal_expression_response(expression: SignalExpressionRecord) -> SignalExpressionResponse:
@@ -480,6 +461,7 @@ def _signal_candle_context(
     windows_seconds: set[int] | None = None,
 ) -> dict:
     requirements = collect_signal_requirements(expression or {})
+    strategy = _ensure_default_strategy(StrategyStore())
     requested_symbols = _normalize_symbols(
         [
             *list(requirements["symbols"]),
@@ -488,10 +470,14 @@ def _signal_candle_context(
     )
     if not requested_symbols:
         requested_symbols = _normalize_symbols(
-            [_as_swap_symbol(pair) for pair in settings.TRADING_PAIRS]
+            [_as_swap_symbol(pair) for pair in strategy.target_instruments]
         )
 
-    requested_bar = bar or next(iter(requirements["timeframes"]), None) or settings.CANDLE_INTERVAL
+    requested_bar = (
+        bar
+        or next(iter(requirements["timeframes"]), None)
+        or str(strategy.entry_signal.get("timeframe", "1m"))
+    )
     requested_windows = set(windows_seconds or set())
     requested_windows.update(requirements["windows_seconds"])
     if not requested_windows:

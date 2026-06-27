@@ -1,95 +1,82 @@
-"""
-Order execution engine.
+"""Validated OKX order submission for strategy entries and position closes."""
 
-Receives TradeSetup from strategies and executes orders via the exchange client.
-Also monitors open positions and triggers stop-loss / take-profit exits.
-"""
+from __future__ import annotations
 
 import logging
-from typing import List, Dict, Optional
+from typing import Any
 
 from src.exchange.client import OKXClient
-from src.strategies.base import TradeSetup, Signal
-from src.config.settings import settings
+from src.strategies.base import Signal, TradeSetup
+from src.trading.instrument_constraints import InstrumentConstraints
 
 logger = logging.getLogger(__name__)
 
 
 class Executor:
-    """Manages live order placement and position lifecycle."""
+    """Submit orders only after instrument and precision validation."""
 
-    def __init__(self, client: OKXClient, dry_run: bool = True) -> None:
+    def __init__(
+        self,
+        client: OKXClient,
+        dry_run: bool = True,
+        *,
+        order_sizes: dict[str, str] | None = None,
+    ) -> None:
         self.client = client
         self.dry_run = dry_run
+        self.order_sizes = dict(order_sizes or {})
+        self._constraints: dict[str, InstrumentConstraints] = {}
         if self.dry_run:
             logger.warning("Executor initialized in DRY-RUN mode. No real orders will be placed.")
 
-    def execute(self, inst_id: str, setup: TradeSetup) -> dict:
-        """Place entry order + set stop-loss and take-profit."""
-        
-        side = "buy" if setup.signal == Signal.LONG else "sell"
-        sz = str(settings.TRADE_QUANTITY_ETH) # Fixed size for now
-        
-        # OKX requires string prices
-        entry_px = str(setup.entry_price)
-        sl_px = str(setup.stop_loss)
-        tp_px = str(setup.take_profit)
-        
-        logger.info(
-            f"EXECUTE ({'DRY' if self.dry_run else 'LIVE'}): "
-            f"{side.upper()} {inst_id} @ {entry_px} | SL: {sl_px} | TP: {tp_px}"
-        )
+    def configure_order_sizes(self, order_sizes: dict[str, str]) -> None:
+        self.order_sizes = dict(order_sizes)
 
+    def execute(self, inst_id: str, setup: TradeSetup) -> dict[str, Any]:
+        """Place a validated limit entry with attached stop and take profit."""
+        requested_size = self.order_sizes.get(inst_id)
         if self.dry_run:
-            return {"ordId": "mock_ord_123", "tag": "dry_run"}
+            size = requested_size or "1"
+            return {
+                "ordId": "mock_ord_123",
+                "tag": "dry_run",
+                "maybechRequestedSize": size,
+            }
+        if requested_size is None:
+            logger.error(
+                "Live entry blocked: strategy has no order_size_contracts value for %s",
+                inst_id,
+            )
+            return {}
 
         try:
-            # OKX supports attaching SL/TP to the order via algo/trigger params 
-            # OR we can place OCO or separate orders.
-            # Client `place_limit_order` has support for attached SL/TP (check client.py).
-            # If client.py `place_limit_order` handles `sl_trigger_px`, use it.
-            
-            # Note: For SWAP, attached SL/TP is often cleaner. 
-            # We assume client.place_limit_order supports `sl_trigger_px` and `tp_trigger_px`.
-            
+            constraints = self._instrument_constraints(inst_id)
+            size = constraints.normalize_size(requested_size)
+            entry_price = constraints.normalize_price(setup.entry_price)
+            stop_loss = constraints.normalize_price(setup.stop_loss)
+            take_profit = constraints.normalize_price(setup.take_profit)
+            side = "buy" if setup.signal == Signal.LONG else "sell"
             response = self.client.place_limit_order(
                 inst_id=inst_id,
                 side=side,
-                sz=sz,
-                px=entry_px,
-                td_mode="cross", # Default to cross for this strategy
-                sl_trigger_px=sl_px,
-                sl_ord_px="-1", # Market stop
-                tp_trigger_px=tp_px,
-                tp_ord_px="-1", # Market take profit
-                confirm=True   # We passed self.dry_run check, so we intend to execute.
-                               # OKXClient will still block if MAYBECH_ARM_ORDERS is not set.
+                sz=size,
+                px=entry_price,
+                td_mode="cross",
+                sl_trigger_px=stop_loss,
+                sl_ord_px="-1",
+                tp_trigger_px=take_profit,
+                tp_ord_px="-1",
+                confirm=True,
             )
-            
-            if response:
-                logger.info(f"Order placed successfully: {response}")
-                return response
-            else:
-                logger.error("Order placement failed (empty response).")
+            if not response:
+                logger.error("Order placement failed for %s (empty response)", inst_id)
                 return {}
-
-        except Exception as e:
-            logger.error(f"Execution failed: {e}")
+            return {**response, "maybechRequestedSize": size}
+        except Exception as exc:
+            logger.error("Entry submission blocked for %s: %s", inst_id, exc)
             return {}
 
-    def check_exits(self) -> List[dict]:
-        """
-        Check all open positions against their SL/TP levels.
-        
-        In 'net' mode with attached SL/TP, the exchange handles exits.
-        If we didn't attach SL/TP, or if we want soft stops, we check here.
-        For now, we assume orders were placed with attached SL/TP.
-        We can just monitor and log.
-        """
-        if self.dry_run:
-            return []
-
-        # Optional: Monitor and enforce backup soft-stops
+    def check_exits(self) -> list[dict]:
         return []
 
     def close_position(
@@ -100,19 +87,36 @@ class Executor:
         quantity: float,
         pos_side: str = "",
     ) -> dict:
-        """Submit a reduce-only market close without assuming it filled."""
+        """Submit a precision-validated reduce-only market close."""
         if quantity <= 0:
             raise ValueError("close quantity must be positive")
         if self.dry_run:
             return {"ordId": f"mock_close_{inst_id}", "tag": "dry_run"}
         try:
+            size = self._instrument_constraints(inst_id).normalize_size(quantity)
             return self.client.place_reduce_market_order(
                 inst_id=inst_id,
                 position_side=position_side,
-                sz=str(quantity),
+                sz=size,
                 pos_side=pos_side,
                 confirm=True,
             )
         except Exception as exc:
-            logger.error("Close submission failed for %s: %s", inst_id, exc)
+            logger.error("Close submission blocked for %s: %s", inst_id, exc)
             return {}
+
+    def _instrument_constraints(self, inst_id: str) -> InstrumentConstraints:
+        cached = self._constraints.get(inst_id)
+        if cached is not None:
+            return cached
+        payloads = self.client.get_instruments(inst_type="SWAP", inst_id=inst_id)
+        if len(payloads) != 1:
+            raise ValueError(f"Expected one OKX instrument for {inst_id}, got {len(payloads)}")
+        constraints = InstrumentConstraints.from_okx(payloads[0])
+        if constraints.inst_id != inst_id:
+            raise ValueError(
+                f"OKX instrument mismatch: requested {inst_id}, got {constraints.inst_id}"
+            )
+        constraints.validate_tradable()
+        self._constraints[inst_id] = constraints
+        return constraints

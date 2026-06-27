@@ -1,29 +1,18 @@
 # To Improve
 
-This file tracks the main improvement points agents should keep visible while
-working on Maybech. Maintain at least three active items at all times.
+Only current blockers to dependable real-money operation belong here.
 
-## Current Top Priorities
+## Current Priorities
 
-1. Persist OKX fill-history pagination/catch-up cursors so accounts with more
-   than 100 recent fills cannot skip executions between polls or restarts.
-2. Add authenticated private OKX order websocket events for low-latency fills,
-   cancellations, and unfilled remainders while retaining REST fill catch-up.
-3. Normalize OKX contract/lot units and validate instrument minimum size and
-   precision before open or reduce-only order submission.
-4. Add authentication and operator authorization before exposing any service
-   control or trading-control endpoint beyond localhost.
-5. Move runtime state that must survive restarts from in-memory snapshots toward
-   structured persistence with explicit retention rules.
-6. Replace timestamp-only audit pagination with a stable opaque cursor and add
-   retention/compaction so frequent evaluations cannot grow SQLite unbounded.
-7. Consolidate dependency metadata so `requirements.txt`, `pyproject.toml`, and
-   `uv.lock` no longer describe different dependency sources of truth.
+1. Replace the transitional `MomentumStrategy` daemon path with direct execution
+   of persisted generic signal expressions, then remove `momentum.py`,
+   `volume_price_gap`, optimizer coupling, obsolete tests, and hardcoded UI IDs.
+2. Persist OKX fill-history catch-up cursors so more than 100 fills or a restart
+   cannot skip an execution.
+3. Add authenticated private OKX order events for latency while retaining REST
+   catch-up as the correctness layer.
+4. Complete demo-account open, partial-fill, cancellation, automatic close, and
+   restart recovery verification before arming a live account.
 
-## Maintenance Rules
-
-- Read this file before making code or docs changes.
-- Update the list whenever an item is completed, replaced, or made obsolete.
-- Keep each item actionable and tied to concrete files, commands, or behavior.
-- Preserve at least three current priorities so the next contributor has a clear
-  direction.
+Do not add general cleanup or speculative features. Add an item only when it is
+a concrete correctness or safety blocker, and remove it when completed.

@@ -21,26 +21,24 @@ capability moves from planned to partial or complete.
 | BTC regime state | Partial | `BTCRegimeService` publishes regime state and `/market/btc-regime` exposes the latest snapshot. |
 | Strategy decisions | Partial | Runtime snapshots remain for compatibility; every evaluated setup is also persisted with a correlation id, policy evidence, execution result, and order/trade/position references. `GET /strategies/{strategy_id}/decisions` provides filtered restart-safe history. Exchange fill confirmation is not complete. |
 | Position intents | Partial | Current position intent snapshots exist and `/positions/logical` exposes persisted logical units with trade backfill, per-unit close signal conditions, legacy trade rules, and reconciliation state for the frontend. |
-| Confirmed live close execution | Partial | Armed live triggers submit guarded reduce-only market orders and wait for fills. Canceled/rejected pending exits recover safely, and stale orders receive one cancellation request. Private websocket latency and exchange-specific size validation remain incomplete. |
+| Confirmed live close execution | Partial | Armed live triggers submit guarded reduce-only market orders and wait for fills. Canceled/rejected pending exits recover safely, stale orders receive one cancellation request, and current OKX min/lot precision is validated before submission. Private websocket latency remains incomplete. |
 | Logical position units | Partial | SQLite persistence, per-unit close conditions, reconciliation, idempotent open/close fill allocation, and manual close API are implemented. Private websocket cancellation events and break-even operations remain incomplete. |
 | Execution fill ingestion | Partial | `ExecutionFillService` polls fills and pending orders, allocates idempotently, recovers terminal orders, cancels stale orders once, and emits one alert when a filled order lacks fill details for three polls. Durable REST cursors and private websocket latency remain planned. |
-| Signal expression engine | Partial | Signal expressions can be persisted as JSON records under strategies, validated through `/signals/validate`, evaluated against caller-provided, runtime snapshot, or candle-derived context through `/signals/evaluate`, and required before strategy enable. |
+| Signal expression engine | Partial | Signal expressions can be persisted as JSON records under strategies, validated through `/signals/validate`, evaluated against caller-provided, runtime snapshot, or candle-derived context through `/signals/evaluate`, and required before strategy enable. The daemon entry path still uses the transitional momentum evaluator. |
 | Strategy Management page | Partial | A frontend route exists, but the target strategy-management workflow is not complete. |
 | Position Management page | Partial | A frontend route exists, but per-unit management and K-line overlays are not complete. |
 | API contract generation | Partial | Runtime, strategy, signal-expression, and logical-position endpoints use Pydantic response models and OpenAPI; `scripts/generate_openapi_types.py` exports `docs/openapi.json`; frontend schema types and dashboard API helpers are typed from generated contracts. |
 | Authentication/authorization | Planned | Required before exposing service or trading controls beyond localhost. |
 | Structured persistence | Partial | SQLite stores exist for trades, logical positions, allocations, strategies, signal expressions, position-manager audits, and strategy decision/execution history; most general runtime events remain in-memory. |
 | SQLite schema management | Partial | `TradeStore` and `StrategyStore` record version `1`, `AuditEventStore` records version `2`, and `LogicalPositionStore` records version `3` through explicit migration paths. All default to `MAYBECH_DB_PATH`. |
+| Live order precision | Built | Strategy contract counts are persisted per instrument. Live entries and reduce-only closes validate OKX instrument state, `minSz`, `lotSz`, and `tickSz` with decimal arithmetic before submission. |
 
 ## Next Build Milestones
 
-1. Persist OKX fill-history pagination/catch-up cursors so accounts with more
-   than 100 recent fills cannot skip executions between polls or restarts.
-2. Add authenticated private OKX order websocket events for low-latency fills
-   and state changes while retaining REST catch-up.
-3. Add explicit retention/compaction for audit queries; timestamp pagination is
-   implemented but needs an opaque stable cursor before multi-writer use.
-4. Add break-even and grouped-position mutation/query endpoints.
-5. Build the Strategy Management and Position Management pages around those
-   contracts.
-6. Add authentication and authorization before any remote trading controls.
+1. Replace the transitional momentum daemon with direct execution of persisted
+   generic signal expressions and remove its legacy files/tests.
+2. Persist OKX fill-history pagination/catch-up cursors and add private order
+   websocket events while retaining REST catch-up.
+3. Complete demo-account open, partial-fill, cancellation, close, and restart
+   verification before arming a live account.
+4. Add authentication before any remote trading controls are exposed.
