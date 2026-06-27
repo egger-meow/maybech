@@ -61,6 +61,7 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     terminal_recovered: int = 0
     stale_cancel_requested: int = 0
     filled_awaiting_allocation: int = 0
+    missing_fill_alerts: int = 0
     order_errors: int = 0
     updated_at: str | None = None
 

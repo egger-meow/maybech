@@ -30,11 +30,13 @@ class ExecutionFillService(DaemonService):
         client: OKXClient | None = None,
         allocator: ExecutionAllocationService | None = None,
         stale_after_seconds: float = 300.0,
+        missing_fill_alert_after: int = 3,
     ) -> None:
         super().__init__()
         self.client = client
         self.allocator = allocator or ExecutionAllocationService()
         self.stale_after_seconds = stale_after_seconds
+        self.missing_fill_alert_after = max(1, missing_fill_alert_after)
 
     def setup(self) -> None:
         if self.client is None:
@@ -56,6 +58,7 @@ class ExecutionFillService(DaemonService):
             "terminal_recovered": 0,
             "stale_cancel_requested": 0,
             "filled_awaiting_allocation": 0,
+            "missing_fill_alerts": 0,
             "order_errors": 0,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -159,6 +162,52 @@ class ExecutionFillService(DaemonService):
                 continue
             if order_state == "filled":
                 status["filled_awaiting_allocation"] += 1
+                observed, count, alerted = (
+                    self.allocator.position_store.record_filled_without_allocation(
+                        position.id,
+                        exchange_order_id=order_id,
+                    )
+                )
+                if (
+                    observed is not None
+                    and count >= self.missing_fill_alert_after
+                    and not alerted
+                ):
+                    try:
+                        self.allocator.audit_store.create(
+                            id=f"missing-fill:{observed.id}:{order_id}",
+                            type="position.filled_without_allocation",
+                            source=self.name,
+                            payload={
+                                "strategy_id": observed.strategy_id,
+                                "position_id": observed.id,
+                                "trade_id": observed.trade_id,
+                                "exchange_order_id": order_id,
+                                "observation_count": count,
+                            },
+                        )
+                    except Exception as exc:
+                        status["order_errors"] += 1
+                        logger.warning(
+                            "Failed to persist missing-fill alert for %s: %s",
+                            order_id,
+                            exc,
+                        )
+                        continue
+                    if self.allocator.position_store.mark_filled_without_allocation_alerted(
+                        observed.id,
+                        exchange_order_id=order_id,
+                    ):
+                        status["missing_fill_alerts"] += 1
+                        self.publish_event(
+                            "execution.filled_without_allocation",
+                            {
+                                "position_id": observed.id,
+                                "trade_id": observed.trade_id,
+                                "exchange_order_id": order_id,
+                                "observation_count": count,
+                            },
+                        )
                 continue
             if (
                 order_state in self.ACTIVE_ORDER_STATES

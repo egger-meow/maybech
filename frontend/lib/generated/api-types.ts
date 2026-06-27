@@ -65,6 +65,7 @@ export type ExecutionFillIngestionStatusResponse = {
   "terminal_recovered"?: number;
   "stale_cancel_requested"?: number;
   "filled_awaiting_allocation"?: number;
+  "missing_fill_alerts"?: number;
   "order_errors"?: number;
   "updated_at"?: string | null;
 };

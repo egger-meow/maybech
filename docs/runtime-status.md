@@ -107,6 +107,9 @@ The same poll checks every unit with an active exchange order id. Confirmed
 unfilled or `open` when partially filled; canceled close/reduce orders recover
 to `open` while quantity remains. Active orders older than five minutes receive
 one cancellation request and remain pending until OKX confirms a terminal state.
+If OKX reports `filled` but no matching fill details arrive for three consecutive
+polls, the unit emits one deduplicated durable
+`position.filled_without_allocation` alert for operator investigation.
 
 ## Runtime Storage
 

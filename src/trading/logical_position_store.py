@@ -745,6 +745,84 @@ class LogicalPositionStore:
         metadata = _json_loads(row["metadata_json"], {})
         return isinstance(metadata, dict) and bool(metadata.get("cancel_requested_at"))
 
+    def record_filled_without_allocation(
+        self,
+        position_id: str,
+        *,
+        exchange_order_id: str,
+    ) -> tuple[LogicalPositionRecord | None, int, bool]:
+        """Persist one observation of a filled order whose fills are unavailable."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM logical_positions WHERE id = ? AND exchange_order_id = ?",
+                (position_id, exchange_order_id),
+            ).fetchone()
+            if row is None:
+                return None, 0, False
+            position = LogicalPositionRecord.from_row(row)
+            metadata = _json_loads(position.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            observation = metadata.get("filled_without_allocation")
+            if not isinstance(observation, dict) or observation.get("order_id") != exchange_order_id:
+                observation = {
+                    "order_id": exchange_order_id,
+                    "first_seen_at": datetime.now(timezone.utc).isoformat(),
+                    "count": 0,
+                }
+            observation["count"] = int(observation.get("count") or 0) + 1
+            observation["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+            metadata["filled_without_allocation"] = observation
+            metadata["execution_status"] = "filled_awaiting_allocation"
+            conn.execute(
+                "UPDATE logical_positions SET metadata_json = ?, updated_at = ? "
+                "WHERE id = ? AND exchange_order_id = ?",
+                (
+                    _json_dumps(metadata),
+                    datetime.now(timezone.utc).isoformat(),
+                    position_id,
+                    exchange_order_id,
+                ),
+            )
+        return self.get(position_id), int(observation["count"]), bool(
+            observation.get("alerted_at")
+        )
+
+    def mark_filled_without_allocation_alerted(
+        self,
+        position_id: str,
+        *,
+        exchange_order_id: str,
+    ) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT metadata_json FROM logical_positions "
+                "WHERE id = ? AND exchange_order_id = ?",
+                (position_id, exchange_order_id),
+            ).fetchone()
+            if row is None:
+                return False
+            metadata = _json_loads(row["metadata_json"], {})
+            observation = (
+                metadata.get("filled_without_allocation")
+                if isinstance(metadata, dict)
+                else None
+            )
+            if not isinstance(observation, dict) or observation.get("alerted_at"):
+                return False
+            observation["alerted_at"] = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "UPDATE logical_positions SET metadata_json = ?, updated_at = ? "
+                "WHERE id = ? AND exchange_order_id = ?",
+                (
+                    _json_dumps(metadata),
+                    datetime.now(timezone.utc).isoformat(),
+                    position_id,
+                    exchange_order_id,
+                ),
+            )
+        return True
+
     def update_reconciliation(
         self,
         position_id: str,

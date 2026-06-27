@@ -5,8 +5,8 @@ working on Maybech. Maintain at least three active items at all times.
 
 ## Current Top Priorities
 
-1. Reconcile and alert when OKX reports an order `filled` but fill details remain
-   unavailable across repeated REST polls.
+1. Persist OKX fill-history pagination/catch-up cursors so accounts with more
+   than 100 recent fills cannot skip executions between polls or restarts.
 2. Add authenticated private OKX order websocket events for low-latency fills,
    cancellations, and unfilled remainders while retaining REST fill catch-up.
 3. Normalize OKX contract/lot units and validate instrument minimum size and

@@ -23,7 +23,7 @@ capability moves from planned to partial or complete.
 | Position intents | Partial | Current position intent snapshots exist and `/positions/logical` exposes persisted logical units with trade backfill, per-unit close signal conditions, legacy trade rules, and reconciliation state for the frontend. |
 | Confirmed live close execution | Partial | Armed live triggers submit guarded reduce-only market orders and wait for fills. Canceled/rejected pending exits recover safely, and stale orders receive one cancellation request. Private websocket latency and exchange-specific size validation remain incomplete. |
 | Logical position units | Partial | SQLite persistence, per-unit close conditions, reconciliation, idempotent open/close fill allocation, and manual close API are implemented. Private websocket cancellation events and break-even operations remain incomplete. |
-| Execution fill ingestion | Partial | `ExecutionFillService` polls fills and pending order states every five seconds, allocates matching fills idempotently, recovers terminal orders, cancels stale active orders once, and exposes detailed status. Private websocket latency remains planned. |
+| Execution fill ingestion | Partial | `ExecutionFillService` polls fills and pending orders, allocates idempotently, recovers terminal orders, cancels stale orders once, and emits one alert when a filled order lacks fill details for three polls. Durable REST cursors and private websocket latency remain planned. |
 | Signal expression engine | Partial | Signal expressions can be persisted as JSON records under strategies, validated through `/signals/validate`, evaluated against caller-provided, runtime snapshot, or candle-derived context through `/signals/evaluate`, and required before strategy enable. |
 | Strategy Management page | Partial | A frontend route exists, but the target strategy-management workflow is not complete. |
 | Position Management page | Partial | A frontend route exists, but per-unit management and K-line overlays are not complete. |
@@ -34,8 +34,8 @@ capability moves from planned to partial or complete.
 
 ## Next Build Milestones
 
-1. Reconcile and alert when OKX reports an order `filled` but fill details remain
-   unavailable across repeated REST polls.
+1. Persist OKX fill-history pagination/catch-up cursors so accounts with more
+   than 100 recent fills cannot skip executions between polls or restarts.
 2. Add authenticated private OKX order websocket events for low-latency fills
    and state changes while retaining REST catch-up.
 3. Add explicit retention/compaction for audit queries; timestamp pagination is

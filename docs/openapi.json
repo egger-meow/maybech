@@ -388,6 +388,11 @@
             "title": "Invalid",
             "type": "integer"
           },
+          "missing_fill_alerts": {
+            "default": 0,
+            "title": "Missing Fill Alerts",
+            "type": "integer"
+          },
           "order_errors": {
             "default": 0,
             "title": "Order Errors",

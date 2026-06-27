@@ -1,3 +1,6 @@
+import json
+from datetime import datetime, timedelta, timezone
+
 from src.daemon.execution_fill_service import ExecutionFillService
 from src.daemon.service import DaemonRunner
 from src.exchange.fills import normalize_okx_fill
@@ -187,4 +190,51 @@ def test_execution_fill_service_requests_stale_cancel_once(tmp_path):
 
     assert client.cancel_calls == [("ETH-USDT-SWAP", "stale-order")]
     assert position_store.get("pending-unit").status == "pending_open"
-from datetime import datetime, timedelta, timezone
+
+
+def test_filled_order_without_fill_details_alerts_once_after_repeated_polls(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="missing-fill-unit",
+            inst_id="ETH-USDT-SWAP",
+            status="pending_open",
+            exchange_order_id="filled-order",
+            opened_quantity=0.0,
+            remaining_quantity=0.0,
+        )
+    )
+    client = FakeFillClient([], orders={"filled-order": {"state": "filled"}})
+    allocator = ExecutionAllocationService(
+        trade_store=trade_store,
+        position_store=position_store,
+    )
+    service = ExecutionFillService(
+        client=client,
+        allocator=allocator,
+        missing_fill_alert_after=3,
+    )
+    runner = DaemonRunner()
+    runner.register(service)
+
+    service.tick()
+    service.tick()
+    service.tick()
+    third_status = runner.runtime.get_value("execution.fills.status")
+    service.tick()
+
+    metadata = json.loads(position_store.get("missing-fill-unit").metadata_json)
+    alerts = allocator.audit_store.list(
+        event_type="position.filled_without_allocation",
+        position_id="missing-fill-unit",
+    )
+    runtime_alerts = runner.runtime.events.recent(
+        event_type="execution.filled_without_allocation"
+    )
+    assert third_status["missing_fill_alerts"] == 1
+    assert metadata["filled_without_allocation"]["count"] == 4
+    assert metadata["filled_without_allocation"]["alerted_at"]
+    assert len(alerts) == 1
+    assert len(runtime_alerts) == 1
