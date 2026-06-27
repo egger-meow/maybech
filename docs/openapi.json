@@ -28,6 +28,83 @@
         "title": "AccountSnapshotResponse",
         "type": "object"
       },
+      "AuditEventResponse": {
+        "properties": {
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "position_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Id"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Id"
+          },
+          "trade_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Id"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "source",
+          "created_at"
+        ],
+        "title": "AuditEventResponse",
+        "type": "object"
+      },
       "BTCRegimeResponse": {
         "properties": {
           "direction": {
@@ -105,6 +182,227 @@
         "title": "BTCRegimeResponse",
         "type": "object"
       },
+      "ConfirmedPositionFillCreate": {
+        "properties": {
+          "action": {
+            "enum": [
+              "open",
+              "reduce",
+              "close"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "confirmation_source": {
+            "enum": [
+              "okx_fill",
+              "dry_run",
+              "recovery"
+            ],
+            "title": "Confirmation Source",
+            "type": "string"
+          },
+          "correlation_id": {
+            "default": "",
+            "maxLength": 128,
+            "title": "Correlation Id",
+            "type": "string"
+          },
+          "exchange_order_id": {
+            "default": "",
+            "maxLength": 128,
+            "title": "Exchange Order Id",
+            "type": "string"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee"
+          },
+          "fill_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Fill Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "price": {
+            "exclusiveMinimum": 0.0,
+            "title": "Price",
+            "type": "number"
+          },
+          "quantity": {
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity",
+            "type": "number"
+          },
+          "reason": {
+            "default": "confirmed execution fill",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fill_id",
+          "action",
+          "quantity",
+          "price",
+          "confirmation_source"
+        ],
+        "title": "ConfirmedPositionFillCreate",
+        "type": "object"
+      },
+      "ConfirmedPositionFillResponse": {
+        "properties": {
+          "allocation": {
+            "$ref": "#/components/schemas/LogicalPositionAllocationResponse"
+          },
+          "average_entry_price": {
+            "title": "Average Entry Price",
+            "type": "number"
+          },
+          "execution_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "partially_filled",
+                  "filled",
+                  "reduced",
+                  "closed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Execution Status"
+          },
+          "idempotent": {
+            "title": "Idempotent",
+            "type": "boolean"
+          },
+          "opened_quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened Quantity"
+          },
+          "position_id": {
+            "title": "Position Id",
+            "type": "string"
+          },
+          "remaining_quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Quantity"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "trade_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Id"
+          }
+        },
+        "required": [
+          "allocation",
+          "idempotent",
+          "position_id",
+          "status",
+          "average_entry_price",
+          "execution_status"
+        ],
+        "title": "ConfirmedPositionFillResponse",
+        "type": "object"
+      },
+      "ExecutionFillIngestionStatusResponse": {
+        "properties": {
+          "applied": {
+            "default": 0,
+            "title": "Applied",
+            "type": "integer"
+          },
+          "conflicts": {
+            "default": 0,
+            "title": "Conflicts",
+            "type": "integer"
+          },
+          "fetched": {
+            "default": 0,
+            "title": "Fetched",
+            "type": "integer"
+          },
+          "idempotent": {
+            "default": 0,
+            "title": "Idempotent",
+            "type": "integer"
+          },
+          "invalid": {
+            "default": 0,
+            "title": "Invalid",
+            "type": "integer"
+          },
+          "unmatched": {
+            "default": 0,
+            "title": "Unmatched",
+            "type": "integer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "title": "ExecutionFillIngestionStatusResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -136,6 +434,391 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "LogicalPositionAllocationResponse": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "exchange_order_id": {
+            "default": "",
+            "title": "Exchange Order Id",
+            "type": "string"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "position_id": {
+            "title": "Position Id",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "number"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position_id",
+          "action",
+          "quantity",
+          "created_at"
+        ],
+        "title": "LogicalPositionAllocationResponse",
+        "type": "object"
+      },
+      "LogicalPositionCloseConditionCreate": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expression": {
+            "additionalProperties": true,
+            "title": "Expression",
+            "type": "object"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stop_loss",
+                  "take_profit",
+                  "trailing",
+                  "break_even",
+                  "manual_review",
+                  "exit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "default": "exit",
+            "title": "Purpose"
+          }
+        },
+        "title": "LogicalPositionCloseConditionCreate",
+        "type": "object"
+      },
+      "LogicalPositionCloseConditionResponse": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expression": {
+            "additionalProperties": true,
+            "title": "Expression",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "position_id": {
+            "title": "Position Id",
+            "type": "string"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stop_loss",
+                  "take_profit",
+                  "trailing",
+                  "break_even",
+                  "manual_review",
+                  "exit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "default": "exit",
+            "title": "Purpose"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "LogicalPositionCloseConditionResponse",
+        "type": "object"
+      },
+      "LogicalPositionCloseConditionUpdate": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "expression": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expression"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stop_loss",
+                  "take_profit",
+                  "trailing",
+                  "break_even",
+                  "manual_review",
+                  "exit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          }
+        },
+        "title": "LogicalPositionCloseConditionUpdate",
+        "type": "object"
+      },
+      "LogicalPositionCloseRequest": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "reason": {
+            "default": "manual close",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "LogicalPositionCloseRequest",
+        "type": "object"
+      },
+      "LogicalPositionCloseResponse": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "current_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Price"
+          },
+          "exchange_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Order Id"
+          },
+          "execution_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Status"
+          },
+          "exit_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Reason"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "position_id": {
+            "title": "Position Id",
+            "type": "string"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "trade_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Id"
+          }
+        },
+        "required": [
+          "position_id",
+          "inst_id",
+          "side",
+          "action"
+        ],
+        "title": "LogicalPositionCloseResponse",
+        "type": "object"
+      },
       "LogicalPositionUnitResponse": {
         "properties": {
           "allocations": {
@@ -155,7 +838,7 @@
           },
           "close_conditions": {
             "items": {
-              "$ref": "#/components/schemas/TradeRuleResponse"
+              "$ref": "#/components/schemas/LogicalPositionCloseConditionResponse"
             },
             "title": "Close Conditions",
             "type": "array"
@@ -182,6 +865,11 @@
             "title": "Entry Time",
             "type": "string"
           },
+          "exchange_order_id": {
+            "default": "",
+            "title": "Exchange Order Id",
+            "type": "string"
+          },
           "exchange_position_key": {
             "default": "",
             "title": "Exchange Position Key",
@@ -194,6 +882,13 @@
           "inst_id": {
             "title": "Inst Id",
             "type": "string"
+          },
+          "legacy_trade_rules": {
+            "items": {
+              "$ref": "#/components/schemas/TradeRuleResponse"
+            },
+            "title": "Legacy Trade Rules",
+            "type": "array"
           },
           "metadata": {
             "additionalProperties": true,
@@ -649,6 +1344,92 @@
         "title": "ServiceStatusResponse",
         "type": "object"
       },
+      "SignalEvaluationRequest": {
+        "properties": {
+          "bar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bar"
+          },
+          "candle_limit": {
+            "default": 120,
+            "maximum": 300.0,
+            "minimum": 2.0,
+            "title": "Candle Limit",
+            "type": "integer"
+          },
+          "context": {
+            "additionalProperties": true,
+            "title": "Context",
+            "type": "object"
+          },
+          "expression": {
+            "additionalProperties": true,
+            "title": "Expression",
+            "type": "object"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          },
+          "use_candle_context": {
+            "default": false,
+            "title": "Use Candle Context",
+            "type": "boolean"
+          },
+          "use_runtime_context": {
+            "default": false,
+            "title": "Use Runtime Context",
+            "type": "boolean"
+          }
+        },
+        "title": "SignalEvaluationRequest",
+        "type": "object"
+      },
+      "SignalEvaluationResponse": {
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "evaluated_at": {
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "boolean"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "matched",
+          "valid",
+          "evaluated_at"
+        ],
+        "title": "SignalEvaluationResponse",
+        "type": "object"
+      },
       "SignalExpressionCreate": {
         "properties": {
           "expression": {
@@ -725,6 +1506,99 @@
           "updated_at"
         ],
         "title": "SignalExpressionResponse",
+        "type": "object"
+      },
+      "SignalRuntimeContextResponse": {
+        "properties": {
+          "changes_pct": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Changes Pct",
+            "type": "object"
+          },
+          "prices": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Prices",
+            "type": "object"
+          },
+          "source": {
+            "additionalProperties": true,
+            "title": "Source",
+            "type": "object"
+          },
+          "volume_ratios": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Volume Ratios",
+            "type": "object"
+          }
+        },
+        "title": "SignalRuntimeContextResponse",
+        "type": "object"
+      },
+      "SignalTemplateResponse": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "required": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required",
+            "type": "array"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "description"
+        ],
+        "title": "SignalTemplateResponse",
+        "type": "object"
+      },
+      "SignalValidationRequest": {
+        "properties": {
+          "expression": {
+            "additionalProperties": true,
+            "title": "Expression",
+            "type": "object"
+          }
+        },
+        "title": "SignalValidationRequest",
+        "type": "object"
+      },
+      "SignalValidationResponse": {
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "normalized": {
+            "additionalProperties": true,
+            "title": "Normalized",
+            "type": "object"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid"
+        ],
+        "title": "SignalValidationResponse",
         "type": "object"
       },
       "StrategyCreate": {
@@ -829,6 +1703,50 @@
             ],
             "title": "Btc Strength"
           },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "dry_run": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dry Run"
+          },
           "entry_price": {
             "anyOf": [
               {
@@ -840,6 +1758,56 @@
             ],
             "title": "Entry Price"
           },
+          "execution_result": {
+            "additionalProperties": true,
+            "title": "Execution Result",
+            "type": "object"
+          },
+          "execution_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "blocked",
+                  "audit_failed",
+                  "simulated",
+                  "submitted",
+                  "failed",
+                  "persistence_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Status"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
           "pair": {
             "anyOf": [
               {
@@ -850,6 +1818,28 @@
               }
             ],
             "title": "Pair"
+          },
+          "persistence_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Persistence Error"
+          },
+          "position_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Id"
           },
           "reason": {
             "default": "",
@@ -889,6 +1879,17 @@
             ],
             "title": "Stop Loss"
           },
+          "strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Id"
+          },
           "take_profit": {
             "anyOf": [
               {
@@ -910,6 +1911,17 @@
               }
             ],
             "title": "Time"
+          },
+          "trade_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Id"
           }
         },
         "title": "StrategyDecisionResponse",
@@ -1540,6 +2552,164 @@
         "summary": "Get Account Snapshot"
       }
     },
+    "/audit/events": {
+      "get": {
+        "operationId": "list_audit_events_audit_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "in": "query",
+            "name": "strategy_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strategy Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "correlation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Correlation Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "position_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Position Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "trade_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Trade Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AuditEventResponse"
+                  },
+                  "title": "Response List Audit Events Audit Events Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Audit Events"
+      }
+    },
     "/events": {
       "get": {
         "operationId": "recent_events_events_get",
@@ -1598,6 +2768,24 @@
           }
         },
         "summary": "Recent Events"
+      }
+    },
+    "/execution/fills/status": {
+      "get": {
+        "operationId": "get_execution_fill_status_execution_fills_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionFillIngestionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Execution Fill Status"
       }
     },
     "/health": {
@@ -1767,6 +2955,357 @@
         "summary": "Get Logical Position"
       }
     },
+    "/positions/logical/{position_id}/allocations": {
+      "get": {
+        "operationId": "list_logical_position_allocations_positions_logical__position_id__allocations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LogicalPositionAllocationResponse"
+                  },
+                  "title": "Response List Logical Position Allocations Positions Logical  Position Id  Allocations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Logical Position Allocations"
+      },
+      "post": {
+        "operationId": "record_confirmed_position_fill_positions_logical__position_id__allocations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmedPositionFillCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmedPositionFillResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Confirmed Position Fill"
+      }
+    },
+    "/positions/logical/{position_id}/close": {
+      "post": {
+        "operationId": "close_logical_position_positions_logical__position_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogicalPositionCloseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionCloseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Close Logical Position"
+      }
+    },
+    "/positions/logical/{position_id}/close-conditions": {
+      "get": {
+        "operationId": "list_logical_position_close_conditions_positions_logical__position_id__close_conditions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "enabled",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Enabled"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LogicalPositionCloseConditionResponse"
+                  },
+                  "title": "Response List Logical Position Close Conditions Positions Logical  Position Id  Close Conditions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Logical Position Close Conditions"
+      },
+      "post": {
+        "operationId": "create_logical_position_close_condition_positions_logical__position_id__close_conditions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogicalPositionCloseConditionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionCloseConditionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Logical Position Close Condition"
+      }
+    },
+    "/positions/logical/{position_id}/close-conditions/{condition_id}": {
+      "delete": {
+        "operationId": "delete_logical_position_close_condition_positions_logical__position_id__close_conditions__condition_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "condition_id",
+            "required": true,
+            "schema": {
+              "title": "Condition Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Logical Position Close Condition Positions Logical  Position Id  Close Conditions  Condition Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Logical Position Close Condition"
+      },
+      "patch": {
+        "operationId": "update_logical_position_close_condition_positions_logical__position_id__close_conditions__condition_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "condition_id",
+            "required": true,
+            "schema": {
+              "title": "Condition Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogicalPositionCloseConditionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionCloseConditionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Logical Position Close Condition"
+      }
+    },
     "/services": {
       "get": {
         "operationId": "list_services_services_get",
@@ -1904,6 +3443,190 @@
           }
         },
         "summary": "Enable Service"
+      }
+    },
+    "/signals/context": {
+      "get": {
+        "operationId": "get_signal_runtime_context_signals_context_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_candles",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Candles",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Comma-separated OKX instrument IDs.",
+            "in": "query",
+            "name": "symbols",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated OKX instrument IDs.",
+              "title": "Symbols"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bar",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Bar"
+            }
+          },
+          {
+            "in": "query",
+            "name": "candle_limit",
+            "required": false,
+            "schema": {
+              "default": 120,
+              "maximum": 300,
+              "minimum": 2,
+              "title": "Candle Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalRuntimeContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Signal Runtime Context"
+      }
+    },
+    "/signals/evaluate": {
+      "post": {
+        "operationId": "evaluate_signal_signals_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalEvaluationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalEvaluationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate Signal"
+      }
+    },
+    "/signals/templates": {
+      "get": {
+        "operationId": "list_signal_templates_signals_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SignalTemplateResponse"
+                  },
+                  "title": "Response List Signal Templates Signals Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Signal Templates"
+      }
+    },
+    "/signals/validate": {
+      "post": {
+        "operationId": "validate_signal_signals_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalValidationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalValidationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Signal"
       }
     },
     "/strategies": {
@@ -2048,6 +3771,109 @@
           }
         },
         "summary": "Update Strategy"
+      }
+    },
+    "/strategies/{strategy_id}/decisions": {
+      "get": {
+        "operationId": "list_persisted_strategy_decisions_strategies__strategy_id__decisions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "title": "Strategy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allowed",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Allowed"
+            }
+          },
+          {
+            "in": "query",
+            "name": "execution_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Execution Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StrategyDecisionResponse"
+                  },
+                  "title": "Response List Persisted Strategy Decisions Strategies  Strategy Id  Decisions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Persisted Strategy Decisions"
       }
     },
     "/strategies/{strategy_id}/disable": {

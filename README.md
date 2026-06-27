@@ -7,9 +7,9 @@ BTC regime tracking, account snapshots, notifications, and backtesting tools.
 
 This project should be treated as an operator-assist system first. Dry-run mode
 is the default. Live strategy execution requires explicit `--live` startup and
-the existing arming safeguards. Dynamic rule exits in `PositionManagerService`
-do not place live close orders yet; in live mode they emit manual-close-required
-events until a confirmed exchange close executor is implemented.
+the existing arming safeguards. In armed live mode, triggered close conditions
+automatically submit reduce-only market orders. Logical quantity and trade state
+remain unchanged until authenticated OKX fills confirm the exit.
 
 ## Project Structure
 
@@ -81,10 +81,14 @@ Useful API endpoints:
 
 - `GET http://127.0.0.1:8000/services`
 - `GET http://127.0.0.1:8000/events`
+- `GET http://127.0.0.1:8000/audit/events`
 - `GET http://127.0.0.1:8000/account/snapshot`
 - `GET http://127.0.0.1:8000/market/btc-regime`
 - `GET http://127.0.0.1:8000/strategy/decisions`
+- `GET http://127.0.0.1:8000/strategies/momentum_swap/decisions`
 - `GET http://127.0.0.1:8000/position/intents`
+- `GET http://127.0.0.1:8000/execution/fills/status`
+- `GET http://127.0.0.1:8000/positions/logical`
 - `ws://127.0.0.1:8000/ws/events`
 
 Start daemon services without the API:
@@ -148,7 +152,8 @@ architecture direction, see `docs/system-direction.md`.
 
 Create secrets from `.env.example` and never commit `.env`. The example file is
 kept focused on active runtime/operator variables, including
-`MAYBECH_ARM_ORDERS` and `NEXT_PUBLIC_API_URL`, by tests.
+`MAYBECH_ARM_ORDERS`, `MAYBECH_DB_PATH`, and `NEXT_PUBLIC_API_URL`. A
+source-derived test rejects missing and obsolete entries.
 Treat OKX API keys, LINE tokens, SMTP credentials, and notification targets as
 sensitive. Keep the API bound to localhost unless authentication, TLS, and a
 private access path are configured.

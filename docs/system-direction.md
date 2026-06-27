@@ -58,9 +58,12 @@ It exposes:
 - strategy action decisions with allow/block reasons
 - position-management intents for existing perpetual positions
 
-The next API expansion should add richer decision records with signal reasons,
-risk checks, and action results, plus editable operator review states for
-manual position management.
+Durable strategy decision records now include signal reasons, BTC policy
+evidence, submission results, and correlated trade/position references. The
+confirmed-fill allocation boundary now handles idempotent partial fills and
+weighted entry prices. Authenticated REST polling now provides restart-safe OKX
+fill catch-up. The next expansion is private websocket cancellation/latency
+handling plus editable operator review states for manual position management.
 
 See `docs/project-charter.md`, `docs/domain-model.md`, `docs/api-spec.md`, and
 `docs/ui-direction.md` for the canonical product concepts and target API/UI
@@ -86,12 +89,18 @@ consume this state explicitly before action execution.
 
 Strategy execution now uses `BTCRegimeActionPolicy` before placing any setup.
 Each non-HOLD signal becomes a structured `strategy.action_decision` event with
-the BTC direction, strength, impulse, setup prices, and allow/block reason. The
-API exposes the latest decision snapshot at `GET /strategy/decisions`.
+the BTC direction, strength, impulse, setup prices, allow/block reason, and a
+correlation id. The API exposes both the latest runtime snapshot at
+`GET /strategy/decisions` and durable history at
+`GET /strategies/{strategy_id}/decisions`.
 
 Open positions also flow through `PositionIntentService`, which emits
 `position.intents` snapshots from the latest account state and BTC regime. That
 gives the frontend a direct feed for hold/reduce/close/manual-review guidance.
+`PositionManagerService` evaluates persisted logical-position close conditions
+against runtime and candle-derived signal context for dry-run close simulation,
+and armed live triggers automatically submit reduce-only close orders. Units
+remain `closing` until authenticated OKX fills confirm partial or complete exit.
 
 ## Always-On Deployment
 
@@ -109,7 +118,8 @@ This repo now includes a conservative `Dockerfile` and `docker-compose.yml` for 
 1. Keep runtime startup centralized in `src/runtime/` and keep `run_api.py` and
    `run_services.py` as thin compatibility wrappers.
 2. Add an event bus or queue abstraction for signals, logs, and service state.
-3. Implement OKX WebSocket market/account streams instead of relying only on polling.
+3. Implement OKX WebSocket market/account/order streams while retaining REST
+   polling for reconnect catch-up.
 4. Expand FastAPI endpoints beyond runtime events into strategies, logical
    position units, exchange positions, orders, signal evaluation, and strategy
    decisions.

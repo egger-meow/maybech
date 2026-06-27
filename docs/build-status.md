@@ -16,32 +16,31 @@ capability moves from planned to partial or complete.
 | --- | --- | --- |
 | API-backed daemon runtime | Partial | `uv run python -m src.runtime api` starts FastAPI with daemon services; `run_api.py` remains a compatibility wrapper. |
 | Headless daemon runtime | Partial | `uv run python -m src.runtime services` runs services without UI; `run_services.py` remains a compatibility wrapper. |
-| Runtime events | Partial | In-memory event stream exists through `/events` and `/ws/events`; durable event storage is not built. |
+| Runtime events | Partial | `/events` and `/ws/events` provide the live in-memory stream; position-manager evaluations and close attempts are durable through `AuditEventStore` and `GET /audit/events`. Broader event persistence and retention are not built. |
 | Account snapshot | Partial | Current API exposes account summary, positions, and orders snapshots. |
 | BTC regime state | Partial | `BTCRegimeService` publishes regime state and `/market/btc-regime` exposes the latest snapshot. |
-| Strategy decisions | Partial | Current decision snapshots and persisted strategy definition endpoints exist; decision history is still runtime-only. |
-| Position intents | Partial | Current position intent snapshots exist and `/positions/logical` exposes persisted logical units with trade backfill and reconciliation state for the frontend. |
-| Confirmed live close execution | Blocked | Live rule exits must not mark trades closed until OKX close/reduce orders are placed and confirmed. |
-| Logical position units | Partial | SQLite persistence exists in `LogicalPositionStore`, with read-only API exposure, trade backfill, and conservative OKX net-position reconciliation; execution-confirmed allocation and live close execution are not complete. |
-| Signal expression engine | Partial | Signal expressions can be persisted as JSON records under strategies, but validation/evaluation is not built. |
+| Strategy decisions | Partial | Runtime snapshots remain for compatibility; every evaluated setup is also persisted with a correlation id, policy evidence, execution result, and order/trade/position references. `GET /strategies/{strategy_id}/decisions` provides filtered restart-safe history. Exchange fill confirmation is not complete. |
+| Position intents | Partial | Current position intent snapshots exist and `/positions/logical` exposes persisted logical units with trade backfill, per-unit close signal conditions, legacy trade rules, and reconciliation state for the frontend. |
+| Confirmed live close execution | Partial | Armed live condition/rule triggers automatically submit guarded reduce-only market orders, atomically claim the unit as `closing`, and wait for authenticated fills before reducing quantity or closing trades. Cancellation/rejection recovery remains incomplete. |
+| Logical position units | Partial | SQLite persistence, per-unit close conditions, reconciliation, idempotent open/close fill allocation, and manual close API are implemented. Private websocket cancellation events and break-even operations remain incomplete. |
+| Execution fill ingestion | Partial | `ExecutionFillService` polls authenticated recent SWAP fills every five seconds, normalizes and idempotently allocates matching fills, and exposes `/execution/fills/status`. Private websocket latency and cancellation/unfilled-order handling remain planned. |
+| Signal expression engine | Partial | Signal expressions can be persisted as JSON records under strategies, validated through `/signals/validate`, evaluated against caller-provided, runtime snapshot, or candle-derived context through `/signals/evaluate`, and required before strategy enable. |
 | Strategy Management page | Partial | A frontend route exists, but the target strategy-management workflow is not complete. |
 | Position Management page | Partial | A frontend route exists, but per-unit management and K-line overlays are not complete. |
 | API contract generation | Partial | Runtime, strategy, signal-expression, and logical-position endpoints use Pydantic response models and OpenAPI; `scripts/generate_openapi_types.py` exports `docs/openapi.json`; frontend schema types and dashboard API helpers are typed from generated contracts. |
 | Authentication/authorization | Planned | Required before exposing service or trading controls beyond localhost. |
-| Structured persistence | Partial | SQLite stores exist for trades, logical positions, allocations, strategies, and signal expressions; runtime events and decision history are still in-memory. |
-| SQLite schema management | Partial | `TradeStore`, `LogicalPositionStore`, and `StrategyStore` record schema version `1` through the shared SQLite schema helper; future version upgrades still need explicit migration steps. |
+| Structured persistence | Partial | SQLite stores exist for trades, logical positions, allocations, strategies, signal expressions, position-manager audits, and strategy decision/execution history; most general runtime events remain in-memory. |
+| SQLite schema management | Partial | `TradeStore` and `StrategyStore` record version `1`, `AuditEventStore` records version `2`, and `LogicalPositionStore` records version `3` through explicit migration paths. All default to `MAYBECH_DB_PATH`. |
 
 ## Next Build Milestones
 
-1. Add signal-expression validation/evaluation and require validation before
-   enabling a strategy for runtime execution.
-2. Define persisted audit event and decision-history schemas using the shared
-   SQLite schema helper and explicit migration steps.
-3. Add execution-confirmed allocation of partial fills, fees, and close/reduce
-   quantities to logical position units.
-4. Add mutation endpoints for logical position
-   management.
+1. Handle close/open order cancellation, rejection, and timeout so pending units
+   recover safely without duplicate submission.
+2. Add authenticated private OKX order websocket events for low-latency fills
+   and state changes while retaining REST catch-up.
+3. Add explicit retention/compaction for audit queries; timestamp pagination is
+   implemented but needs an opaque stable cursor before multi-writer use.
+4. Add break-even and grouped-position mutation/query endpoints.
 5. Build the Strategy Management and Position Management pages around those
    contracts.
-6. Implement confirmed live close/reduce execution before enabling live
-   position-manager exits.
+6. Add authentication and authorization before any remote trading controls.

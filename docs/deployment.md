@@ -15,6 +15,13 @@ uv run python -m src.runtime api
 The API exposes service state at `http://127.0.0.1:8000/services` and live runtime events at `ws://127.0.0.1:8000/ws/events`.
 It also exposes `GET /market/btc-regime`, `GET /strategy/decisions`, and `GET /position/intents` for frontend control surfaces.
 
+Copy `.env.example` to `.env` for local operator settings. All backend stores
+share `MAYBECH_DB_PATH` (`data/trades.db` by default). Use an absolute path for
+service or scheduled-task deployments where the working directory may vary.
+`ExecutionFillService` uses the configured private OKX credentials to poll SWAP
+fills. Without valid credentials its daemon status will show tick errors; it
+never allocates fills whose order id is not linked to a Maybech logical unit.
+
 ## Windows Auto-Start
 
 For a personal PC, the simplest always-on setup is Windows Task Scheduler:

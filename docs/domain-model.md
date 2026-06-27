@@ -57,7 +57,8 @@ Minimum logical position fields:
 - opened quantity and remaining quantity
 - entry price for this unit
 - source: strategy id, manual action, import, or recovery
-- close conditions: stop-loss, take-profit, break-even, trailing, manual review
+- close conditions: persisted signal expressions for stop-loss, take-profit,
+  break-even, trailing, manual review, or generic exit handling
 - current status: planned, pending_open, open, reducing, closing, closed, failed
 - audit events and exchange order references
 
@@ -65,6 +66,9 @@ The first persistent implementation lives in `src/trading/logical_position_store
 It stores logical units in SQLite and can backfill compatibility records from
 existing `TradeStore` trades. That is a bridge toward the final lifecycle model,
 not the complete reconciliation/execution layer.
+The same store owns `logical_position_close_conditions`, which keeps close
+management attached to the independent logical unit instead of the merged OKX
+net position or legacy trade row.
 
 `src/trading/position_reconciliation.py` compares active logical units with OKX
 net-position snapshots and reports whether the group is balanced,
@@ -96,11 +100,21 @@ summary and risk inspection, but close rules still belong to logical units.
 An entry action opens or adds exposure. Every confirmed entry action creates a
 new logical position unit, even if OKX merges it into an existing net position.
 
+Order submission first creates a `pending_open` unit with no allocated
+quantity. Each confirmed fill is recorded once by its exchange fill id and
+increases that unit's opened/remaining quantity. Multiple fills calculate a
+weighted unit entry price without merging the unit into earlier entries.
+
 ## Exit Action
 
 An exit action reduces or closes one logical position unit according to its own
 rules. In live mode, Maybech must place and confirm the exchange close/reduce
 order before marking that unit closed.
+
+Signal-triggered exits are automatic and must not wait for operator input after
+their persisted condition matches. Manual close commands are separate and
+require explicit operator confirmation. Both paths use reduce-only orders,
+atomic `open -> closing` claims, and confirmed fill allocation.
 
 ## Break-Even Operation
 
@@ -113,3 +127,12 @@ be tracked per logical unit, not only per OKX net position.
 An audit event records what happened and why. Strategy triggers, blocked actions,
 entry orders, exit orders, rule edits, reconciliation changes, and manual
 operator actions should all produce audit events.
+
+Related decision, submission, order, fill, trade, and logical-position events
+must retain one correlation id. An order submission response is not a confirmed
+fill; allocation state becomes authoritative only from exchange-confirmed
+execution evidence.
+
+Allocation writes must be atomic with parent quantity updates. Re-delivery of
+the same fill is idempotent; reusing one fill id with different content is a
+conflict rather than a correction.
