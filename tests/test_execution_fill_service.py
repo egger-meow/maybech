@@ -176,6 +176,106 @@ def test_private_order_fill_is_idempotent_with_rest_catchup(tmp_path):
     assert len(position_store.list_allocations("same-unit")) == 1
 
 
+def test_execution_fill_service_handles_partial_fill_cancel_and_restart_recovery(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    trade_store.save_trade(
+        TradeRecord(
+            id="entry-unit",
+            status="pending_open",
+            inst_id="ETH-USDT-SWAP",
+            metadata_json='{"expected_quantity":0.1,"order_action":"open"}',
+        )
+    )
+    position_store.save(
+        LogicalPositionRecord(
+            id="entry-unit",
+            trade_id="entry-unit",
+            inst_id="ETH-USDT-SWAP",
+            status="pending_open",
+            exchange_order_id="entry-order",
+            client_order_id="entryclient1",
+            opened_quantity=0.0,
+            remaining_quantity=0.0,
+            metadata_json='{"expected_quantity":0.1,"order_action":"open"}',
+        )
+    )
+    old_time = int(
+        (datetime.now(timezone.utc) - timedelta(minutes=10)).timestamp() * 1000
+    )
+    client = FakeFillClient(
+        {
+            "": [
+                {
+                    **_raw_fill("fill-a", "entry-order", "bill-a", "entryclient1"),
+                    "fillSz": "0.04",
+                }
+            ],
+            "bill-a": [],
+        },
+        orders={
+            "entry-order": {
+                "ordId": "entry-order",
+                "state": "live",
+                "instId": "ETH-USDT-SWAP",
+                "uTime": str(old_time),
+            }
+        },
+    )
+    allocator = ExecutionAllocationService(
+        trade_store=trade_store,
+        position_store=position_store,
+    )
+    service = ExecutionFillService(
+        client=client,
+        allocator=allocator,
+        stale_after_seconds=300,
+    )
+    runner = DaemonRunner()
+    runner.register(service)
+
+    service.tick()
+
+    partial = position_store.get("entry-unit")
+    status = runner.runtime.get_value("execution.fills.status")
+    assert status["applied"] == 1
+    assert status["stale_cancel_requested"] == 1
+    assert partial.opened_quantity == 0.04
+    assert partial.status == "open"
+    assert partial.exchange_order_id == "entry-order"
+    assert position_store.is_order_cancel_requested(
+        "entry-unit", exchange_order_id="entry-order"
+    )
+    assert client.cancel_calls == [("ETH-USDT-SWAP", "entry-order")]
+
+    client.orders["entry-order"] = {
+        "ordId": "entry-order",
+        "state": "canceled",
+        "instId": "ETH-USDT-SWAP",
+    }
+    restart_service = ExecutionFillService(
+        client=client,
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+        stale_after_seconds=300,
+    )
+    restart_runner = DaemonRunner()
+    restart_runner.register(restart_service)
+
+    restart_service.tick()
+
+    recovered = position_store.get("entry-unit")
+    restart_status = restart_runner.runtime.get_value("execution.fills.status")
+    assert restart_status["terminal_recovered"] == 1
+    assert recovered.status == "open"
+    assert recovered.exchange_order_id == ""
+    assert recovered.client_order_id == ""
+    assert trade_store.get_trade("entry-unit").status == "open"
+
+
 def test_private_order_event_recovers_terminal_order_without_waiting_for_rest(tmp_path):
     db_path = str(tmp_path / "trades.db")
     trade_store = TradeStore(db_path)
