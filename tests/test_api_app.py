@@ -113,6 +113,29 @@ def test_api_lists_services_and_events():
     assert events.json()[-1]["type"] == "test.event"
 
 
+def test_api_exposes_runtime_lease_without_raw_account_id():
+    runner = DaemonRunner()
+    runner.runtime.set_value(
+        "runtime.lease",
+        {
+            "held": True,
+            "owner_id": "owner-a",
+            "pid": 123,
+            "hostname": "host-a",
+            "database": "C:/data/trades.db",
+            "account_scope": "abcdef123456",
+            "acquired_at": "2026-06-28T00:00:00+00:00",
+            "lock_root": "C:/locks",
+        },
+    )
+
+    response = TestClient(create_app(runner)).get("/runtime/lease")
+
+    assert response.status_code == 200
+    assert response.json()["held"] is True
+    assert response.json()["account_scope"] == "abcdef123456"
+
+
 def test_api_cors_allows_configured_local_frontend_and_rejects_other_origins():
     client = TestClient(create_app(DaemonRunner()))
     headers = {

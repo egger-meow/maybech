@@ -724,6 +724,11 @@
             "title": "Account Level",
             "type": "string"
           },
+          "account_scope": {
+            "default": "",
+            "title": "Account Scope",
+            "type": "string"
+          },
           "armed": {
             "title": "Armed",
             "type": "boolean"
@@ -1645,6 +1650,54 @@
           "created_at"
         ],
         "title": "RuntimeEventResponse",
+        "type": "object"
+      },
+      "RuntimeLeaseResponse": {
+        "properties": {
+          "account_scope": {
+            "default": "",
+            "title": "Account Scope",
+            "type": "string"
+          },
+          "acquired_at": {
+            "default": "",
+            "title": "Acquired At",
+            "type": "string"
+          },
+          "database": {
+            "default": "",
+            "title": "Database",
+            "type": "string"
+          },
+          "held": {
+            "title": "Held",
+            "type": "boolean"
+          },
+          "hostname": {
+            "default": "",
+            "title": "Hostname",
+            "type": "string"
+          },
+          "lock_root": {
+            "default": "",
+            "title": "Lock Root",
+            "type": "string"
+          },
+          "owner_id": {
+            "default": "",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "pid": {
+            "default": 0,
+            "title": "Pid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "held"
+        ],
+        "title": "RuntimeLeaseResponse",
         "type": "object"
       },
       "ServiceStatusResponse": {
@@ -3805,6 +3858,24 @@
           }
         },
         "summary": "Put Account Risk Limits"
+      }
+    },
+    "/runtime/lease": {
+      "get": {
+        "operationId": "get_runtime_lease_runtime_lease_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeLeaseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Runtime Lease"
       }
     },
     "/runtime/preflight": {

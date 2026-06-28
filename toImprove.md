@@ -8,8 +8,8 @@ Only current blockers to dependable real-money operation belong here.
    restart recovery verification before arming a live account.
 2. Block new entries when OKX net exposure cannot be reconciled to Maybech
    logical units, with an explicit import/recovery path for external positions.
-3. Enforce one live runtime lease per SQLite database/account so two processes
-   cannot evaluate and trade the same account concurrently.
+3. Add verified SQLite backup/restore tooling and require a current recoverable
+   backup before live schema migration or real-account startup.
 
 Do not add general cleanup or speculative features. Add an item only when it is
 a concrete correctness or safety blocker, and remove it when completed.

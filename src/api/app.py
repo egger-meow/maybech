@@ -62,6 +62,7 @@ from src.api.schemas import (
     PositionIntentResponse,
     PositionRuleResponse,
     RuleGroupResponse,
+    RuntimeLeaseResponse,
     RuntimeEventResponse,
     ServiceStatusResponse,
     SignalEvaluationRequest,
@@ -529,6 +530,13 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         if status is None:
             raise HTTPException(status_code=503, detail="Runtime preflight status unavailable")
         return LivePreflightResponse(**status)
+
+    @app.get("/runtime/lease", response_model=RuntimeLeaseResponse)
+    def get_runtime_lease() -> RuntimeLeaseResponse:
+        status = runner.runtime.get_value("runtime.lease")
+        if status is None:
+            raise HTTPException(status_code=503, detail="Runtime lease status unavailable")
+        return RuntimeLeaseResponse(**status)
 
     @app.get("/risk/limits", response_model=AccountRiskLimitsResponse)
     def get_account_risk_limits() -> AccountRiskLimitsResponse:

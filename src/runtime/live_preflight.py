@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.exchange.client import OKXClient
+from src.runtime.lease import account_scope as build_account_scope
 from src.trading.account_risk import AccountRiskStore
 from src.trading.instrument_constraints import InstrumentConstraints
 from src.trading.logical_position_store import LogicalPositionStore
@@ -30,6 +31,7 @@ class LivePreflightReport:
     execution_mode: str
     account_level: str
     position_mode: str
+    account_scope: str
     enabled_strategies: int
     risk_limits_enabled: bool
     entries_enabled: bool
@@ -51,6 +53,7 @@ def dry_run_preflight_report() -> dict[str, Any]:
         "execution_mode": "dry_run",
         "account_level": "",
         "position_mode": "",
+        "account_scope": "",
         "enabled_strategies": 0,
         "risk_limits_enabled": False,
         "entries_enabled": False,
@@ -92,6 +95,12 @@ def run_live_preflight(
     account_config = account_configs[0]
     account_level = str(account_config.get("acctLv") or "")
     position_mode = str(account_config.get("posMode") or "")
+    account_uid = str(account_config.get("uid") or "")
+    account_scope = ""
+    if not account_uid:
+        errors.append("OKX account config is missing uid")
+    else:
+        account_scope = build_account_scope(flag=configured_flag, uid=account_uid)
     if account_level not in {"2", "3", "4"}:
         errors.append(
             "OKX account must use Futures, Multi-currency margin, or Portfolio margin mode"
@@ -153,6 +162,7 @@ def run_live_preflight(
         execution_mode="demo" if configured_flag == "1" else "real",
         account_level=account_level,
         position_mode=position_mode,
+        account_scope=account_scope,
         enabled_strategies=len(enabled_strategies),
         risk_limits_enabled=bool(risk_limits and risk_limits.enabled),
         entries_enabled=bool(risk_limits and risk_limits.entries_enabled),

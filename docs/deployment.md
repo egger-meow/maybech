@@ -42,6 +42,14 @@ configured or actively managed SWAP instrument. Only a complete pass honors
 `MAYBECH_ARM_ORDERS=1`; otherwise the
 process exits before daemon services start. Inspect the successful report at
 `GET /runtime/preflight` when using the API runtime.
+Every runtime acquires a database lock; live startup also acquires one hashed
+OKX-account lock. This prevents a dry process from consuming signal edges or
+mutating the same SQLite state beside a live process.
+On Windows these live under `%LOCALAPPDATA%\Maybech\locks`; other platforms use
+`~/.maybech/locks`. Lock files contain only local process metadata and hashed
+account scope. They are not configuration and should not be added to `.env` or
+deleted to bypass a conflict. Inspect ownership through `GET /runtime/lease`.
+The OS releases locks after a crash; orderly teardown disarms orders first.
 `ExecutionFillService` uses the configured private OKX credentials to paginate
 three-month SWAP fill history. Cursor checkpoints share `MAYBECH_DB_PATH` and
 survive restarts. Without valid credentials its daemon status will show cursor

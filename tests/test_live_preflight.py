@@ -16,15 +16,29 @@ from src.trading.trade_store import TradeStore
 
 
 class FakePreflightClient:
-    def __init__(self, *, position_mode="net_mode", account_level="2", instruments=None):
+    def __init__(
+        self,
+        *,
+        position_mode="net_mode",
+        account_level="2",
+        account_uid="account-123",
+        instruments=None,
+    ):
         self.flag = "1"
         self.position_mode = position_mode
         self.account_level = account_level
+        self.account_uid = account_uid
         self.instruments = instruments or {}
         self.instrument_calls = []
 
     def get_account_config(self):
-        return [{"acctLv": self.account_level, "posMode": self.position_mode}]
+        return [
+            {
+                "acctLv": self.account_level,
+                "posMode": self.position_mode,
+                "uid": self.account_uid,
+            }
+        ]
 
     def get_instruments(self, *, inst_type, inst_id):
         self.instrument_calls.append((inst_type, inst_id))
@@ -141,6 +155,7 @@ def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypa
     assert report.armed is False
     assert report.execution_mode == "demo"
     assert report.position_mode == "net_mode"
+    assert len(report.account_scope) == 24
     assert report.risk_limits_enabled is True
     assert report.instruments == ("BTC-USDT-SWAP", "ETH-USDT-SWAP")
     assert client.instrument_calls == [
@@ -244,9 +259,29 @@ def test_live_preflight_requires_enabled_persisted_risk_limits(monkeypatch, tmp_
         )
 
 
+def test_live_preflight_requires_authenticated_account_uid(monkeypatch, tmp_path):
+    _set_live_environment(monkeypatch)
+    strategy_store = StrategyStore(str(tmp_path / "trades.db"))
+    _valid_risk(strategy_store.db_path)
+
+    with pytest.raises(LivePreflightError, match="missing uid"):
+        run_live_preflight(
+            client=FakePreflightClient(account_uid=""),
+            strategy_store=strategy_store,
+            position_store=LogicalPositionStore(strategy_store.db_path),
+            include_strategy=False,
+        )
+
+
 def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     monkeypatch.setattr(runtime_module, "TradeStore", lambda: store)
+    real_lease = runtime_module.RuntimeLease
+    monkeypatch.setattr(
+        runtime_module,
+        "RuntimeLease",
+        lambda **kwargs: real_lease(**kwargs, lock_root=tmp_path / "locks"),
+    )
     monkeypatch.setattr(
         runtime_module.ExecutionFillService,
         "setup",
@@ -256,6 +291,7 @@ def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_pa
 
     class Report:
         passed = True
+        account_scope = "scope-a"
 
         @staticmethod
         def to_dict(*, armed):
@@ -265,6 +301,7 @@ def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_pa
                 "execution_mode": "demo",
                 "account_level": "2",
                 "position_mode": "net_mode",
+                "account_scope": "scope-a",
                 "enabled_strategies": 0,
                 "instruments": [],
                 "checked_at": "2026-06-28T00:00:00+00:00",
@@ -282,8 +319,10 @@ def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_pa
     assert runner.runtime.get_value("runtime.live_preflight")["armed"] is True
     assert preflight_calls[0]["include_strategy"] is False
     assert runner.services["execution_fills"].enable_private_stream is True
+    assert runner.runtime.get_value("runtime.lease")["held"] is True
     runner.teardown_services()
     assert client_module._ORDER_PLACEMENT_ARMED is False
+    assert runner.runtime.get_value("runtime.lease")["held"] is False
 
 
 def test_failed_runner_preflight_leaves_orders_disarmed(monkeypatch, tmp_path):
@@ -300,3 +339,25 @@ def test_failed_runner_preflight_leaves_orders_disarmed(monkeypatch, tmp_path):
         runtime_module.create_default_runner(dry_run=False)
 
     assert client_module._ORDER_PLACEMENT_ARMED is False
+
+
+def test_default_dry_runner_exclusively_owns_its_database(monkeypatch, tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    monkeypatch.setattr(runtime_module, "TradeStore", lambda: store)
+    real_lease = runtime_module.RuntimeLease
+    monkeypatch.setattr(
+        runtime_module,
+        "RuntimeLease",
+        lambda **kwargs: real_lease(**kwargs, lock_root=tmp_path / "locks"),
+    )
+    first = runtime_module.create_default_runner(dry_run=True, include_strategy=False)
+
+    with pytest.raises(RuntimeError, match="already leased"):
+        runtime_module.create_default_runner(dry_run=True, include_strategy=False)
+
+    first.teardown_services()
+    replacement = runtime_module.create_default_runner(
+        dry_run=True,
+        include_strategy=False,
+    )
+    replacement.teardown_services()

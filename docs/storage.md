@@ -39,6 +39,11 @@ default-disabled entry-control singleton, and `trade_store` and
 Future changes should add explicit migration steps instead of editing existing
 schema assumptions in place.
 
+Runtime ownership is separate from SQLite schema state. Every default runtime
+holds an OS file lock for the normalized database path; live mode also locks a
+hashed OKX account scope. Lock files contain owner metadata only and are not
+persistence or migration records.
+
 ## ORM / Migration Options
 
 Prisma is not planned while the Python backend owns persistence. Adding a

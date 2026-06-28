@@ -16,6 +16,7 @@ from src.exchange.client import (
     enable_entry_order_placement,
 )
 from src.runtime.live_preflight import dry_run_preflight_report, run_live_preflight
+from src.runtime.lease import RuntimeLease, RuntimeLeaseService
 from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.strategy_store import StrategyStore
 from src.trading.trade_store import TradeStore
@@ -28,53 +29,72 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
     disarm_order_placement()
     runner = DaemonRunner()
     store = TradeStore()
-    risk_store = AccountRiskStore(store.db_path)
-    if dry_run:
-        preflight_status = dry_run_preflight_report()
-    else:
-        report = run_live_preflight(
-            strategy_store=StrategyStore(store.db_path),
-            position_store=LogicalPositionStore(store.db_path),
-            risk_store=risk_store,
-            include_strategy=include_strategy,
+    lease = RuntimeLease(db_path=store.db_path)
+    try:
+        lease.acquire()
+        risk_store = AccountRiskStore(store.db_path)
+        if dry_run:
+            preflight_status = dry_run_preflight_report()
+        else:
+            report = run_live_preflight(
+                strategy_store=StrategyStore(store.db_path),
+                position_store=LogicalPositionStore(store.db_path),
+                risk_store=risk_store,
+                include_strategy=include_strategy,
+            )
+            lease.bind_account_scope(report.account_scope)
+            preflight_status = report.to_dict(armed=False)
+    except Exception:
+        lease.release()
+        raise
+    try:
+        runner.runtime.set_value("runtime.live_preflight", preflight_status)
+        lease_service = RuntimeLeaseService(
+            lease,
+            before_release=disarm_order_placement,
         )
-        preflight_status = report.to_dict(armed=False)
-    runner.runtime.set_value("runtime.live_preflight", preflight_status)
-    
-    runner.register(AccountSnapshotService())
-    runner.register(BTCRegimeService())
-    runner.register(PositionIntentService())
-    
-    # Register the dynamic position rule manager
-    runner.register(PositionManagerService(store=store, dry_run=dry_run))
-    runner.register(
-        ExecutionFillService(
-            allocator=ExecutionAllocationService(trade_store=store),
-            enable_private_stream=not dry_run,
-            rest_poll_interval=5.0,
+        runner.register(lease_service)
+        runner.register(AccountSnapshotService())
+        runner.register(BTCRegimeService())
+        runner.register(PositionIntentService())
+        runner.register(PositionManagerService(store=store, dry_run=dry_run))
+        runner.register(
+            ExecutionFillService(
+                allocator=ExecutionAllocationService(trade_store=store),
+                enable_private_stream=not dry_run,
+                rest_poll_interval=5.0,
+            )
         )
-    )
-    
-    if include_strategy:
-        runner.register(StrategyService(dry_run=dry_run, trade_store=store))
-    runner.register(NotificatorService())
-    if not dry_run:
-        required_services = {
-            "account",
-            "btc_regime",
-            "position_manager",
-            "execution_fills",
-        }
         if include_strategy:
-            required_services.add("strategy")
-        runner.add_shutdown_callback(disarm_order_placement)
-        runner.setup_services(required_services=required_services)
-        arm_order_placement(preflight_passed=report.passed)
-        limits = risk_store.get()
-        if limits is not None and limits.entries_enabled:
-            enable_entry_order_placement()
-        runner.runtime.set_value(
-            "runtime.live_preflight",
-            report.to_dict(armed=True),
-        )
+            runner.register(StrategyService(dry_run=dry_run, trade_store=store))
+        runner.register(NotificatorService())
+        lease_service.setup()
+        if not dry_run:
+            required_services = {
+                "runtime_lease",
+                "account",
+                "btc_regime",
+                "position_manager",
+                "execution_fills",
+            }
+            if include_strategy:
+                required_services.add("strategy")
+            runner.setup_services(required_services=required_services)
+            arm_order_placement(preflight_passed=report.passed)
+            limits = risk_store.get()
+            if limits is not None and limits.entries_enabled:
+                enable_entry_order_placement()
+            runner.runtime.set_value(
+                "runtime.live_preflight",
+                report.to_dict(armed=True),
+            )
+    except Exception:
+        disarm_order_placement()
+        try:
+            if lease.held:
+                runner.teardown_services()
+        finally:
+            if lease.held:
+                lease.release()
+        raise
     return runner

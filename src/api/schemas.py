@@ -26,11 +26,23 @@ class LivePreflightResponse(BaseModel):
     execution_mode: Literal["dry_run", "demo", "real"]
     account_level: str = ""
     position_mode: str = ""
+    account_scope: str = ""
     enabled_strategies: int = 0
     risk_limits_enabled: bool = False
     entries_enabled: bool = False
     instruments: list[str] = Field(default_factory=list)
     checked_at: str
+
+
+class RuntimeLeaseResponse(BaseModel):
+    held: bool
+    owner_id: str = ""
+    pid: int = 0
+    hostname: str = ""
+    database: str = ""
+    account_scope: str = ""
+    acquired_at: str = ""
+    lock_root: str = ""
 
 
 class AccountRiskLimitsUpdate(BaseModel):

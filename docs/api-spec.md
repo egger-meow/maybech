@@ -19,6 +19,7 @@ These endpoints currently exist or are already documented in runtime status:
 
 - `GET /services`
 - `GET /runtime/preflight`
+- `GET /runtime/lease`
 - `GET /risk/limits`
 - `PUT /risk/limits`
 - `GET /risk/entries`
@@ -57,6 +58,11 @@ See `docs/runtime-status.md` for current payload behavior.
 placement is armed, demo/real/dry-run mode, OKX account and position mode, and
 the strategies/instruments validated before services started. Failed live
 preflight aborts startup, so no unhealthy live API remains running.
+
+`GET /runtime/lease` reports whether this process holds exclusive runtime
+ownership, plus its process/host owner metadata, resolved database path,
+optional hashed live-account scope, acquisition time, and lock directory. It
+never exposes the raw OKX account UID or API credentials.
 
 `GET /risk/limits` returns the singleton SQLite risk envelope. `PUT
 /risk/limits` replaces it with explicit `enabled`, `max_order_notional_usd`,

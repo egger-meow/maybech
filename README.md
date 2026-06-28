@@ -89,6 +89,7 @@ Useful API endpoints:
 - `GET http://127.0.0.1:8000/position/intents`
 - `GET http://127.0.0.1:8000/execution/fills/status`
 - `GET http://127.0.0.1:8000/runtime/preflight`
+- `GET http://127.0.0.1:8000/runtime/lease`
 - `GET/PUT http://127.0.0.1:8000/risk/limits`
 - `GET http://127.0.0.1:8000/risk/entries`
 - `POST http://127.0.0.1:8000/risk/entries/enable`
@@ -118,6 +119,11 @@ Live startup also requires authenticated subscription to the OKX private
 `orders/SWAP` channel. New strategy entries stay blocked until durable REST
 fill catch-up is current and that stream is connected; reduce-only closes stay
 active independently.
+Every default runtime acquires an OS-held lock for its resolved SQLite path so
+dry and live processes cannot mutate the same state concurrently. Live mode
+also locks a hashed demo/real OKX account scope. A second process targeting
+either resource exits before services run or orders are armed. Locks release
+automatically on process death and explicitly after order placement is disarmed.
 Strategy entries are disabled by default, including after the entry-control
 schema migration. Enabling or killing entries requires `{ "confirm": true }`.
 The kill command persists the disabled state before canceling Maybech

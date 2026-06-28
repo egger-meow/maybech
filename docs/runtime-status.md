@@ -43,8 +43,11 @@ Frontends must use `active`; there is no `state` field.
   or zeroed fields before the first poll.
 - `GET /runtime/preflight` returns the successful startup safety report,
   including dry-run/demo/real mode, armed state, OKX account and position mode,
-  enabled strategy count, account-risk enabled state, validated instruments,
-  and check time.
+  hashed account scope, enabled strategy count, account-risk enabled state,
+  validated instruments, and check time.
+- `GET /runtime/lease` reports exclusive live ownership of the resolved SQLite
+  path and, in live mode, the hashed OKX account scope. Dry-run also holds the
+  database lock so it cannot consume signal state beside another runtime.
 - `GET/PUT /risk/limits` reads or replaces the singleton SQLite account risk
   envelope used for live order-notional, gross-exposure, and leverage checks.
 - `GET /risk/entries` reports persisted and process-local entry state.
@@ -179,6 +182,11 @@ strategy's default close conditions.
   serialize with the full strategy submission/link lifecycle. Kill disables
   first and cancels only `pending_open` entry orders; reduce-only closes remain
   available. A partial cancellation failure is reported without re-enabling.
+- Every default runtime acquires a non-expiring OS file lock for the normalized
+  SQLite path before services run. Authenticated live account config must also
+  include OKX `uid`; live mode additionally locks a hash of `{OKX_FLAG, uid}`.
+  Conflict aborts startup before arming. Normal shutdown disarms orders before
+  releasing locks; process death releases them through the OS without a TTL.
 - Automatic signal/rule exits do not ask for human confirmation. Live startup,
   `MAYBECH_ARM_ORDERS=1`, the reduce-only client guard, and durable pre-submit
   audit must all succeed before an order is sent.

@@ -139,6 +139,7 @@ export type LivePreflightResponse = {
   "execution_mode": "dry_run" | "demo" | "real";
   "account_level"?: string;
   "position_mode"?: string;
+  "account_scope"?: string;
   "enabled_strategies"?: number;
   "risk_limits_enabled"?: boolean;
   "entries_enabled"?: boolean;
@@ -281,6 +282,17 @@ export type RuntimeEventResponse = {
   "source": string;
   "created_at": string;
   "payload"?: Record<string, unknown>;
+};
+
+export type RuntimeLeaseResponse = {
+  "held": boolean;
+  "owner_id"?: string;
+  "pid"?: number;
+  "hostname"?: string;
+  "database"?: string;
+  "account_scope"?: string;
+  "acquired_at"?: string;
+  "lock_root"?: string;
 };
 
 export type ServiceStatusResponse = {
@@ -499,6 +511,7 @@ export type ApiSchemas = {
   "RuleGroupCreate": RuleGroupCreate;
   "RuleGroupResponse": RuleGroupResponse;
   "RuntimeEventResponse": RuntimeEventResponse;
+  "RuntimeLeaseResponse": RuntimeLeaseResponse;
   "ServiceStatusResponse": ServiceStatusResponse;
   "SignalEvaluationRequest": SignalEvaluationRequest;
   "SignalEvaluationResponse": SignalEvaluationResponse;
