@@ -20,9 +20,12 @@ share `MAYBECH_DB_PATH` (`data/trades.db` by default). Use an absolute path for
 service or scheduled-task deployments where the working directory may vary.
 Trading instruments, timeframe, signals, default close rules, and contract
 counts are strategy data in SQLite; they are intentionally absent from `.env`.
-Before `--live`, populate `metadata.order_size_contracts` on the enabled
-strategy and verify each value as an OKX contract count rather than a base-asset
-quantity. The executor also checks current OKX instrument precision.
+Before `--live`, populate `metadata.order_size_contracts` and
+`metadata.max_entry_slippage_pct` on each enabled strategy. Verify each size as
+an OKX contract count rather than a base-asset quantity. The slippage value is a
+decimal fraction greater than zero and no greater than `0.05`; it caps the FOK
+limit price and is included in account-risk approval. The executor also checks
+current OKX instrument precision.
 Create the account risk envelope through `PUT /risk/limits` while running the
 dry-run API, then inspect it with `GET /risk/limits`. Set operator-selected
 positive limits for one order's USD notional, total gross USD exposure, and

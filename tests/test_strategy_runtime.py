@@ -1,6 +1,7 @@
 from src.trading.strategy_runtime import (
     close_condition_specs,
     compose_entry_expression,
+    entry_limit_price,
     resolve_self_symbol,
     validate_strategy_for_execution,
 )
@@ -20,6 +21,7 @@ def _strategy(store: StrategyStore):
         metadata={
             "position_side": "long",
             "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+            "max_entry_slippage_pct": "0.005",
         },
     )
 
@@ -71,3 +73,15 @@ def test_strategy_runtime_requires_exchange_protective_stop(tmp_path):
     errors = validate_strategy_for_execution(strategy, store)
 
     assert any("absolute stop_loss" in error for error in errors)
+
+
+def test_strategy_runtime_prices_fok_limit_from_persisted_slippage(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    strategy = _strategy(store)
+
+    assert entry_limit_price(strategy, 2000) == 2010
+    short = store.update(
+        strategy.id,
+        metadata={**strategy.metadata, "position_side": "short"},
+    )
+    assert entry_limit_price(short, 2000) == 1990

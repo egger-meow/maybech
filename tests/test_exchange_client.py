@@ -158,8 +158,51 @@ def test_okx_client_rejects_nonzero_per_order_status(monkeypatch):
             sl_trigger_px="1900",
             sl_ord_px="-1",
             client_order_id="entryclient2",
+            attach_algo_client_order_id="attachclient2",
             confirm=True,
         )
+
+
+def test_okx_client_sends_fok_entry_protection_through_sdk_attachment(monkeypatch):
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+    monkeypatch.setattr(client_module, "_ORDER_PLACEMENT_ARMED", True)
+    monkeypatch.setattr(client_module, "_ENTRY_ORDER_PLACEMENT_ENABLED", True)
+
+    client.place_limit_order(
+        inst_id="ETH-USDT-SWAP",
+        side="buy",
+        sz="1",
+        px="2010",
+        sl_trigger_px="1900",
+        sl_ord_px="-1",
+        tp_trigger_px="2200",
+        tp_ord_px="-1",
+        client_order_id="entryclient3",
+        attach_algo_client_order_id="attachclient3",
+        order_type="fok",
+        confirm=True,
+    )
+
+    assert client.trade_api.kwargs == {
+        "instId": "ETH-USDT-SWAP",
+        "tdMode": "cross",
+        "side": "buy",
+        "ordType": "fok",
+        "clOrdId": "entryclient3",
+        "sz": "1",
+        "px": "2010",
+        "stpMode": "cancel_taker",
+        "attachAlgoOrds": [{
+            "attachAlgoClOrdId": "attachclient3",
+            "tpTriggerPx": "2200",
+            "tpOrdPx": "-1",
+            "tpTriggerPxType": "last",
+            "slTriggerPx": "1900",
+            "slOrdPx": "-1",
+            "slTriggerPxType": "last",
+        }],
+    }
 
 
 def test_okx_client_get_order_uses_instrument_and_order_id():

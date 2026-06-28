@@ -892,6 +892,7 @@ def test_api_returns_strategy_summaries_with_runtime_state(monkeypatch, tmp_path
         metadata={
             "position_side": "long",
             "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+            "max_entry_slippage_pct": "0.005",
         },
     )
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
@@ -985,6 +986,7 @@ def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):
                 "owner": "operator",
                 "position_side": "long",
                 "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+                "max_entry_slippage_pct": "0.005",
             },
         },
     )
@@ -1016,6 +1018,7 @@ def test_api_enables_and_disables_persisted_strategy(monkeypatch, tmp_path):
         metadata={
             "position_side": "long",
             "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+            "max_entry_slippage_pct": "0.005",
         },
     )
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
@@ -1062,6 +1065,7 @@ def test_api_disables_enabled_strategy_when_edit_makes_it_invalid(monkeypatch, t
         metadata={
             "position_side": "long",
             "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+            "max_entry_slippage_pct": "0.005",
         },
     )
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)

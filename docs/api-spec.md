@@ -139,6 +139,8 @@ An executable strategy uses this persisted shape:
 - `metadata.position_side`: `long` or `short`
 - `metadata.candle_bar`: candle interval, defaulting to `1m`
 - `metadata.order_size_contracts`: positive OKX contract counts keyed by target
+- `metadata.max_entry_slippage_pct`: positive decimal fraction up to `0.05`;
+  sets the worst acceptable FOK limit price and risk-check price
 - `default_rules.close_conditions`: enabled close-condition objects copied to
   every logical position unit created by the strategy
 
@@ -163,10 +165,9 @@ The remaining target surface is:
   references, and a shared correlation id. It accepts `limit`, `allowed`,
   `execution_status`, and `before` filters.
 
-`execution_status=submitted` means OKX accepted the parent order and its detail
-matched the requested attached protection. It does not mean that OKX confirmed
-a fill, that an attached algo is active for a partial fill, or that logical
-position allocation is final.
+`execution_status=submitted` means OKX completely filled the slippage-capped FOK
+parent and the exact attached protection is visible as an active algo. It does
+not mean that the authenticated fill has already been allocated into SQLite.
 
 ## Target Signal Endpoints
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
 from typing import Any
 
 
@@ -75,4 +75,15 @@ class InstrumentConstraints:
         self.validate_tradable()
         price = _decimal(requested, field="order price")
         ticks = (price / self.tick_size).to_integral_value(rounding=ROUND_HALF_UP)
+        return decimal_string(ticks * self.tick_size)
+
+    def normalize_entry_limit(self, requested: object, *, position_side: str) -> str:
+        """Round toward the safe side of a maximum-slippage FOK boundary."""
+        self.validate_tradable()
+        price = _decimal(requested, field="entry limit price")
+        side = position_side.lower()
+        if side not in {"long", "short"}:
+            raise ValueError("position_side must be 'long' or 'short'")
+        rounding = ROUND_FLOOR if side == "long" else ROUND_CEILING
+        ticks = (price / self.tick_size).to_integral_value(rounding=rounding)
         return decimal_string(ticks * self.tick_size)

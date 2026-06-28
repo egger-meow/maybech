@@ -303,11 +303,13 @@ class OKXClient:
         sl_trigger_px: str = "",
         sl_ord_px: str = "",
         client_order_id: str = "",
+        attach_algo_client_order_id: str = "",
+        order_type: str = "limit",
         confirm: bool = False,
     ) -> dict:
-        """Place a LIMIT order (限價單) with optional TP/SL.
+        """Place a guarded limit or fill-or-kill entry with optional TP/SL.
 
-        ⚠️  SAFETY GUARDS (all must pass):
+        Safety guards (all must pass):
         1. ``_ORDER_PLACEMENT_ARMED`` must be True after live preflight.
         2. ``confirm`` kwarg must be explicitly ``True``.
         3. ``side`` must be 'buy' or 'sell'.
@@ -320,7 +322,7 @@ class OKXClient:
         side    : "buy" or "sell"
         sz      : order size as string, e.g. "0.1"
         px      : limit price as string, e.g. "2700.5"
-        td_mode : trade mode — "cash" (spot), "cross", "isolated"
+        td_mode : trade mode, such as "cross" or "isolated"
         tp_trigger_px / tp_ord_px : take-profit trigger and order price
         sl_trigger_px / sl_ord_px : stop-loss trigger and order price
         confirm : must be True to actually send the order
@@ -352,10 +354,35 @@ class OKXClient:
         if float(px) <= 0:
             raise ValueError(f"px must be positive, got '{px}'")
         _validate_client_order_id(client_order_id)
+        if order_type not in {"limit", "fok"}:
+            raise ValueError("order_type must be 'limit' or 'fok'")
+        if any((tp_trigger_px, sl_trigger_px)):
+            _validate_client_order_id(attach_algo_client_order_id)
+
+        attachments = []
+        if tp_trigger_px or sl_trigger_px:
+            attachment = {"attachAlgoClOrdId": attach_algo_client_order_id}
+            if tp_trigger_px:
+                attachment.update(
+                    {
+                        "tpTriggerPx": tp_trigger_px,
+                        "tpOrdPx": tp_ord_px,
+                        "tpTriggerPxType": "last",
+                    }
+                )
+            if sl_trigger_px:
+                attachment.update(
+                    {
+                        "slTriggerPx": sl_trigger_px,
+                        "slOrdPx": sl_ord_px,
+                        "slTriggerPxType": "last",
+                    }
+                )
+            attachments.append(attachment)
 
         logger.warning(
-            "📤 PLACING LIMIT ORDER: %s %s %s @ %s (mode=%s, tp=%s, sl=%s)",
-            side.upper(), sz, inst_id, px, td_mode,
+            "PLACING %s ORDER: %s %s %s @ %s (mode=%s, tp=%s, sl=%s)",
+            order_type.upper(), side.upper(), sz, inst_id, px, td_mode,
             tp_trigger_px or "none", sl_trigger_px or "none",
         )
 
@@ -363,17 +390,15 @@ class OKXClient:
             instId=inst_id,
             tdMode=td_mode,
             side=side,
-            ordType="limit",
+            ordType=order_type,
             clOrdId=client_order_id,
             sz=sz,
             px=px,
-            tpTriggerPx=tp_trigger_px,
-            tpOrdPx=tp_ord_px,
-            slTriggerPx=sl_trigger_px,
-            slOrdPx=sl_ord_px,
+            stpMode="cancel_taker",
+            attachAlgoOrds=attachments or None,
         )
         data = [_accepted_order_result(resp, label="place_limit_order")]
-        logger.info("✅ Order placed: %s", data)
+        logger.info("Order placed: %s", data)
         return data[0]
 
     def cancel_order(self, inst_id: str, order_id: str) -> dict:

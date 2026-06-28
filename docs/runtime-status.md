@@ -118,14 +118,18 @@ invalid expressions and candle-context failures.
 
 `StrategyService` writes an action-decision record before an allowed execution
 and updates that record with the result. Live actions fail closed when this
-pre-execution audit write fails. Dry-run orders are marked `simulated`; non-empty
-live responses are only `submitted` until exchange fill reconciliation exists.
+pre-execution audit write fails. Dry-run orders are marked `simulated`; live
+orders are `submitted` only after a slippage-capped FOK order is completely
+filled and its exact attached stop is visible in OKX's active algo list. SQLite
+fill allocation still arrives asynchronously through authenticated ingestion.
 Live submissions now create `pending_open` trade/logical records with zero
 allocated quantity and persist a unique OKX `clOrdId` before network submission.
 The eventual `ordId` is linked from the submission response, authenticated
 order lookup, or fill after a restart. A confirmed open fill atomically creates the allocation,
 updates weighted entry price and quantities, opens the unit for management, and
-updates the correlated strategy decision to `partially_filled` or `filled`.
+updates the correlated strategy decision to `filled`. A strategy FOK entry is
+not allowed to remain partially filled; that anomalous state cancels the
+remainder and disables future entries.
 `ExecutionFillService` polls authenticated three-month SWAP fill history every
 five seconds. It also consumes authenticated private `orders/SWAP` events every
 daemon cycle for low-latency fills and terminal cancellations. Login and
@@ -167,8 +171,10 @@ the API and daemon observe the same schema and records.
 
 Mutable strategy configuration is stored in the `strategies` table, not in
 `.env`. Enabled strategies require target instruments, `metadata.position_side`,
-per-instrument `metadata.order_size_contracts`, an entry signal expression, and
-at least one exchange-attachable absolute stop-loss condition. The daemon composes
+per-instrument `metadata.order_size_contracts`, a positive
+`metadata.max_entry_slippage_pct` no greater than `0.05`, an entry signal
+expression, and at least one exchange-attachable absolute stop-loss condition.
+The daemon composes
 entry-purpose expressions with `and`, resolves `symbol: "self"` per target,
 and persists match state so a continuously true signal creates only one entry,
 including across restarts. Every new logical unit receives its own copy of the
@@ -210,9 +216,12 @@ strategy's default close conditions.
   close submission, Maybech fetches OKX metadata and rejects halted instruments,
   sizes below `minSz`, and sizes outside `lotSz`; limit and trigger prices are
   normalized to `tickSz` with decimal arithmetic.
-- Every strategy entry carries its side-consistent absolute stop loss as an OKX
-  attached market stop. A compatible take profit is attached when configured;
-  rapid-move and composite exits continue to be managed per logical unit.
+- Every strategy entry carries its side-consistent absolute stop loss through
+  OKX `attachAlgoOrds` on a FOK order. The persisted slippage cap sets the most
+  aggressive allowed limit, and risk approval uses that worst-case price.
+  Submission succeeds only after complete-fill and active-child verification.
+  A compatible take profit is attached when configured; rapid-move and
+  composite exits continue to be managed per logical unit.
 - `POST /positions/logical/{position_id}/close` is the separate manual operator
   command and requires `{ "confirm": true }` to prevent accidental clicks.
 - Rule deletion must be scoped by both `trade_id` and `group_id` so one trade

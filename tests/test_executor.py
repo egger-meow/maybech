@@ -10,6 +10,7 @@ class FakeClient:
         self.close = None
         self.cancelled = []
         self.protection_failure = False
+        self.order_state = "filled"
 
     def get_instruments(self, **kwargs):
         return [{
@@ -37,18 +38,38 @@ class FakeClient:
         return {"ordId": "entry-a"}
 
     def get_order(self, inst_id, order_id="", client_order_id=""):
+        attachment_request = self.entry["attach_algo_client_order_id"]
         attachment = {
             "slTriggerPx": self.entry["sl_trigger_px"],
             "slOrdPx": self.entry["sl_ord_px"],
             "tpTriggerPx": self.entry["tp_trigger_px"],
             "tpOrdPx": self.entry["tp_ord_px"],
+            "attachAlgoClOrdId": attachment_request,
             "failCode": "51020" if self.protection_failure else "",
         }
         return [{
             "ordId": order_id,
             "clOrdId": self.entry["client_order_id"],
-            "state": "live",
+            "state": self.order_state,
+            "ordType": "fok",
+            "accFillSz": self.entry["sz"],
             "attachAlgoOrds": [attachment],
+        }]
+
+    def get_pending_algo_orders(self, *, inst_id, ord_type):
+        expected_type = "oco" if self.entry["tp_trigger_px"] else "conditional"
+        if ord_type != expected_type:
+            return []
+        return [{
+            "algoId": "attached-a",
+            "algoClOrdId": self.entry["attach_algo_client_order_id"],
+            "instId": inst_id,
+            "state": "live",
+            "sz": self.entry["sz"],
+            "slTriggerPx": self.entry["sl_trigger_px"],
+            "slOrdPx": self.entry["sl_ord_px"],
+            "tpTriggerPx": self.entry["tp_trigger_px"],
+            "tpOrdPx": self.entry["tp_ord_px"],
         }]
 
     def cancel_order(self, inst_id, order_id):
@@ -114,12 +135,15 @@ def test_live_entry_normalizes_size_and_price_from_okx_metadata(tmp_path):
     assert result["maybechProtectionVerified"] is True
     assert client.entry["side"] == "buy"
     assert client.entry["sz"] == "0.3"
-    assert client.entry["px"] == "2000.13"
+    assert client.entry["px"] == "2000.12"
     assert client.entry["sl_trigger_px"] == "1900.12"
     assert client.entry["sl_ord_px"] == "-1"
     assert client.entry["tp_trigger_px"] == "2200.13"
     assert client.entry["tp_ord_px"] == "-1"
     assert client.entry["client_order_id"] == "entryclient2"
+    assert client.entry["order_type"] == "fok"
+    assert client.entry["attach_algo_client_order_id"].startswith("mba")
+    assert result["maybechProtection"]["active"]["algo_id"] == "attached-a"
 
 
 def test_live_close_rejects_quantity_outside_lot_precision(tmp_path):
@@ -215,7 +239,7 @@ def test_live_entry_rejects_approval_from_another_executor(tmp_path):
     assert client.entry is None
 
 
-def test_live_entry_cancels_but_keeps_accepted_order_visible_when_protection_fails(tmp_path):
+def test_live_filled_entry_kills_future_entries_when_active_protection_fails(tmp_path):
     client = FakeClient()
     client.protection_failure = True
     executor = _live_executor(client, tmp_path)
@@ -237,5 +261,34 @@ def test_live_entry_cancels_but_keeps_accepted_order_visible_when_protection_fai
 
     assert result["ordId"] == "entry-a"
     assert result["maybechProtectionVerified"] is False
+    assert result["maybechCancelRequested"] is False
+    assert result["maybechEntryKillActivated"] is True
+    assert executor.risk_store.entries_enabled() is False
+    assert client.cancelled == []
+
+
+def test_fok_partial_fill_cancels_remainder_and_kills_future_entries(tmp_path):
+    client = FakeClient()
+    client.order_state = "partially_filled"
+    executor = _live_executor(client, tmp_path)
+    approval = executor.approve_entry(
+        inst_id="ETH-USDT-SWAP",
+        requested_size="0.3",
+        entry_price=2000,
+    )
+
+    result = executor.execute(
+        inst_id="ETH-USDT-SWAP",
+        position_side="long",
+        entry_price=2000,
+        requested_size="0.3",
+        stop_loss_price=1900,
+        client_order_id="entryclient8",
+        risk_approval=approval,
+    )
+
+    assert result["maybechProtectionVerified"] is False
+    assert result["maybechOrderState"] == "partially_filled"
     assert result["maybechCancelRequested"] is True
+    assert result["maybechEntryKillActivated"] is True
     assert client.cancelled == [("ETH-USDT-SWAP", "entry-a")]

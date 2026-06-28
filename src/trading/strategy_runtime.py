@@ -62,6 +62,32 @@ def order_size(strategy: StrategyRecord, inst_id: str) -> str | None:
     return None if value in (None, "") else str(value)
 
 
+def max_entry_slippage_pct(strategy: StrategyRecord) -> Decimal | None:
+    value = strategy.metadata.get("max_entry_slippage_pct")
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not parsed.is_finite() or parsed <= 0 or parsed > Decimal("0.05"):
+        return None
+    return parsed
+
+
+def entry_limit_price(strategy: StrategyRecord, observed_price: float) -> float:
+    slippage = max_entry_slippage_pct(strategy)
+    if slippage is None:
+        raise ValueError(
+            "metadata.max_entry_slippage_pct must be greater than 0 and at most 0.05"
+        )
+    price = Decimal(str(observed_price))
+    if not price.is_finite() or price <= 0:
+        raise ValueError("observed entry price must be positive")
+    multiplier = Decimal("1") + slippage
+    if position_side(strategy) == "short":
+        multiplier = Decimal("1") - slippage
+    return float(price * multiplier)
+
+
 def close_condition_specs(
     strategy: StrategyRecord,
     store: StrategyStore,
@@ -130,6 +156,10 @@ def validate_strategy_for_execution(
         errors.append("strategy must target at least one instrument")
     if position_side(strategy) not in {"long", "short"}:
         errors.append("metadata.position_side must be 'long' or 'short'")
+    if max_entry_slippage_pct(strategy) is None:
+        errors.append(
+            "metadata.max_entry_slippage_pct must be greater than 0 and at most 0.05"
+        )
 
     for inst_id in strategy.target_instruments:
         value = order_size(strategy, inst_id)

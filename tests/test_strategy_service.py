@@ -95,6 +95,7 @@ def _strategy(store: StrategyStore, *, enabled=True):
             "position_side": "long",
             "candle_bar": "1m",
             "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+            "max_entry_slippage_pct": "0.005",
         },
     )
 
@@ -270,6 +271,7 @@ def test_strategy_service_executes_one_persisted_false_to_true_edge(tmp_path):
 
     assert len(executor.calls) == 1
     assert executor.calls[0]["position_side"] == "long"
+    assert executor.calls[0]["entry_price"] == 110.55
     assert executor.calls[0]["stop_loss_price"] == 95
     assert len(service.trade_store.get_open_trades()) == 1
 

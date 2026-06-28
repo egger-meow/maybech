@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from src.exchange.client import OKXClient
+from src.exchange.client import OKXClient, disable_entry_order_placement
 from src.trading.account_risk import (
     AccountRiskGuard,
     AccountRiskStore,
     EntryRiskApproval,
 )
 from src.trading.instrument_constraints import InstrumentConstraints
-from src.trading.order_protection import verify_attached_protection
+from src.trading.order_protection import (
+    ProtectionVerificationError,
+    verify_active_attached_protection,
+    verify_attached_protection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +37,10 @@ class Executor:
     ) -> None:
         self.client = client
         self.dry_run = dry_run
+        self.risk_store = risk_store or AccountRiskStore()
         self.risk_guard = AccountRiskGuard(
             client,
-            risk_store or AccountRiskStore(),
+            self.risk_store,
         )
         self._issued_risk_approvals: set[str] = set()
         self._used_risk_approvals: set[str] = set()
@@ -133,7 +140,10 @@ class Executor:
             self._used_risk_approvals.add(risk_approval.approval_id)
             constraints = self._instrument_constraints(inst_id)
             size = constraints.normalize_size(requested_size)
-            normalized_price = constraints.normalize_price(entry_price)
+            normalized_price = constraints.normalize_entry_limit(
+                entry_price,
+                position_side=normalized_side,
+            )
             stop_loss = constraints.normalize_price(stop_loss_price)
             take_profit = (
                 constraints.normalize_price(take_profit_price)
@@ -141,6 +151,7 @@ class Executor:
                 else ""
             )
             side = "buy" if normalized_side == "long" else "sell"
+            attach_client_order_id = self._attachment_client_id(client_order_id)
             response = self.client.place_limit_order(
                 inst_id=inst_id,
                 side=side,
@@ -152,31 +163,53 @@ class Executor:
                 tp_trigger_px=take_profit,
                 tp_ord_px="-1" if take_profit else "",
                 client_order_id=client_order_id,
+                attach_algo_client_order_id=attach_client_order_id,
+                order_type="fok",
                 confirm=True,
             )
             if not response:
                 logger.error("Order placement failed for %s (empty response)", inst_id)
                 return {}
             order_id = str(response.get("ordId") or "")
+            order_state = ""
             try:
-                orders = self.client.get_order(inst_id, order_id=order_id)
-                if len(orders) != 1:
-                    raise RuntimeError("OKX did not return one accepted order detail")
-                protection = verify_attached_protection(
-                    orders[0],
+                order = self._get_fok_order(inst_id=inst_id, order_id=order_id)
+                order_state = str(order.get("state") or "").lower()
+                requested = verify_attached_protection(
+                    order,
                     order_id=order_id,
                     client_order_id=client_order_id,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
+                    attach_client_order_id=attach_client_order_id,
+                    expected_order_type="fok",
+                    expected_filled_size=size,
                 )
+                active = self._verify_active_attachment(
+                    inst_id=inst_id,
+                    attach_client_order_id=attach_client_order_id,
+                    quantity=size,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                )
+                protection = {"requested": requested, "active": active}
             except Exception as protection_error:
                 cancel_requested = False
                 cancel_error = ""
-                try:
-                    self.client.cancel_order(inst_id, order_id)
-                    cancel_requested = True
-                except Exception as exc:
-                    cancel_error = str(exc)
+                entry_kill_activated = order_state in {
+                    "",
+                    "filled",
+                    "partially_filled",
+                }
+                if entry_kill_activated:
+                    self.risk_store.set_entries_enabled(False)
+                    disable_entry_order_placement()
+                if order_state in {"", "live", "partially_filled"}:
+                    try:
+                        self.client.cancel_order(inst_id, order_id)
+                        cancel_requested = True
+                    except Exception as exc:
+                        cancel_error = str(exc)
                 logger.error(
                     "Protection verification failed for accepted order %s: %s",
                     order_id,
@@ -189,6 +222,8 @@ class Executor:
                     "maybechProtectionError": str(protection_error),
                     "maybechCancelRequested": cancel_requested,
                     "maybechCancelError": cancel_error,
+                    "maybechOrderState": order_state,
+                    "maybechEntryKillActivated": entry_kill_activated,
                 }
             return {
                 **response,
@@ -199,6 +234,65 @@ class Executor:
         except Exception as exc:
             logger.error("Entry submission blocked for %s: %s", inst_id, exc)
             return {}
+
+    def _get_fok_order(self, *, inst_id: str, order_id: str) -> dict[str, Any]:
+        last_order: dict[str, Any] | None = None
+        for attempt in range(5):
+            orders = self.client.get_order(inst_id, order_id=order_id)
+            if len(orders) != 1:
+                raise RuntimeError("OKX did not return one accepted order detail")
+            last_order = orders[0]
+            state = str(last_order.get("state") or "").lower()
+            if state != "live":
+                return last_order
+            if attempt < 4:
+                time.sleep(0.1)
+        if last_order is None:
+            raise RuntimeError("OKX FOK order detail is missing")
+        return last_order
+
+    def _verify_active_attachment(
+        self,
+        *,
+        inst_id: str,
+        attach_client_order_id: str,
+        quantity: str,
+        stop_loss: str,
+        take_profit: str,
+    ) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(5):
+            try:
+                pending: list[dict[str, Any]] = []
+                for ord_type in ("conditional", "oco"):
+                    pending.extend(
+                        self.client.get_pending_algo_orders(
+                            inst_id=inst_id,
+                            ord_type=ord_type,
+                        )
+                    )
+                return verify_active_attached_protection(
+                    pending,
+                    inst_id=inst_id,
+                    attach_client_order_id=attach_client_order_id,
+                    quantity=quantity,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                )
+            except Exception as exc:
+                last_error = exc
+                if attempt < 4:
+                    time.sleep(0.2)
+        if isinstance(last_error, ProtectionVerificationError):
+            raise last_error
+        raise ProtectionVerificationError(
+            f"failed to verify active OKX protection: {last_error}"
+        ) from last_error
+
+    @staticmethod
+    def _attachment_client_id(client_order_id: str) -> str:
+        digest = hashlib.sha256(client_order_id.encode("utf-8")).hexdigest()
+        return f"mba{digest[:29]}"
 
     def check_exits(self) -> list[dict]:
         return []

@@ -87,6 +87,7 @@ def _valid_strategy(store):
         metadata={
             "position_side": "long",
             "order_size_contracts": {"ETH-USDT-SWAP": "0.2"},
+            "max_entry_slippage_pct": "0.005",
         },
     )
 

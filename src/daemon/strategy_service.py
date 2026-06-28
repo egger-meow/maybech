@@ -29,6 +29,7 @@ from src.trading.strategy_runtime import (
     candle_bar,
     close_condition_specs,
     compose_entry_expression,
+    entry_limit_price,
     exchange_protection_prices,
     order_size,
     position_side,
@@ -309,10 +310,11 @@ class StrategyService(DaemonService):
             return None
 
         try:
+            order_price = entry_limit_price(strategy, entry_price)
             risk_approval = self.executor.approve_entry(
                 inst_id=pair,
                 requested_size=requested_size,
-                entry_price=entry_price,
+                entry_price=order_price,
             )
         except Exception as exc:
             decision_entry.update(
@@ -332,6 +334,7 @@ class StrategyService(DaemonService):
             return None
 
         decision_entry["risk_approval"] = risk_approval.to_dict()
+        decision_entry["order_price"] = order_price
 
         stop_loss_price, take_profit_price = exchange_protection_prices(
             strategy,
@@ -369,7 +372,7 @@ class StrategyService(DaemonService):
         result = self.executor.execute(
             inst_id=pair,
             position_side=side,
-            entry_price=entry_price,
+            entry_price=order_price,
             requested_size=requested_size,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
