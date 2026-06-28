@@ -1,6 +1,64 @@
 {
   "components": {
     "schemas": {
+      "AccountExposureReconciliationResponse": {
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "invalid_exchange_positions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Invalid Exchange Positions",
+            "type": "array"
+          },
+          "invalid_logical_positions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Invalid Logical Positions",
+            "type": "array"
+          },
+          "safe_for_entries": {
+            "title": "Safe For Entries",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "balanced",
+              "mismatch",
+              "invalid",
+              "protection_required"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "unprotected_position_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unprotected Position Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "safe_for_entries",
+          "state",
+          "checked_at"
+        ],
+        "title": "AccountExposureReconciliationResponse",
+        "type": "object"
+      },
       "AccountRiskLimitsResponse": {
         "properties": {
           "created_at": {
@@ -684,6 +742,52 @@
           }
         },
         "title": "ExecutionFillIngestionStatusResponse",
+        "type": "object"
+      },
+      "ExternalPositionImportRequest": {
+        "properties": {
+          "close_conditions": {
+            "items": {
+              "$ref": "#/components/schemas/LogicalPositionCloseConditionCreate"
+            },
+            "minItems": 1,
+            "title": "Close Conditions",
+            "type": "array"
+          },
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "inst_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "side": {
+            "enum": [
+              "long",
+              "short"
+            ],
+            "title": "Side",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "inst_id",
+          "side",
+          "close_conditions",
+          "reason"
+        ],
+        "title": "ExternalPositionImportRequest",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -2894,6 +2998,24 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/account/exposure-reconciliation": {
+      "get": {
+        "operationId": "get_account_exposure_reconciliation_account_exposure_reconciliation_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountExposureReconciliationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Account Exposure Reconciliation"
+      }
+    },
     "/account/orders": {
       "get": {
         "operationId": "get_account_orders_account_orders_get",
@@ -3250,6 +3372,44 @@
           }
         },
         "summary": "Get Position Intents"
+      }
+    },
+    "/positions/import": {
+      "post": {
+        "operationId": "import_external_position_positions_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalPositionImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionUnitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import External Position"
       }
     },
     "/positions/logical": {

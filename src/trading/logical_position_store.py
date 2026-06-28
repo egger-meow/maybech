@@ -459,6 +459,48 @@ class LogicalPositionStore:
             )
         return position.id
 
+    def create_with_close_conditions(
+        self,
+        position: LogicalPositionRecord,
+        conditions: list[LogicalPositionCloseCondition],
+    ) -> str:
+        """Create a logical unit and its close conditions atomically."""
+        position.updated_at = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO logical_positions
+                   (id, source, strategy_id, trade_id, inst_id, side,
+                    opened_quantity, remaining_quantity, entry_price, entry_time,
+                    status, exchange_order_id, client_order_id, exchange_position_key,
+                    metadata_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    position.id, position.source, position.strategy_id,
+                    position.trade_id, position.inst_id, position.side,
+                    position.opened_quantity, position.remaining_quantity,
+                    position.entry_price, position.entry_time, position.status,
+                    position.exchange_order_id, position.client_order_id,
+                    position.exchange_position_key, position.metadata_json,
+                    position.created_at, position.updated_at,
+                ),
+            )
+            for condition in conditions:
+                if condition.position_id != position.id:
+                    raise ValueError("Close condition belongs to another position")
+                conn.execute(
+                    """INSERT INTO logical_position_close_conditions
+                       (id, position_id, purpose, expression_json, enabled,
+                        metadata_json, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        condition.id, condition.position_id, condition.purpose,
+                        condition.expression_json, 1 if condition.enabled else 0,
+                        condition.metadata_json, condition.created_at,
+                        condition.updated_at,
+                    ),
+                )
+        return position.id
+
     def get(self, position_id: str) -> LogicalPositionRecord | None:
         with self._conn() as conn:
             row = conn.execute(

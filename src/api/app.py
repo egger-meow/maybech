@@ -33,6 +33,11 @@ from src.trading.logical_position_store import (
     LogicalPositionStore,
 )
 from src.trading.position_reconciliation import PositionReconciliation, PositionReconciler
+from src.trading.position_import import (
+    PositionImportConflict,
+    PositionImportRequest,
+    PositionImportService,
+)
 from src.trading.rules import PositionRule, RuleGroup
 from src.trading.signal_context import build_signal_context_from_candles, collect_signal_requirements
 from src.trading.signal_engine import SignalExpressionEngine
@@ -40,6 +45,7 @@ from src.trading.strategy_runtime import validate_strategy_for_execution
 from src.trading.strategy_store import SignalExpressionRecord, StrategyRecord, StrategyStore
 from src.trading.trade_store import TradeStore
 from src.api.schemas import (
+    AccountExposureReconciliationResponse,
     AccountRiskLimitsResponse,
     AccountRiskLimitsUpdate,
     AccountSnapshotResponse,
@@ -50,6 +56,7 @@ from src.api.schemas import (
     ExecutionFillIngestionStatusResponse,
     EntryControlCommand,
     EntryControlResponse,
+    ExternalPositionImportRequest,
     HealthResponse,
     LivePreflightResponse,
     LogicalPositionUnitResponse,
@@ -1030,6 +1037,50 @@ def create_app(runner: DaemonRunner) -> FastAPI:
             )
             for position in positions
         ]
+
+    @app.get(
+        "/account/exposure-reconciliation",
+        response_model=AccountExposureReconciliationResponse,
+    )
+    def get_account_exposure_reconciliation() -> AccountExposureReconciliationResponse:
+        position_store = LogicalPositionStore()
+        report = PositionReconciler().reconcile_account(
+            logical_positions=position_store.list_active(),
+            exchange_positions=OKXClient().get_positions(inst_type="SWAP"),
+        )
+        return AccountExposureReconciliationResponse(**report.to_dict())
+
+    @app.post(
+        "/positions/import",
+        response_model=LogicalPositionUnitResponse,
+        status_code=201,
+    )
+    def import_external_position(
+        payload: ExternalPositionImportRequest,
+    ) -> LogicalPositionUnitResponse:
+        trade_store = TradeStore()
+        position_store = LogicalPositionStore(trade_store.db_path)
+        try:
+            position = PositionImportService(OKXClient(), position_store).import_unexplained(
+                PositionImportRequest(
+                    inst_id=payload.inst_id,
+                    side=payload.side,
+                    close_conditions=[item.model_dump() for item in payload.close_conditions],
+                    reason=payload.reason,
+                )
+            )
+        except PositionImportConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _logical_position_response(
+            store=trade_store,
+            position_store=position_store,
+            position=position,
+            account_snapshot={"positions": []},
+            intents=[],
+            audit_events=[],
+        )
 
     @app.get("/positions/logical/{position_id}", response_model=LogicalPositionUnitResponse)
     def get_logical_position(position_id: str) -> LogicalPositionUnitResponse:

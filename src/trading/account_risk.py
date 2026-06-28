@@ -12,6 +12,8 @@ from typing import Any, Generator
 from uuid import uuid4
 
 from src.config.settings import settings
+from src.trading.logical_position_store import LogicalPositionStore
+from src.trading.position_reconciliation import PositionReconciler
 from src.trading.sqlite_schema import (
     applied_schema_versions,
     configure_connection,
@@ -263,9 +265,15 @@ class EntryRiskApproval:
 class AccountRiskGuard:
     """Approve a live entry only from fresh authenticated OKX account state."""
 
-    def __init__(self, client: Any, store: AccountRiskStore) -> None:
+    def __init__(
+        self,
+        client: Any,
+        store: AccountRiskStore,
+        position_store: LogicalPositionStore | None = None,
+    ) -> None:
         self.client = client
         self.store = store
+        self.position_store = position_store or LogicalPositionStore(store.db_path)
         self._instruments: dict[str, dict[str, Any]] = {}
 
     def approve_entry(
@@ -304,7 +312,21 @@ class AccountRiskGuard:
                 f"configured leverage {leverage} exceeds limit {limits.max_leverage}"
             )
 
-        existing_exposure = self._position_exposure() + self._pending_order_exposure()
+        exchange_positions = self.client.get_positions(inst_type="SWAP")
+        reconciliation = PositionReconciler().reconcile_account(
+            logical_positions=self.position_store.list_active(),
+            exchange_positions=exchange_positions,
+        )
+        if not reconciliation.safe_for_entries:
+            raise EntryRiskBlocked(
+                "OKX exposure does not reconcile to logical positions: "
+                f"{reconciliation.state}"
+            )
+
+        existing_exposure = (
+            self._position_exposure(exchange_positions)
+            + self._pending_order_exposure()
+        )
         projected_exposure = existing_exposure + order_notional
         if projected_exposure > limits.max_total_exposure_usd:
             raise EntryRiskBlocked(
@@ -368,9 +390,9 @@ class AccountRiskGuard:
             raise EntryRiskBlocked(f"no cross leverage returned for {inst_id}")
         return max(_decimal(row.get("lever"), field="lever") for row in matching)
 
-    def _position_exposure(self) -> Decimal:
+    def _position_exposure(self, positions: list[dict[str, Any]]) -> Decimal:
         exposure = Decimal("0")
-        for position in self.client.get_positions(inst_type="SWAP"):
+        for position in positions:
             size = _signed_decimal(position.get("pos") or "0", field="position size")
             if size == 0:
                 continue

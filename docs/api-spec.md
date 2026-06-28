@@ -28,6 +28,7 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /events`
 - `GET /audit/events`
 - `GET /account/snapshot`
+- `GET /account/exposure-reconciliation`
 - `GET /market/btc-regime`
 - `GET /strategy/decisions`
 - `GET /strategies/{strategy_id}/decisions`
@@ -46,6 +47,7 @@ These endpoints currently exist or are already documented in runtime status:
 - `POST /signals/validate`
 - `POST /signals/evaluate`
 - `GET /positions/logical`
+- `POST /positions/import`
 - `GET /positions/logical/{position_id}`
 - `GET /positions/logical/{position_id}/allocations`
 - `POST /positions/logical/{position_id}/allocations`
@@ -196,6 +198,19 @@ overrides generated values.
 ## Target Logical Position Endpoints
 
 The Position Management page has a logical-position contract now:
+
+- `GET /account/exposure-reconciliation`: fetch fresh authenticated OKX SWAP
+  positions and compare every instrument/side group with active SQLite logical
+  units. Any exchange-only, missing, over-allocated, malformed, or unknown
+  quantity makes `safe_for_entries=false`.
+- `POST /positions/import`: with `{ "confirm": true }`, import exactly the
+  current unexplained quantity for one instrument/side as a new independent
+  logical unit. The caller cannot choose quantity or entry price. Import uses
+  the fresh OKX gap and average price, requires a valid enabled side-consistent
+  stop loss, and creates the unit plus close conditions atomically. Repeating
+  an import after the gap is consumed returns `409`. Imported/recovered units
+  remain `protection_required` and entry-blocking until OKX protection is
+  attached and verified.
 
 - `GET /positions/logical`: list current logical position units persisted in
   SQLite, with compatibility backfill from `TradeStore` records, first-class

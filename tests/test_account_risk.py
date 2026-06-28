@@ -8,6 +8,7 @@ from src.trading.account_risk import (
     AccountRiskStore,
     EntryRiskBlocked,
 )
+from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
 
 
 class RiskClient:
@@ -64,6 +65,16 @@ def _store(tmp_path, *, order="50", total="200", leverage="10", enabled=True):
         )
     )
     store.set_entries_enabled(True)
+    LogicalPositionStore(store.db_path).save(
+        LogicalPositionRecord(
+            id="btc-short",
+            inst_id="BTC-USDT-SWAP",
+            side="short",
+            opened_quantity=1,
+            remaining_quantity=1,
+            entry_price=100,
+        )
+    )
     return store
 
 
@@ -120,9 +131,23 @@ def test_entry_approval_blocks_every_risk_limit(
 
 def test_entry_approval_fails_closed_when_exchange_exposure_is_incomplete(tmp_path):
     client = RiskClient()
-    client.positions = [{"instId": "BTC-USDT-SWAP", "pos": "1", "notionalUsd": ""}]
+    client.positions = [{"instId": "BTC-USDT-SWAP", "pos": "-1", "notionalUsd": ""}]
 
     with pytest.raises(EntryRiskBlocked, match="has no notionalUsd"):
+        AccountRiskGuard(client, _store(tmp_path)).approve_entry(
+            inst_id="ETH-USDT-SWAP",
+            requested_size="1",
+            entry_price="2000",
+        )
+
+
+def test_entry_approval_blocks_unexplained_exchange_exposure(tmp_path):
+    client = RiskClient()
+    client.positions.append(
+        {"instId": "ETH-USDT-SWAP", "pos": "2", "notionalUsd": "40"}
+    )
+
+    with pytest.raises(EntryRiskBlocked, match="does not reconcile"):
         AccountRiskGuard(client, _store(tmp_path)).approve_entry(
             inst_id="ETH-USDT-SWAP",
             requested_size="1",

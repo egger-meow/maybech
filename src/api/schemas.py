@@ -430,6 +430,24 @@ class LogicalPositionCloseResponse(BaseModel):
     status: str | None = None
 
 
+class ExternalPositionImportRequest(BaseModel):
+    confirm: Literal[True]
+    inst_id: str = Field(min_length=1, max_length=64)
+    side: Literal["long", "short"]
+    close_conditions: list[LogicalPositionCloseConditionCreate] = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=256)
+
+
+class AccountExposureReconciliationResponse(BaseModel):
+    safe_for_entries: bool
+    state: Literal["balanced", "mismatch", "invalid", "protection_required"]
+    groups: list[dict[str, Any]] = Field(default_factory=list)
+    invalid_exchange_positions: list[str] = Field(default_factory=list)
+    invalid_logical_positions: list[str] = Field(default_factory=list)
+    unprotected_position_ids: list[str] = Field(default_factory=list)
+    checked_at: str
+
+
 class StrategyCreate(BaseModel):
     id: str | None = None
     name: str

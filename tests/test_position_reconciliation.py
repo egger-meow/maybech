@@ -105,3 +105,32 @@ def test_reconciler_reports_missing_exchange_position():
 
     assert result["unit-a"].state == "no_exchange_position"
     assert result["unit-a"].exchange_position_key == ""
+
+
+def test_account_reconciliation_infers_signed_net_side_and_finds_exchange_only_gap():
+    report = PositionReconciler().reconcile_account(
+        logical_positions=[],
+        exchange_positions=[
+            {
+                "instId": "BTC-USDT-SWAP",
+                "posSide": "net",
+                "pos": "-2",
+                "avgPx": "65000",
+                "markPx": "64000",
+            }
+        ],
+    )
+
+    assert report.safe_for_entries is False
+    assert report.state == "mismatch"
+    assert report.groups[0].key == "BTC-USDT-SWAP:short"
+    assert report.groups[0].unexplained_quantity == 2
+
+
+def test_empty_account_reconciliation_is_balanced():
+    report = PositionReconciler().reconcile_account(
+        logical_positions=[], exchange_positions=[]
+    )
+
+    assert report.safe_for_entries is True
+    assert report.state == "balanced"

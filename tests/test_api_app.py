@@ -97,6 +97,53 @@ def test_api_requires_confirmation_for_entry_enable_and_kill(monkeypatch, tmp_pa
     assert client.get("/risk/entries").json()["entries_enabled"] is False
 
 
+def test_api_imports_only_current_unexplained_position_gap(monkeypatch, tmp_path):
+    trade_store = TradeStore(str(tmp_path / "trades.db"))
+    position_store = LogicalPositionStore(trade_store.db_path)
+
+    class FakeOKXClient:
+        def get_positions(self, *, inst_type):
+            return [
+                {
+                    "instId": "ETH-USDT-SWAP",
+                    "posSide": "net",
+                    "pos": "2",
+                    "avgPx": "3000",
+                    "markPx": "3100",
+                }
+            ]
+
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    monkeypatch.setattr("src.api.app.LogicalPositionStore", lambda *args: position_store)
+    monkeypatch.setattr("src.api.app.OKXClient", FakeOKXClient)
+    client = TestClient(create_app(DaemonRunner()))
+    payload = {
+        "confirm": True,
+        "inst_id": "ETH-USDT-SWAP",
+        "side": "long",
+        "reason": "adopt externally opened position",
+        "close_conditions": [
+            {
+                "purpose": "stop_loss",
+                "expression": {
+                    "type": "price_below",
+                    "symbol": "self",
+                    "value": 2900,
+                },
+                "enabled": True,
+            }
+        ],
+    }
+
+    created = client.post("/positions/import", json=payload)
+    repeated = client.post("/positions/import", json=payload)
+
+    assert created.status_code == 201
+    assert created.json()["source"] == "import"
+    assert created.json()["opened_quantity"] == 2
+    assert repeated.status_code == 409
+
+
 def test_api_lists_services_and_events():
     runner = DaemonRunner()
     runner.register(ApiMockService())
