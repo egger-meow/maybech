@@ -14,7 +14,11 @@ class FakeTradeApi:
 
     def place_order(self, **kwargs):
         self.kwargs = kwargs
-        return {"code": "0", "data": [{"ordId": "close-order"}]}
+        return {"code": "0", "data": [{"ordId": "close-order", "sCode": "0", "sMsg": ""}]}
+
+    def cancel_order(self, **kwargs):
+        self.kwargs = kwargs
+        return {"code": "0", "data": [{"ordId": kwargs["ordId"], "sCode": "0"}]}
 
     def get_order(self, **kwargs):
         self.kwargs = kwargs
@@ -77,7 +81,8 @@ def test_okx_client_places_guarded_reduce_only_close(monkeypatch):
         confirm=True,
     )
 
-    assert result == {"ordId": "close-order"}
+    assert result["ordId"] == "close-order"
+    assert result["sCode"] == "0"
     assert client.trade_api.kwargs == {
         "instId": "ETH-USDT-SWAP",
         "tdMode": "cross",
@@ -114,6 +119,29 @@ def test_entry_kill_blocks_entries_without_blocking_reduce_only_close(monkeypatc
         confirm=True,
     )
     assert result["ordId"] == "close-order"
+
+
+def test_okx_client_rejects_nonzero_per_order_status(monkeypatch):
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+    client.trade_api.place_order = lambda **kwargs: {
+        "code": "0",
+        "data": [{"ordId": "rejected-order", "sCode": "51008", "sMsg": "insufficient balance"}],
+    }
+    monkeypatch.setattr(client_module, "_ORDER_PLACEMENT_ARMED", True)
+    monkeypatch.setattr(client_module, "_ENTRY_ORDER_PLACEMENT_ENABLED", True)
+
+    with pytest.raises(RuntimeError, match="sCode=51008"):
+        client.place_limit_order(
+            inst_id="ETH-USDT-SWAP",
+            side="buy",
+            sz="1",
+            px="2000",
+            sl_trigger_px="1900",
+            sl_ord_px="-1",
+            client_order_id="entryclient2",
+            confirm=True,
+        )
 
 
 def test_okx_client_get_order_uses_instrument_and_order_id():

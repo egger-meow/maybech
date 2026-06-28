@@ -8,6 +8,8 @@ class FakeClient:
     def __init__(self):
         self.entry = None
         self.close = None
+        self.cancelled = []
+        self.protection_failure = False
 
     def get_instruments(self, **kwargs):
         return [{
@@ -33,6 +35,25 @@ class FakeClient:
     def place_limit_order(self, **kwargs):
         self.entry = kwargs
         return {"ordId": "entry-a"}
+
+    def get_order(self, inst_id, order_id="", client_order_id=""):
+        attachment = {
+            "slTriggerPx": self.entry["sl_trigger_px"],
+            "slOrdPx": self.entry["sl_ord_px"],
+            "tpTriggerPx": self.entry["tp_trigger_px"],
+            "tpOrdPx": self.entry["tp_ord_px"],
+            "failCode": "51020" if self.protection_failure else "",
+        }
+        return [{
+            "ordId": order_id,
+            "clOrdId": self.entry["client_order_id"],
+            "state": "live",
+            "attachAlgoOrds": [attachment],
+        }]
+
+    def cancel_order(self, inst_id, order_id):
+        self.cancelled.append((inst_id, order_id))
+        return {"ordId": order_id, "sCode": "0"}
 
     def place_reduce_market_order(self, **kwargs):
         self.close = kwargs
@@ -88,7 +109,9 @@ def test_live_entry_normalizes_size_and_price_from_okx_metadata(tmp_path):
         risk_approval=approval,
     )
 
-    assert result == {"ordId": "entry-a", "maybechRequestedSize": "0.3"}
+    assert result["ordId"] == "entry-a"
+    assert result["maybechRequestedSize"] == "0.3"
+    assert result["maybechProtectionVerified"] is True
     assert client.entry["side"] == "buy"
     assert client.entry["sz"] == "0.3"
     assert client.entry["px"] == "2000.13"
@@ -190,3 +213,29 @@ def test_live_entry_rejects_approval_from_another_executor(tmp_path):
         risk_approval=approval,
     ) == {}
     assert client.entry is None
+
+
+def test_live_entry_cancels_but_keeps_accepted_order_visible_when_protection_fails(tmp_path):
+    client = FakeClient()
+    client.protection_failure = True
+    executor = _live_executor(client, tmp_path)
+    approval = executor.approve_entry(
+        inst_id="ETH-USDT-SWAP",
+        requested_size="0.3",
+        entry_price=2000,
+    )
+
+    result = executor.execute(
+        inst_id="ETH-USDT-SWAP",
+        position_side="long",
+        entry_price=2000,
+        requested_size="0.3",
+        stop_loss_price=1900,
+        client_order_id="entryclient7",
+        risk_approval=approval,
+    )
+
+    assert result["ordId"] == "entry-a"
+    assert result["maybechProtectionVerified"] is False
+    assert result["maybechCancelRequested"] is True
+    assert client.cancelled == [("ETH-USDT-SWAP", "entry-a")]

@@ -376,9 +376,16 @@ class StrategyService(DaemonService):
             client_order_id=decision_id,
             risk_approval=risk_approval,
         ) or {}
-        execution_status = (
-            "simulated" if result and self.dry_run else "submitted" if result else "failed"
-        )
+        if result and self.dry_run:
+            execution_status = "simulated"
+        elif result and result.get("maybechProtectionVerified") is True:
+            execution_status = "submitted"
+        elif result and result.get("maybechCancelRequested") is True:
+            execution_status = "protection_failed_canceling"
+        elif result:
+            execution_status = "protection_failed_unresolved"
+        else:
+            execution_status = "failed"
         lifecycle: dict[str, Any] = {
             "execution_status": execution_status,
             "execution_result": result,
@@ -395,6 +402,7 @@ class StrategyService(DaemonService):
                     client_order_id=decision_id,
                     requested_size=float(requested_size),
                     execution_result=result,
+                    execution_status=execution_status,
                 )
             except Exception as exc:
                 logger.exception("Failed to persist submitted strategy action %s", decision_id)
@@ -414,7 +422,11 @@ class StrategyService(DaemonService):
 
         decision_entry.update(lifecycle)
         self._save_decision(decision_entry)
-        event_type = "strategy.execution_result" if result else "strategy.execution_failed"
+        event_type = (
+            "strategy.execution_result"
+            if execution_status in {"simulated", "submitted"}
+            else "strategy.execution_failed"
+        )
         self._save_and_publish_lifecycle_event(event_type, decision_entry)
         self._publish_decision_snapshot()
         return {
@@ -498,6 +510,7 @@ class StrategyService(DaemonService):
         client_order_id: str,
         requested_size: float,
         execution_result: dict[str, Any],
+        execution_status: str,
     ) -> LogicalPositionRecord:
         order_id = self._extract_order_id(execution_result)
         if not order_id:
@@ -507,7 +520,7 @@ class StrategyService(DaemonService):
             client_order_id=client_order_id,
             exchange_order_id=order_id,
             metadata={
-                "execution_status": "simulated" if self.dry_run else "submitted",
+                "execution_status": execution_status,
                 "execution_result": execution_result,
                 "exchange_order_id": order_id,
             },

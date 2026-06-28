@@ -14,6 +14,7 @@ from src.trading.account_risk import (
     EntryRiskApproval,
 )
 from src.trading.instrument_constraints import InstrumentConstraints
+from src.trading.order_protection import verify_attached_protection
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,45 @@ class Executor:
             if not response:
                 logger.error("Order placement failed for %s (empty response)", inst_id)
                 return {}
-            return {**response, "maybechRequestedSize": size}
+            order_id = str(response.get("ordId") or "")
+            try:
+                orders = self.client.get_order(inst_id, order_id=order_id)
+                if len(orders) != 1:
+                    raise RuntimeError("OKX did not return one accepted order detail")
+                protection = verify_attached_protection(
+                    orders[0],
+                    order_id=order_id,
+                    client_order_id=client_order_id,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                )
+            except Exception as protection_error:
+                cancel_requested = False
+                cancel_error = ""
+                try:
+                    self.client.cancel_order(inst_id, order_id)
+                    cancel_requested = True
+                except Exception as exc:
+                    cancel_error = str(exc)
+                logger.error(
+                    "Protection verification failed for accepted order %s: %s",
+                    order_id,
+                    protection_error,
+                )
+                return {
+                    **response,
+                    "maybechRequestedSize": size,
+                    "maybechProtectionVerified": False,
+                    "maybechProtectionError": str(protection_error),
+                    "maybechCancelRequested": cancel_requested,
+                    "maybechCancelError": cancel_error,
+                }
+            return {
+                **response,
+                "maybechRequestedSize": size,
+                "maybechProtectionVerified": True,
+                "maybechProtection": protection,
+            }
         except Exception as exc:
             logger.error("Entry submission blocked for %s: %s", inst_id, exc)
             return {}

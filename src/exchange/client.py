@@ -74,6 +74,22 @@ def _extract(response: dict, *, label: str = "API call") -> list[dict]:
     return response.get("data", [])
 
 
+def _accepted_order_result(response: dict, *, label: str) -> dict:
+    data = _extract(response, label=label)
+    if len(data) != 1 or not isinstance(data[0], dict):
+        raise RuntimeError(f"OKX {label} returned no single order result")
+    result = data[0]
+    status_code = str(result.get("sCode") or "")
+    if status_code != "0":
+        message = str(result.get("sMsg") or "unknown order error")
+        raise RuntimeError(
+            f"OKX {label} rejected order (sCode={status_code or 'missing'}): {message}"
+        )
+    if not str(result.get("ordId") or ""):
+        raise RuntimeError(f"OKX {label} accepted response is missing ordId")
+    return result
+
+
 class OKXClient:
     """Thin wrapper around the python-okx REST client."""
 
@@ -325,15 +341,14 @@ class OKXClient:
             slTriggerPx=sl_trigger_px,
             slOrdPx=sl_ord_px,
         )
-        data = _extract(resp, label="place_limit_order")
+        data = [_accepted_order_result(resp, label="place_limit_order")]
         logger.info("✅ Order placed: %s", data)
-        return data[0] if data else {}
+        return data[0]
 
     def cancel_order(self, inst_id: str, order_id: str) -> dict:
         """Cancel an existing order."""
         resp = self.trade_api.cancel_order(instId=inst_id, ordId=order_id)
-        data = _extract(resp, label="cancel_order")
-        return data[0] if data else {}
+        return _accepted_order_result(resp, label="cancel_order")
 
     def place_reduce_market_order(
         self,
@@ -372,8 +387,7 @@ class OKXClient:
             posSide=pos_side,
             reduceOnly="true",
         )
-        data = _extract(response, label="place_reduce_market_order")
-        return data[0] if data else {}
+        return _accepted_order_result(response, label="place_reduce_market_order")
 
 
 def _validate_client_order_id(client_order_id: str) -> None:

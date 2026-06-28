@@ -4,7 +4,6 @@ import pandas as pd
 
 from src.daemon.service import DaemonRunner
 from src.daemon.strategy_service import StrategyService
-from src.trading.audit_event_store import AuditEventStore
 from src.trading.account_risk import AccountRiskStore
 from src.trading.entry_control import EntryControlManager
 from src.trading.signal_engine import SignalEvaluationResult
@@ -40,7 +39,13 @@ class BlockingRiskExecutor(FakeExecutor):
 
 class BlockingSubmissionExecutor(FakeExecutor):
     def __init__(self):
-        super().__init__({"ordId": "race-order", "maybechRequestedSize": "1"})
+        super().__init__(
+            {
+                "ordId": "race-order",
+                "maybechRequestedSize": "1",
+                "maybechProtectionVerified": True,
+            }
+        )
         self.entered = threading.Event()
         self.release = threading.Event()
 
@@ -205,7 +210,13 @@ def test_live_strategy_blocks_before_persisting_position_when_risk_fails(tmp_pat
 
 def test_live_submission_creates_pending_unit_without_assuming_fill(tmp_path):
     service, strategy = _service(tmp_path, dry_run=False)
-    service.executor = FakeExecutor({"ordId": "live-order", "maybechRequestedSize": "2"})
+    service.executor = FakeExecutor(
+        {
+            "ordId": "live-order",
+            "maybechRequestedSize": "2",
+            "maybechProtectionVerified": True,
+        }
+    )
 
     signal = _process(service, strategy)
 
@@ -218,6 +229,28 @@ def test_live_submission_creates_pending_unit_without_assuming_fill(tmp_path):
     assert position.exchange_order_id == "live-order"
     assert service.position_store.list_allocations(position.id) == []
     assert len(service.position_store.list_close_conditions(position.id)) == 1
+
+
+def test_live_submission_marks_protection_failure_as_execution_failed(tmp_path):
+    service, strategy = _service(tmp_path, dry_run=False)
+    service.executor = FakeExecutor(
+        {
+            "ordId": "live-order",
+            "maybechRequestedSize": "2",
+            "maybechProtectionVerified": False,
+            "maybechCancelRequested": True,
+            "maybechProtectionError": "verification failed",
+        }
+    )
+
+    signal = _process(service, strategy)
+
+    pending = service.trade_store.get_trade_history(status="pending_open")
+    position = service.position_store.get(pending[0].id)
+    assert signal["result"] == "protection_failed_canceling"
+    assert service.decisions_history[0]["execution_status"] == "protection_failed_canceling"
+    assert position.status == "pending_open"
+    assert position.exchange_order_id == "live-order"
 
 
 def test_strategy_service_executes_one_persisted_false_to_true_edge(tmp_path):
