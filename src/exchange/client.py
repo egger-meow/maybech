@@ -90,6 +90,23 @@ def _accepted_order_result(response: dict, *, label: str) -> dict:
     return result
 
 
+def _accepted_algo_result(response: dict, *, label: str) -> dict:
+    data = _extract(response, label=label)
+    if len(data) != 1 or not isinstance(data[0], dict):
+        raise RuntimeError(f"OKX {label} returned no single algo-order result")
+    result = data[0]
+    status_code = str(result.get("sCode") or "")
+    if status_code != "0":
+        message = str(result.get("sMsg") or "unknown algo-order error")
+        raise RuntimeError(
+            f"OKX {label} rejected algo order "
+            f"(sCode={status_code or 'missing'}): {message}"
+        )
+    if not str(result.get("algoId") or ""):
+        raise RuntimeError(f"OKX {label} accepted response is missing algoId")
+    return result
+
+
 class OKXClient:
     """Thin wrapper around the python-okx REST client."""
 
@@ -224,6 +241,20 @@ class OKXClient:
         """Fetch all incomplete orders used by account exposure checks."""
         resp = self.trade_api.get_order_list(instType=inst_type)
         return _extract(resp, label="get_pending_orders")
+
+    def get_pending_algo_orders(
+        self,
+        *,
+        inst_id: str = "",
+        ord_type: str = "conditional",
+    ) -> list[dict]:
+        """Fetch active algo orders used to prove exchange-side protection."""
+        resp = self.trade_api.order_algos_list(
+            ordType=ord_type,
+            instType="SWAP",
+            instId=inst_id,
+        )
+        return _extract(resp, label="get_pending_algo_orders")
 
     def get_fills_history(
         self,
@@ -388,6 +419,81 @@ class OKXClient:
             reduceOnly="true",
         )
         return _accepted_order_result(response, label="place_reduce_market_order")
+
+    def place_position_stop(
+        self,
+        *,
+        inst_id: str,
+        position_side: str,
+        sz: str,
+        stop_trigger_px: str,
+        algo_client_order_id: str,
+        td_mode: str = "cross",
+        pos_side: str = "net",
+        confirm: bool = False,
+    ) -> dict:
+        """Place a reduce-only conditional market stop for existing exposure."""
+        if not _ORDER_PLACEMENT_ARMED:
+            raise PermissionError(
+                "Order placement is DISARMED. Start the runtime with --live "
+                "and pass live preflight first."
+            )
+        if not confirm:
+            raise ValueError("confirm=True is required for exchange protection")
+        normalized_side = position_side.lower()
+        if normalized_side not in {"long", "short"}:
+            raise ValueError("position_side must be 'long' or 'short'")
+        if float(sz) <= 0:
+            raise ValueError("stop size must be positive")
+        if float(stop_trigger_px) <= 0:
+            raise ValueError("stop trigger price must be positive")
+        _validate_client_order_id(algo_client_order_id)
+
+        response = self.trade_api.place_algo_order(
+            instId=inst_id,
+            tdMode=td_mode,
+            side="sell" if normalized_side == "long" else "buy",
+            ordType="conditional",
+            sz=sz,
+            posSide=pos_side,
+            reduceOnly="true",
+            slTriggerPx=stop_trigger_px,
+            slOrdPx="-1",
+            slTriggerPxType="last",
+            algoClOrdId=algo_client_order_id,
+        )
+        return _accepted_algo_result(response, label="place_position_stop")
+
+    def amend_position_stop(
+        self,
+        *,
+        inst_id: str,
+        algo_id: str,
+        sz: str,
+        stop_trigger_px: str,
+        confirm: bool = False,
+    ) -> dict:
+        """Resize or reprice a known protective stop without replacing its identity."""
+        if not _ORDER_PLACEMENT_ARMED:
+            raise PermissionError(
+                "Order placement is DISARMED. Start the runtime with --live "
+                "and pass live preflight first."
+            )
+        if not confirm:
+            raise ValueError("confirm=True is required to amend exchange protection")
+        if not algo_id:
+            raise ValueError("algo_id is required")
+        if float(sz) <= 0 or float(stop_trigger_px) <= 0:
+            raise ValueError("stop size and trigger price must be positive")
+        response = self.trade_api.amend_algo_order(
+            instId=inst_id,
+            algoId=algo_id,
+            newSz=sz,
+            newSlTriggerPx=stop_trigger_px,
+            newSlOrdPx="-1",
+            newSlTriggerPxType="last",
+        )
+        return _accepted_algo_result(response, label="amend_position_stop")
 
 
 def _validate_client_order_id(client_order_id: str) -> None:

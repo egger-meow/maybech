@@ -88,17 +88,19 @@ gap is a first-class distinction between:
 
 Frontend code should not assume one OKX position row equals one managed
 position.
-Until that verification exists, imported/recovered units report
-`protection_required` and continue to block every new live entry.
+Imported/recovered units report `protection_required` and block every new live
+entry until a quantity-scoped, reduce-only OKX conditional stop is visible in
+the pending-algo API with the expected side, size, and trigger. Entry approval
+rechecks that live OKX order instead of trusting the persisted verification bit.
 Fresh account-wide reconciliation also includes exchange-only net exposure and
 infers long/short from signed OKX `pos` values in `net_mode`. Every final live
 entry approval fails closed unless all active OKX SWAP quantities match active
 logical-unit quantities. `GET /account/exposure-reconciliation` exposes that
 fresh report. `POST /positions/import` can adopt only the measured unexplained
 gap as one atomic logical unit with required close conditions; it cannot accept
-a caller-selected quantity. This makes the unit software-managed, but does not
-yet prove that OKX has an exchange-side protective order for an external
-position.
+a caller-selected quantity. Import also places and verifies the exchange stop.
+`POST /positions/logical/{position_id}/protection` retries or safely amends the
+same deterministic algo order after recovery or close-condition edits.
 
 The current `/positions/logical` endpoint has persistent logical-unit storage,
 per-unit close signal conditions, and conservative reconciliation against OKX

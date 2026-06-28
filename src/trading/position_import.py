@@ -13,6 +13,7 @@ from src.trading.logical_position_store import (
     LogicalPositionStore,
 )
 from src.trading.position_reconciliation import PositionReconciler
+from src.trading.position_protection import PositionProtectionService
 from src.trading.signal_engine import SignalExpressionEngine
 from src.trading.strategy_runtime import resolve_self_symbol
 
@@ -34,6 +35,7 @@ class PositionImportService:
         self.client = client
         self.store = store
         self.reconciler = PositionReconciler()
+        self.protection = PositionProtectionService(client, store)
 
     def import_unexplained(self, request: PositionImportRequest) -> LogicalPositionRecord:
         side = self.reconciler.normalize_side(request.side)
@@ -81,7 +83,7 @@ class PositionImportService:
                 mark_price=group.exchange_mark_price,
             )
             self.store.create_with_close_conditions(position, conditions)
-            return position
+            return self.protection.protect(position.id)
 
     @staticmethod
     def _conditions(

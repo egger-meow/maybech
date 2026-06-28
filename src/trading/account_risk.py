@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -313,8 +314,9 @@ class AccountRiskGuard:
             )
 
         exchange_positions = self.client.get_positions(inst_type="SWAP")
+        logical_positions = self.position_store.list_active()
         reconciliation = PositionReconciler().reconcile_account(
-            logical_positions=self.position_store.list_active(),
+            logical_positions=logical_positions,
             exchange_positions=exchange_positions,
         )
         if not reconciliation.safe_for_entries:
@@ -322,6 +324,7 @@ class AccountRiskGuard:
                 "OKX exposure does not reconcile to logical positions: "
                 f"{reconciliation.state}"
             )
+        self._verify_imported_protection(logical_positions)
 
         existing_exposure = (
             self._position_exposure(exchange_positions)
@@ -344,6 +347,77 @@ class AccountRiskGuard:
             projected_exposure_usd=projected_exposure,
             leverage=leverage,
             approved_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def _verify_imported_protection(self, positions: list[Any]) -> None:
+        pending_by_instrument: dict[str, list[dict[str, Any]]] = {}
+        for position in positions:
+            if position.source not in {"import", "recovery"}:
+                continue
+            try:
+                metadata = json.loads(position.metadata_json or "{}")
+            except json.JSONDecodeError as exc:
+                raise EntryRiskBlocked(
+                    f"logical position {position.id} has invalid protection metadata"
+                ) from exc
+            proof = metadata.get("exchange_protection") if isinstance(metadata, dict) else None
+            if not isinstance(proof, dict):
+                raise EntryRiskBlocked(
+                    f"logical position {position.id} has no exchange protection proof"
+                )
+            pending = pending_by_instrument.get(position.inst_id)
+            if pending is None:
+                pending = self.client.get_pending_algo_orders(inst_id=position.inst_id)
+                pending_by_instrument[position.inst_id] = pending
+            algo_id = str(proof.get("algo_id") or "")
+            algo_client_id = str(proof.get("algo_client_order_id") or "")
+            matches = [
+                order
+                for order in pending
+                if str(order.get("algoId") or "") == algo_id
+                and str(order.get("algoClOrdId") or "") == algo_client_id
+            ]
+            expected_side = "sell" if position.side == "long" else "buy"
+            active = len(matches) == 1 and self._protection_matches(
+                matches[0],
+                position=position,
+                expected_side=expected_side,
+                proof=proof,
+            )
+            if not active:
+                raise EntryRiskBlocked(
+                    f"exchange protection is not active for logical position {position.id}"
+                )
+
+    @staticmethod
+    def _protection_matches(
+        order: dict[str, Any],
+        *,
+        position: Any,
+        expected_side: str,
+        proof: dict[str, Any],
+    ) -> bool:
+        try:
+            size_matches = Decimal(str(order.get("sz"))) == Decimal(
+                str(proof.get("quantity"))
+            )
+            stop_matches = Decimal(str(order.get("slTriggerPx"))) == Decimal(
+                str(proof.get("stop_loss"))
+            )
+        except (InvalidOperation, ValueError):
+            return False
+        return all(
+            (
+                str(order.get("instId") or "") == position.inst_id,
+                str(order.get("side") or "").lower() == expected_side,
+                str(order.get("ordType") or "").lower() == "conditional",
+                str(order.get("state") or "").lower() == "live",
+                str(order.get("posSide") or "").lower() == "net",
+                _is_true(order.get("reduceOnly")),
+                size_matches,
+                stop_matches,
+                str(order.get("slOrdPx") or "") == "-1",
+            )
         )
 
     def _instrument(self, inst_id: str) -> dict[str, Any]:

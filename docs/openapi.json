@@ -1579,6 +1579,20 @@
         "title": "PositionIntentResponse",
         "type": "object"
       },
+      "PositionProtectionCommand": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "PositionProtectionCommand",
+        "type": "object"
+      },
       "PositionRuleCreate": {
         "properties": {
           "metric": {
@@ -3870,6 +3884,55 @@
           }
         },
         "summary": "Update Logical Position Close Condition"
+      }
+    },
+    "/positions/logical/{position_id}/protection": {
+      "post": {
+        "operationId": "attach_logical_position_protection_positions_logical__position_id__protection_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PositionProtectionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionUnitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attach Logical Position Protection"
       }
     },
     "/risk/entries": {

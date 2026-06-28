@@ -599,6 +599,35 @@ class LogicalPositionStore:
         self.save(position)
         return position
 
+    def merge_metadata(
+        self,
+        position_id: str,
+        values: dict[str, Any],
+    ) -> LogicalPositionRecord | None:
+        """Merge position metadata without replacing unrelated execution state."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT metadata_json FROM logical_positions WHERE id = ?",
+                (position_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            metadata = _json_loads(row["metadata_json"], {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata.update(values)
+            conn.execute(
+                """UPDATE logical_positions
+                   SET metadata_json = ?, updated_at = ?
+                   WHERE id = ?""",
+                (
+                    _json_dumps(metadata),
+                    datetime.now(timezone.utc).isoformat(),
+                    position_id,
+                ),
+            )
+        return self.get(position_id)
+
     def mark_pending_execution(
         self,
         position_id: str,

@@ -38,6 +38,10 @@ from src.trading.position_import import (
     PositionImportRequest,
     PositionImportService,
 )
+from src.trading.position_protection import (
+    PositionProtectionError,
+    PositionProtectionService,
+)
 from src.trading.rules import PositionRule, RuleGroup
 from src.trading.signal_context import build_signal_context_from_candles, collect_signal_requirements
 from src.trading.signal_engine import SignalExpressionEngine
@@ -67,6 +71,7 @@ from src.api.schemas import (
     LogicalPositionCloseResponse,
     LogicalPositionAllocationResponse,
     PositionIntentResponse,
+    PositionProtectionCommand,
     PositionRuleResponse,
     RuleGroupResponse,
     RuntimeLeaseResponse,
@@ -104,6 +109,20 @@ def _serialize_event(event: RuntimeEvent) -> dict:
 
 def _audit_event_response(event: AuditEventRecord) -> AuditEventResponse:
     return AuditEventResponse(**event.to_dict())
+
+
+def _invalidate_external_position_protection(
+    position_store: LogicalPositionStore,
+    position: LogicalPositionRecord,
+) -> None:
+    if position.source in {"import", "recovery"}:
+        position_store.merge_metadata(
+            position.id,
+            {
+                "exchange_protection_verified": False,
+                "exchange_protection_error": "close conditions changed; verification required",
+            },
+        )
 
 
 def _strategy_decision_response(event: AuditEventRecord) -> StrategyDecisionResponse:
@@ -1071,6 +1090,8 @@ def create_app(runner: DaemonRunner) -> FastAPI:
             )
         except PositionImportConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except PositionProtectionError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _logical_position_response(
@@ -1080,6 +1101,33 @@ def create_app(runner: DaemonRunner) -> FastAPI:
             account_snapshot={"positions": []},
             intents=[],
             audit_events=[],
+        )
+
+    @app.post(
+        "/positions/logical/{position_id}/protection",
+        response_model=LogicalPositionUnitResponse,
+    )
+    def attach_logical_position_protection(
+        position_id: str,
+        payload: PositionProtectionCommand,
+    ) -> LogicalPositionUnitResponse:
+        del payload
+        trade_store = TradeStore()
+        position_store = LogicalPositionStore(trade_store.db_path)
+        try:
+            position = PositionProtectionService(
+                OKXClient(), position_store
+            ).protect(position_id)
+        except PositionProtectionError as exc:
+            status_code = 404 if str(exc) == "logical position not found" else 409
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        return _logical_position_response(
+            store=trade_store,
+            position_store=position_store,
+            position=position,
+            account_snapshot=runner.runtime.get_value("account.snapshot") or {},
+            intents=runner.runtime.get_value("position.intents") or [],
+            audit_events=runner.runtime.events.recent(limit=100),
         )
 
     @app.get("/positions/logical/{position_id}", response_model=LogicalPositionUnitResponse)
@@ -1259,6 +1307,7 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         )
         if condition is None:
             raise HTTPException(status_code=404, detail="Logical position not found")
+        _invalidate_external_position_protection(position_store, position)
         return _close_condition_response(condition)
 
     @app.patch(
@@ -1291,6 +1340,7 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         )
         if condition is None:
             raise HTTPException(status_code=404, detail="Close condition not found")
+        _invalidate_external_position_protection(position_store, position)
         return _close_condition_response(condition)
 
     @app.delete("/positions/logical/{position_id}/close-conditions/{condition_id}")
@@ -1306,6 +1356,7 @@ def create_app(runner: DaemonRunner) -> FastAPI:
             raise HTTPException(status_code=404, detail="Logical position not found")
         if not position_store.delete_close_condition(position.id, condition_id):
             raise HTTPException(status_code=404, detail="Close condition not found")
+        _invalidate_external_position_protection(position_store, position)
         return {"status": "ok"}
 
     return app

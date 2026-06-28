@@ -14,3 +14,5 @@ def test_openapi_type_generation_contains_frontend_contracts():
     assert "export type LogicalPositionUnitResponse" in generated
     assert '"current_intent"?: PositionIntentResponse | null;' in generated
     assert '"loc": (string | number)[];' in generated
+    assert '"confirm": true;' in generated
+    assert '"confirm": "True";' not in generated

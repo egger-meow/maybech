@@ -31,6 +31,24 @@ class FakeTradeApi:
         self.kwargs = kwargs
         return {"code": "0", "data": [{"ordId": "pending-a"}]}
 
+    def order_algos_list(self, **kwargs):
+        self.kwargs = kwargs
+        return {"code": "0", "data": [{"algoId": "algo-a", "state": "live"}]}
+
+    def place_algo_order(self, **kwargs):
+        self.kwargs = kwargs
+        return {
+            "code": "0",
+            "data": [{"algoId": "algo-a", "sCode": "0", "sMsg": ""}],
+        }
+
+    def amend_algo_order(self, **kwargs):
+        self.kwargs = kwargs
+        return {
+            "code": "0",
+            "data": [{"algoId": kwargs["algoId"], "sCode": "0", "sMsg": ""}],
+        }
+
 
 class FakeAccountApi:
     def __init__(self):
@@ -194,4 +212,55 @@ def test_okx_client_fetches_pending_orders_and_leverage():
     assert client.account_api.kwargs == {
         "instId": "ETH-USDT-SWAP",
         "mgnMode": "cross",
+    }
+
+
+def test_okx_client_places_and_lists_guarded_position_stop(monkeypatch):
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+    monkeypatch.setattr(client_module, "_ORDER_PLACEMENT_ARMED", True)
+
+    result = client.place_position_stop(
+        inst_id="ETH-USDT-SWAP",
+        position_side="long",
+        sz="2",
+        stop_trigger_px="2900",
+        algo_client_order_id="protectionclient1",
+        confirm=True,
+    )
+
+    assert result["algoId"] == "algo-a"
+    assert client.trade_api.kwargs == {
+        "instId": "ETH-USDT-SWAP",
+        "tdMode": "cross",
+        "side": "sell",
+        "ordType": "conditional",
+        "sz": "2",
+        "posSide": "net",
+        "reduceOnly": "true",
+        "slTriggerPx": "2900",
+        "slOrdPx": "-1",
+        "slTriggerPxType": "last",
+        "algoClOrdId": "protectionclient1",
+    }
+
+    assert client.get_pending_algo_orders(inst_id="ETH-USDT-SWAP") == [
+        {"algoId": "algo-a", "state": "live"}
+    ]
+
+    amended = client.amend_position_stop(
+        inst_id="ETH-USDT-SWAP",
+        algo_id="algo-a",
+        sz="2",
+        stop_trigger_px="2850",
+        confirm=True,
+    )
+    assert amended["algoId"] == "algo-a"
+    assert client.trade_api.kwargs == {
+        "instId": "ETH-USDT-SWAP",
+        "algoId": "algo-a",
+        "newSz": "2",
+        "newSlTriggerPx": "2850",
+        "newSlOrdPx": "-1",
+        "newSlTriggerPxType": "last",
     }

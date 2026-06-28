@@ -438,6 +438,10 @@ class ExternalPositionImportRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=256)
 
 
+class PositionProtectionCommand(BaseModel):
+    confirm: Literal[True]
+
+
 class AccountExposureReconciliationResponse(BaseModel):
     safe_for_entries: bool
     state: Literal["balanced", "mismatch", "invalid", "protection_required"]

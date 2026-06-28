@@ -48,6 +48,7 @@ These endpoints currently exist or are already documented in runtime status:
 - `POST /signals/evaluate`
 - `GET /positions/logical`
 - `POST /positions/import`
+- `POST /positions/logical/{position_id}/protection`
 - `GET /positions/logical/{position_id}`
 - `GET /positions/logical/{position_id}/allocations`
 - `POST /positions/logical/{position_id}/allocations`
@@ -162,8 +163,9 @@ The remaining target surface is:
   references, and a shared correlation id. It accepts `limit`, `allowed`,
   `execution_status`, and `before` filters.
 
-`execution_status=submitted` means the exchange order request returned a
-non-empty response. It does not mean that OKX confirmed a fill or that logical
+`execution_status=submitted` means OKX accepted the parent order and its detail
+matched the requested attached protection. It does not mean that OKX confirmed
+a fill, that an attached algo is active for a partial fill, or that logical
 position allocation is final.
 
 ## Target Signal Endpoints
@@ -207,10 +209,13 @@ The Position Management page has a logical-position contract now:
   current unexplained quantity for one instrument/side as a new independent
   logical unit. The caller cannot choose quantity or entry price. Import uses
   the fresh OKX gap and average price, requires a valid enabled side-consistent
-  stop loss, and creates the unit plus close conditions atomically. Repeating
-  an import after the gap is consumed returns `409`. Imported/recovered units
-  remain `protection_required` and entry-blocking until OKX protection is
-  attached and verified.
+  stop loss, and creates the unit plus close conditions atomically. It then
+  places a quantity-scoped reduce-only conditional stop and verifies the exact
+  pending OKX algo. Repeating an import after the gap is consumed returns `409`.
+- `POST /positions/logical/{position_id}/protection`: with
+  `{ "confirm": true }`, retry protection for an imported/recovered unit or
+  amend its deterministic existing algo after a close-condition change. The
+  unit remains entry-blocking unless exact pending-algo verification succeeds.
 
 - `GET /positions/logical`: list current logical position units persisted in
   SQLite, with compatibility backfill from `TradeStore` records, first-class

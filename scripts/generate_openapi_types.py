@@ -12,8 +12,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.api.app import create_app
-from src.daemon.service import DaemonRunner
+from src.api.app import create_app  # noqa: E402
+from src.daemon.service import DaemonRunner  # noqa: E402
 
 OPENAPI_PATH = ROOT / "docs" / "openapi.json"
 TYPES_PATH = ROOT / "frontend" / "lib" / "generated" / "api-types.ts"
@@ -37,7 +37,14 @@ def _schema_to_ts(schema: dict[str, Any]) -> str:
         return _schema_ref_name(str(schema["$ref"]))
 
     if "const" in schema:
-        return _ts_string(str(schema["const"]))
+        value = schema["const"]
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return str(value)
+        return _ts_string(str(value))
 
     if "enum" in schema:
         values = schema["enum"]

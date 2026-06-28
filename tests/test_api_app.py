@@ -102,6 +102,8 @@ def test_api_imports_only_current_unexplained_position_gap(monkeypatch, tmp_path
     position_store = LogicalPositionStore(trade_store.db_path)
 
     class FakeOKXClient:
+        pending = []
+
         def get_positions(self, *, inst_type):
             return [
                 {
@@ -112,6 +114,35 @@ def test_api_imports_only_current_unexplained_position_gap(monkeypatch, tmp_path
                     "markPx": "3100",
                 }
             ]
+
+        def get_instruments(self, *, inst_type, inst_id):
+            return [{
+                "instId": inst_id,
+                "state": "live",
+                "minSz": "1",
+                "lotSz": "1",
+                "tickSz": "0.1",
+            }]
+
+        def get_pending_algo_orders(self, *, inst_id):
+            return list(self.pending)
+
+        def place_position_stop(self, **kwargs):
+            order = {
+                "algoId": "protect-api-1",
+                "algoClOrdId": kwargs["algo_client_order_id"],
+                "instId": kwargs["inst_id"],
+                "side": "sell",
+                "ordType": "conditional",
+                "state": "live",
+                "posSide": "net",
+                "reduceOnly": "true",
+                "sz": kwargs["sz"],
+                "slTriggerPx": kwargs["stop_trigger_px"],
+                "slOrdPx": "-1",
+            }
+            self.pending.append(order)
+            return {"algoId": order["algoId"], "sCode": "0"}
 
     monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
     monkeypatch.setattr("src.api.app.LogicalPositionStore", lambda *args: position_store)
@@ -141,6 +172,7 @@ def test_api_imports_only_current_unexplained_position_gap(monkeypatch, tmp_path
     assert created.status_code == 201
     assert created.json()["source"] == "import"
     assert created.json()["opened_quantity"] == 2
+    assert created.json()["metadata"]["exchange_protection_verified"] is True
     assert repeated.status_code == 409
 
 

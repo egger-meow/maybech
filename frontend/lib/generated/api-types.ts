@@ -82,7 +82,7 @@ export type ConfirmedPositionFillResponse = {
 };
 
 export type EntryControlCommand = {
-  "confirm": "True";
+  "confirm": true;
 };
 
 export type EntryControlResponse = {
@@ -135,7 +135,7 @@ export type ExecutionFillIngestionStatusResponse = {
 };
 
 export type ExternalPositionImportRequest = {
-  "confirm": "True";
+  "confirm": true;
   "inst_id": string;
   "side": "long" | "short";
   "close_conditions": LogicalPositionCloseConditionCreate[];
@@ -204,7 +204,7 @@ export type LogicalPositionCloseConditionUpdate = {
 };
 
 export type LogicalPositionCloseRequest = {
-  "confirm": "True";
+  "confirm": true;
   "reason"?: string;
 };
 
@@ -263,6 +263,10 @@ export type PositionIntentResponse = {
   "unrealised_pnl_pct"?: number | null;
   "leverage"?: number | null;
   "liquidation_distance_pct"?: number | null;
+};
+
+export type PositionProtectionCommand = {
+  "confirm": true;
 };
 
 export type PositionRuleCreate = {
@@ -526,6 +530,7 @@ export type ApiSchemas = {
   "LogicalPositionCloseResponse": LogicalPositionCloseResponse;
   "LogicalPositionUnitResponse": LogicalPositionUnitResponse;
   "PositionIntentResponse": PositionIntentResponse;
+  "PositionProtectionCommand": PositionProtectionCommand;
   "PositionRuleCreate": PositionRuleCreate;
   "PositionRuleResponse": PositionRuleResponse;
   "RuleGroupCreate": RuleGroupCreate;

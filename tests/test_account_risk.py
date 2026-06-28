@@ -1,4 +1,5 @@
 from decimal import Decimal
+import json
 
 import pytest
 
@@ -153,6 +154,64 @@ def test_entry_approval_blocks_unexplained_exchange_exposure(tmp_path):
             requested_size="1",
             entry_price="2000",
         )
+
+
+def test_entry_approval_rechecks_imported_stop_on_okx(tmp_path):
+    client = RiskClient()
+    client.positions = [
+        {
+            "instId": "BTC-USDT-SWAP",
+            "pos": "-1",
+            "notionalUsd": "100",
+        }
+    ]
+    client.pending_algos = []
+    client.get_pending_algo_orders = lambda *, inst_id: client.pending_algos
+    store = _store(tmp_path)
+    position_store = LogicalPositionStore(store.db_path)
+    imported = position_store.get("btc-short")
+    imported.source = "import"
+    imported.metadata_json = json.dumps(
+        {
+            "exchange_protection_verified": True,
+            "exchange_protection": {
+                "algo_id": "algo-stop",
+                "algo_client_order_id": "stopclient",
+                "quantity": "1",
+                "stop_loss": "110",
+            },
+        }
+    )
+    position_store.save(imported)
+
+    with pytest.raises(EntryRiskBlocked, match="protection is not active"):
+        AccountRiskGuard(client, store).approve_entry(
+            inst_id="ETH-USDT-SWAP",
+            requested_size="1",
+            entry_price="2000",
+        )
+
+    client.pending_algos = [
+        {
+            "algoId": "algo-stop",
+            "algoClOrdId": "stopclient",
+            "instId": "BTC-USDT-SWAP",
+            "side": "buy",
+            "ordType": "conditional",
+            "state": "live",
+            "posSide": "net",
+            "reduceOnly": "true",
+            "sz": "1",
+            "slTriggerPx": "110",
+            "slOrdPx": "-1",
+        }
+    ]
+    approval = AccountRiskGuard(client, store).approve_entry(
+        inst_id="ETH-USDT-SWAP",
+        requested_size="1",
+        entry_price="2000",
+    )
+    assert approval.inst_id == "ETH-USDT-SWAP"
 
 
 def test_entry_approval_is_disabled_by_default_and_survives_restart(tmp_path):
