@@ -14,6 +14,7 @@ from src.trading.action_policy import BTCRegimeActionPolicy
 from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.executor import Executor
+from src.trading.entry_control import ENTRY_EXECUTION_LOCK
 from src.trading.logical_position_store import (
     LogicalPositionAllocation,
     LogicalPositionRecord,
@@ -240,6 +241,32 @@ class StrategyService(DaemonService):
         if not self.dry_run and not self._execution_ingestion_ready():
             logger.warning("Live strategy entry blocked because execution ingestion is not ready")
             return None
+        with ENTRY_EXECUTION_LOCK:
+            return self._process_match_locked(
+                strategy=strategy,
+                pair=pair,
+                side=side,
+                entry_price=entry_price,
+                requested_size=requested_size,
+                evaluation=evaluation,
+                btc_regime=btc_regime,
+                observed_at=observed_at,
+            )
+
+    def _process_match_locked(
+        self,
+        *,
+        strategy: StrategyRecord,
+        pair: str,
+        side: str,
+        entry_price: float,
+        requested_size: str,
+        evaluation: SignalEvaluationResult,
+        btc_regime: dict[str, Any] | None,
+        observed_at: str,
+    ) -> dict[str, Any] | None:
+        if self.executor is None:
+            raise RuntimeError("Executor is required")
 
         decision = self.action_policy.evaluate(
             pair=pair,

@@ -11,6 +11,11 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "entries_enabled": {
+            "default": false,
+            "title": "Entries Enabled",
+            "type": "boolean"
+          },
           "max_leverage": {
             "exclusiveMinimum": 0.0,
             "maximum": 125.0,
@@ -430,6 +435,80 @@
         "title": "ConfirmedPositionFillResponse",
         "type": "object"
       },
+      "EntryControlCommand": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "EntryControlCommand",
+        "type": "object"
+      },
+      "EntryControlResponse": {
+        "properties": {
+          "already_requested": {
+            "default": 0,
+            "title": "Already Requested",
+            "type": "integer"
+          },
+          "already_terminal": {
+            "default": 0,
+            "title": "Already Terminal",
+            "type": "integer"
+          },
+          "cancellations_requested": {
+            "default": 0,
+            "title": "Cancellations Requested",
+            "type": "integer"
+          },
+          "entries_enabled": {
+            "title": "Entries Enabled",
+            "type": "boolean"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "pending_entries": {
+            "default": 0,
+            "title": "Pending Entries",
+            "type": "integer"
+          },
+          "persisted": {
+            "title": "Persisted",
+            "type": "boolean"
+          },
+          "process_entry_enabled": {
+            "title": "Process Entry Enabled",
+            "type": "boolean"
+          },
+          "unresolved": {
+            "default": 0,
+            "title": "Unresolved",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entries_enabled",
+          "process_entry_enabled",
+          "persisted",
+          "updated_at"
+        ],
+        "title": "EntryControlResponse",
+        "type": "object"
+      },
       "ExecutionFillIngestionStatusResponse": {
         "properties": {
           "applied": {
@@ -657,6 +736,11 @@
             "default": 0,
             "title": "Enabled Strategies",
             "type": "integer"
+          },
+          "entries_enabled": {
+            "default": false,
+            "title": "Entries Enabled",
+            "type": "boolean"
           },
           "execution_mode": {
             "enum": [
@@ -3573,6 +3657,100 @@
           }
         },
         "summary": "Update Logical Position Close Condition"
+      }
+    },
+    "/risk/entries": {
+      "get": {
+        "operationId": "get_entry_control_risk_entries_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Entry Control"
+      }
+    },
+    "/risk/entries/enable": {
+      "post": {
+        "operationId": "enable_entries_risk_entries_enable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryControlCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enable Entries"
+      }
+    },
+    "/risk/entries/kill": {
+      "post": {
+        "operationId": "kill_entries_risk_entries_kill_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryControlCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Kill Entries"
       }
     },
     "/risk/limits": {

@@ -28,6 +28,7 @@ class LivePreflightResponse(BaseModel):
     position_mode: str = ""
     enabled_strategies: int = 0
     risk_limits_enabled: bool = False
+    entries_enabled: bool = False
     instruments: list[str] = Field(default_factory=list)
     checked_at: str
 
@@ -48,7 +49,25 @@ class AccountRiskLimitsUpdate(BaseModel):
 
 
 class AccountRiskLimitsResponse(AccountRiskLimitsUpdate):
+    entries_enabled: bool = False
     created_at: str
+    updated_at: str
+
+
+class EntryControlCommand(BaseModel):
+    confirm: Literal[True]
+
+
+class EntryControlResponse(BaseModel):
+    entries_enabled: bool
+    process_entry_enabled: bool
+    persisted: bool
+    pending_entries: int = 0
+    cancellations_requested: int = 0
+    already_requested: int = 0
+    already_terminal: int = 0
+    unresolved: int = 0
+    errors: list[str] = Field(default_factory=list)
     updated_at: str
 
 

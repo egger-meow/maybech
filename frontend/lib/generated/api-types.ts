@@ -5,6 +5,7 @@ export type AccountRiskLimitsResponse = {
   "max_order_notional_usd": number;
   "max_total_exposure_usd": number;
   "max_leverage": number;
+  "entries_enabled"?: boolean;
   "created_at": string;
   "updated_at": string;
 };
@@ -70,6 +71,23 @@ export type ConfirmedPositionFillResponse = {
   "execution_status": "partially_filled" | "filled" | "reduced" | "closed" | string;
 };
 
+export type EntryControlCommand = {
+  "confirm": "True";
+};
+
+export type EntryControlResponse = {
+  "entries_enabled": boolean;
+  "process_entry_enabled": boolean;
+  "persisted": boolean;
+  "pending_entries"?: number;
+  "cancellations_requested"?: number;
+  "already_requested"?: number;
+  "already_terminal"?: number;
+  "unresolved"?: number;
+  "errors"?: string[];
+  "updated_at": string;
+};
+
 export type ExecutionFillIngestionStatusResponse = {
   "fetched"?: number;
   "applied"?: number;
@@ -123,6 +141,7 @@ export type LivePreflightResponse = {
   "position_mode"?: string;
   "enabled_strategies"?: number;
   "risk_limits_enabled"?: boolean;
+  "entries_enabled"?: boolean;
   "instruments"?: string[];
   "checked_at": string;
 };
@@ -461,6 +480,8 @@ export type ApiSchemas = {
   "BTCRegimeResponse": BTCRegimeResponse;
   "ConfirmedPositionFillCreate": ConfirmedPositionFillCreate;
   "ConfirmedPositionFillResponse": ConfirmedPositionFillResponse;
+  "EntryControlCommand": EntryControlCommand;
+  "EntryControlResponse": EntryControlResponse;
   "ExecutionFillIngestionStatusResponse": ExecutionFillIngestionStatusResponse;
   "HTTPValidationError": HTTPValidationError;
   "HealthResponse": HealthResponse;

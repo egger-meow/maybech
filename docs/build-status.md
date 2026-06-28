@@ -34,10 +34,11 @@ capability moves from planned to partial or complete.
 | Live order protection | Built | Strategy contract counts are persisted per instrument. Entries and reduce-only closes validate OKX state, `minSz`, `lotSz`, and `tickSz`; entries require and attach a side-consistent exchange stop, with take profit attached when configured. |
 | Live startup preflight | Built | Importing configuration never arms orders. `--live` disarms first, validates credentials through OKX account config, derivatives account level, `net_mode`, enabled strategy contracts/stops, active logical-position instruments, and live SWAP precision, then arms or aborts startup. `/runtime/preflight` exposes the successful report. |
 | Account risk envelope | Built | One versioned SQLite record owns maximum order notional, gross account exposure, and leverage. Live startup requires it enabled; every entry uses fresh OKX positions, pending entries, contract metadata, and leverage to issue a single-use approval before intent persistence or submission. `GET/PUT /risk/limits` manages it. |
+| Entry kill switch | Built | Entries default to disabled in SQLite and have a separate process-local arm from reduce-only closes. Confirmed enable/kill APIs serialize against strategy submission; kill persists first, resolves accepted orders by exchange or client ID, requests cancellation only for `pending_open` units, and reports partial failures without re-enabling. |
 
 ## Next Build Milestones
 
-1. Add an entry kill switch that preserves automatic reduce-only closes.
-2. Complete demo-account open, partial-fill, cancellation, close, and restart
+1. Complete demo-account open, partial-fill, cancellation, close, and restart
    verification before arming a live account.
-3. Fail closed on unexplained OKX net exposure and add explicit import/recovery.
+2. Fail closed on unexplained OKX net exposure and add explicit import/recovery.
+3. Enforce one live runtime lease per SQLite database/account.

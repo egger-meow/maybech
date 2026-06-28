@@ -24,6 +24,7 @@ from src.trading.execution_allocation import (
     ConfirmedExecutionFill,
     ExecutionAllocationService,
 )
+from src.trading.entry_control import EntryControlManager
 from src.trading.logical_position_store import (
     AllocationConflictError,
     LogicalPositionAllocation,
@@ -47,6 +48,8 @@ from src.api.schemas import (
     ConfirmedPositionFillCreate,
     ConfirmedPositionFillResponse,
     ExecutionFillIngestionStatusResponse,
+    EntryControlCommand,
+    EntryControlResponse,
     HealthResponse,
     LivePreflightResponse,
     LogicalPositionUnitResponse,
@@ -547,6 +550,25 @@ def create_app(runner: DaemonRunner) -> FastAPI:
             )
         )
         return AccountRiskLimitsResponse(**saved.to_dict())
+
+    @app.get("/risk/entries", response_model=EntryControlResponse)
+    def get_entry_control() -> EntryControlResponse:
+        return EntryControlResponse(**EntryControlManager().status().to_dict())
+
+    @app.post("/risk/entries/enable", response_model=EntryControlResponse)
+    def enable_entries(payload: EntryControlCommand) -> EntryControlResponse:
+        try:
+            result = EntryControlManager().enable_entries()
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return EntryControlResponse(**result.to_dict())
+
+    @app.post("/risk/entries/kill", response_model=EntryControlResponse)
+    def kill_entries(payload: EntryControlCommand) -> EntryControlResponse:
+        result = EntryControlManager().kill_entries()
+        if not result.persisted:
+            raise HTTPException(status_code=503, detail=result.to_dict())
+        return EntryControlResponse(**result.to_dict())
 
     @app.get("/services", response_model=dict[str, ServiceStatusResponse])
     def list_services() -> dict:

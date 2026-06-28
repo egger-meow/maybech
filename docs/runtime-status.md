@@ -47,6 +47,9 @@ Frontends must use `active`; there is no `state` field.
   and check time.
 - `GET/PUT /risk/limits` reads or replaces the singleton SQLite account risk
   envelope used for live order-notional, gross-exposure, and leverage checks.
+- `GET /risk/entries` reports persisted and process-local entry state.
+  Confirmed `POST /risk/entries/enable` and `POST /risk/entries/kill` commands
+  change that state; kill also requests cancellation of Maybech pending entries.
 - `GET /strategies/{strategy_id}/decisions` returns restart-safe strategy
   decisions from SQLite, newest first. Filters cover allowed/blocked state,
   execution status, limit, and a `before` timestamp.
@@ -171,6 +174,11 @@ strategy's default close conditions.
   pending SWAP orders, then checks the persisted order, total exposure, and
   cross-leverage limits. Missing or malformed account data blocks the entry.
   The resulting approval matches one exact order and can only be consumed once.
+- Entry placement has a separate process-local gate from the global live-order
+  arm. SQLite entry control defaults to disabled. Enable and kill operations
+  serialize with the full strategy submission/link lifecycle. Kill disables
+  first and cancels only `pending_open` entry orders; reduce-only closes remain
+  available. A partial cancellation failure is reported without re-enabling.
 - Automatic signal/rule exits do not ask for human confirmation. Live startup,
   `MAYBECH_ARM_ORDERS=1`, the reduce-only client guard, and durable pre-submit
   audit must all succeed before an order is sent.

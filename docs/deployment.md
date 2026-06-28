@@ -28,6 +28,13 @@ dry-run API, then inspect it with `GET /risk/limits`. Set operator-selected
 positive limits for one order's USD notional, total gross USD exposure, and
 maximum OKX cross leverage; keep `enabled=false` until the values are reviewed.
 These values are SQLite configuration and do not belong in `.env`.
+Entry placement is a separate persisted control and defaults to disabled. Use
+`POST /risk/entries/enable` with `{ "confirm": true }` only after reviewing the
+risk envelope. `POST /risk/entries/kill` with the same confirmation disables
+new entries first, then requests cancellation of every Maybech `pending_open`
+order it can resolve. Partial cancellation failures are returned explicitly;
+the disabled state is not rolled back. Reduce-only automatic and manual closes
+remain available in an armed live runtime.
 Live startup first forces order placement off, then authenticates account
 configuration and requires a derivatives-capable account in `net_mode`. It also
 validates the enabled account risk envelope, every enabled strategy, and every

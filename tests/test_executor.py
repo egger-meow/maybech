@@ -49,6 +49,7 @@ def _live_executor(client, tmp_path):
             max_leverage=Decimal("5"),
         )
     )
+    store.set_entries_enabled(True)
     return Executor(client, dry_run=False, risk_store=store)
 
 

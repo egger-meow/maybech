@@ -33,7 +33,8 @@ The first versioned components are `trade_store` in `TradeStore`,
 `logical_positions` in `LogicalPositionStore`, `strategies` in
 `StrategyStore`, and `audit_events` in `AuditEventStore`.
 `logical_positions` is at schema version 4. `audit_events` is at version 2,
-`strategies` is at version 3, and `account_risk`, `trade_store`, and
+`strategies` is at version 3, `account_risk` is at version 2 after adding the
+default-disabled entry-control singleton, and `trade_store` and
 `execution_cursors` are at version 1.
 Future changes should add explicit migration steps instead of editing existing
 schema assumptions in place.

@@ -10,12 +10,17 @@ from src.daemon.position_intent_service import PositionIntentService
 from src.daemon.position_manager_service import PositionManagerService
 from src.daemon.service import DaemonRunner
 from src.daemon.strategy_service import StrategyService
-from src.exchange.client import arm_order_placement, disarm_order_placement
+from src.exchange.client import (
+    arm_order_placement,
+    disarm_order_placement,
+    enable_entry_order_placement,
+)
 from src.runtime.live_preflight import dry_run_preflight_report, run_live_preflight
 from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.strategy_store import StrategyStore
 from src.trading.trade_store import TradeStore
 from src.trading.execution_allocation import ExecutionAllocationService
+from src.trading.account_risk import AccountRiskStore
 
 
 def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True) -> DaemonRunner:
@@ -23,12 +28,14 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
     disarm_order_placement()
     runner = DaemonRunner()
     store = TradeStore()
+    risk_store = AccountRiskStore(store.db_path)
     if dry_run:
         preflight_status = dry_run_preflight_report()
     else:
         report = run_live_preflight(
             strategy_store=StrategyStore(store.db_path),
             position_store=LogicalPositionStore(store.db_path),
+            risk_store=risk_store,
             include_strategy=include_strategy,
         )
         preflight_status = report.to_dict(armed=False)
@@ -63,6 +70,9 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
         runner.add_shutdown_callback(disarm_order_placement)
         runner.setup_services(required_services=required_services)
         arm_order_placement(preflight_passed=report.passed)
+        limits = risk_store.get()
+        if limits is not None and limits.entries_enabled:
+            enable_entry_order_placement()
         runner.runtime.set_value(
             "runtime.live_preflight",
             report.to_dict(armed=True),

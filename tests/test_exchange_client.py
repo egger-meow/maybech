@@ -1,3 +1,5 @@
+import pytest
+
 import src.exchange.client as client_module
 from src.exchange.client import OKXClient
 
@@ -86,6 +88,32 @@ def test_okx_client_places_guarded_reduce_only_close(monkeypatch):
         "posSide": "",
         "reduceOnly": "true",
     }
+
+
+def test_entry_kill_blocks_entries_without_blocking_reduce_only_close(monkeypatch):
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+    monkeypatch.setattr(client_module, "_ORDER_PLACEMENT_ARMED", True)
+    monkeypatch.setattr(client_module, "_ENTRY_ORDER_PLACEMENT_ENABLED", False)
+
+    with pytest.raises(PermissionError, match="entry order placement is disabled"):
+        client.place_limit_order(
+            inst_id="ETH-USDT-SWAP",
+            side="buy",
+            sz="1",
+            px="2000",
+            client_order_id="entryclient1",
+            confirm=True,
+        )
+
+    result = client.place_reduce_market_order(
+        inst_id="ETH-USDT-SWAP",
+        position_side="long",
+        sz="1",
+        client_order_id="closeclient2",
+        confirm=True,
+    )
+    assert result["ordId"] == "close-order"
 
 
 def test_okx_client_get_order_uses_instrument_and_order_id():

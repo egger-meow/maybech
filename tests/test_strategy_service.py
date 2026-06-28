@@ -1,8 +1,12 @@
+import threading
+
 import pandas as pd
 
 from src.daemon.service import DaemonRunner
 from src.daemon.strategy_service import StrategyService
 from src.trading.audit_event_store import AuditEventStore
+from src.trading.account_risk import AccountRiskStore
+from src.trading.entry_control import EntryControlManager
 from src.trading.signal_engine import SignalEvaluationResult
 from src.trading.strategy_store import StrategyStore
 from src.trading.trade_store import TradeStore
@@ -32,6 +36,18 @@ class FakeRiskApproval:
 class BlockingRiskExecutor(FakeExecutor):
     def approve_entry(self, **kwargs):
         raise RuntimeError("projected exposure exceeds limit")
+
+
+class BlockingSubmissionExecutor(FakeExecutor):
+    def __init__(self):
+        super().__init__({"ordId": "race-order", "maybechRequestedSize": "1"})
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def execute(self, **kwargs):
+        self.entered.set()
+        self.release.wait(timeout=2)
+        return super().execute(**kwargs)
 
 
 class FakeCandleManager:
@@ -252,3 +268,40 @@ def test_live_strategy_does_not_consume_signal_edge_before_ingestion_is_ready(tm
         "ETH-USDT-SWAP",
         matched=True,
     ) is False
+
+
+def test_entry_kill_waits_for_submission_link_then_cancels_it(tmp_path):
+    service, strategy = _service(tmp_path, dry_run=False)
+    executor = BlockingSubmissionExecutor()
+    service.executor = executor
+
+    class CancelClient:
+        def __init__(self):
+            self.calls = []
+
+        def cancel_order(self, inst_id, order_id):
+            self.calls.append((inst_id, order_id))
+            return {"ordId": order_id, "sCode": "0"}
+
+    cancel_client = CancelClient()
+    manager = EntryControlManager(
+        client=cancel_client,
+        risk_store=AccountRiskStore(service.trade_store.db_path),
+        position_store=service.position_store,
+        audit_store=service.audit_store,
+    )
+    strategy_thread = threading.Thread(target=lambda: _process(service, strategy))
+    kill_result = []
+    kill_thread = threading.Thread(target=lambda: kill_result.append(manager.kill_entries()))
+
+    strategy_thread.start()
+    assert executor.entered.wait(timeout=1)
+    kill_thread.start()
+    kill_thread.join(timeout=0.05)
+    assert kill_thread.is_alive()
+    executor.release.set()
+    strategy_thread.join(timeout=2)
+    kill_thread.join(timeout=2)
+
+    assert cancel_client.calls == [("ETH-USDT-SWAP", "race-order")]
+    assert kill_result[0].cancellations_requested == 1

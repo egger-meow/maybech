@@ -4,6 +4,7 @@ from src.api.app import create_app
 from src.daemon.service import DaemonRunner, DaemonService
 from src.daemon.position_manager_service import PositionManagerService
 from src.trading.account_risk import AccountRiskStore
+from src.trading.entry_control import EntryControlManager
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.logical_position_store import (
     LogicalPositionAllocation,
@@ -67,6 +68,33 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
     assert response.json()["enabled"] is True
     assert response.json()["max_total_exposure_usd"] == 500
     assert client.get("/risk/limits").json() == response.json()
+
+
+def test_api_requires_confirmation_for_entry_enable_and_kill(monkeypatch, tmp_path):
+    store = AccountRiskStore(str(tmp_path / "trades.db"))
+    manager = EntryControlManager(risk_store=store)
+    monkeypatch.setattr("src.api.app.AccountRiskStore", lambda: store)
+    monkeypatch.setattr("src.api.app.EntryControlManager", lambda: manager)
+    client = TestClient(create_app(DaemonRunner()))
+    client.put(
+        "/risk/limits",
+        json={
+            "enabled": True,
+            "max_order_notional_usd": 100,
+            "max_total_exposure_usd": 500,
+            "max_leverage": 5,
+        },
+    )
+
+    assert client.post("/risk/entries/enable", json={"confirm": False}).status_code == 422
+    enabled = client.post("/risk/entries/enable", json={"confirm": True})
+    killed = client.post("/risk/entries/kill", json={"confirm": True})
+
+    assert enabled.status_code == 200
+    assert enabled.json()["entries_enabled"] is True
+    assert killed.status_code == 200
+    assert killed.json()["entries_enabled"] is False
+    assert client.get("/risk/entries").json()["entries_enabled"] is False
 
 
 def test_api_lists_services_and_events():

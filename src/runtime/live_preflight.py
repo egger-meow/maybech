@@ -32,6 +32,7 @@ class LivePreflightReport:
     position_mode: str
     enabled_strategies: int
     risk_limits_enabled: bool
+    entries_enabled: bool
     instruments: tuple[str, ...]
     checked_at: str
 
@@ -52,6 +53,7 @@ def dry_run_preflight_report() -> dict[str, Any]:
         "position_mode": "",
         "enabled_strategies": 0,
         "risk_limits_enabled": False,
+        "entries_enabled": False,
         "instruments": [],
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -153,6 +155,7 @@ def run_live_preflight(
         position_mode=position_mode,
         enabled_strategies=len(enabled_strategies),
         risk_limits_enabled=bool(risk_limits and risk_limits.enabled),
+        entries_enabled=bool(risk_limits and risk_limits.entries_enabled),
         instruments=tuple(sorted(instruments)),
         checked_at=datetime.now(timezone.utc).isoformat(),
     )

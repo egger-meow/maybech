@@ -21,6 +21,9 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /runtime/preflight`
 - `GET /risk/limits`
 - `PUT /risk/limits`
+- `GET /risk/entries`
+- `POST /risk/entries/enable`
+- `POST /risk/entries/kill`
 - `GET /events`
 - `GET /audit/events`
 - `GET /account/snapshot`
@@ -59,6 +62,15 @@ preflight aborts startup, so no unhealthy live API remains running.
 /risk/limits` replaces it with explicit `enabled`, `max_order_notional_usd`,
 `max_total_exposure_usd`, and `max_leverage` values. The order limit cannot
 exceed the total exposure limit; all numeric limits must be positive.
+
+Entry control is persisted separately from editable risk-limit values, so a
+risk-limit update cannot silently re-enable trading. Entries default to
+disabled. Enable and kill commands require `{ "confirm": true }`. Kill disables
+the persisted and process-local entry gates before resolving and canceling only
+Maybech `pending_open` orders. It reports requested, already-requested,
+already-terminal, unresolved, and error counts. Cancellation failures never
+roll back the disabled state, and the entry gate does not affect reduce-only
+position closes.
 
 ## Runtime And Audit Events
 

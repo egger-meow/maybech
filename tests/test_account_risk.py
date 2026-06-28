@@ -63,6 +63,7 @@ def _store(tmp_path, *, order="50", total="200", leverage="10", enabled=True):
             max_leverage=Decimal(leverage),
         )
     )
+    store.set_entries_enabled(True)
     return store
 
 
@@ -76,7 +77,8 @@ def test_account_risk_store_persists_one_versioned_envelope(tmp_path):
     assert limits.max_order_notional_usd == Decimal("50")
     assert limits.max_total_exposure_usd == Decimal("200")
     assert limits.max_leverage == Decimal("10")
-    assert store.applied_schema_versions() == [1]
+    assert limits.entries_enabled is True
+    assert store.applied_schema_versions() == [1, 2]
 
 
 def test_entry_approval_counts_positions_pending_entries_and_requested_order(tmp_path):
@@ -122,6 +124,25 @@ def test_entry_approval_fails_closed_when_exchange_exposure_is_incomplete(tmp_pa
 
     with pytest.raises(EntryRiskBlocked, match="has no notionalUsd"):
         AccountRiskGuard(client, _store(tmp_path)).approve_entry(
+            inst_id="ETH-USDT-SWAP",
+            requested_size="1",
+            entry_price="2000",
+        )
+
+
+def test_entry_approval_is_disabled_by_default_and_survives_restart(tmp_path):
+    store = AccountRiskStore(str(tmp_path / "trades.db"))
+    store.save(
+        AccountRiskLimits(
+            enabled=True,
+            max_order_notional_usd=Decimal("50"),
+            max_total_exposure_usd=Decimal("200"),
+            max_leverage=Decimal("10"),
+        )
+    )
+
+    with pytest.raises(EntryRiskBlocked, match="disabled by the operator"):
+        AccountRiskGuard(RiskClient(), AccountRiskStore(store.db_path)).approve_entry(
             inst_id="ETH-USDT-SWAP",
             requested_size="1",
             entry_price="2000",

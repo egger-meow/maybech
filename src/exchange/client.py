@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # When False, place_limit_order() will refuse to execute.
 # ---------------------------------------------------------------------------
 _ORDER_PLACEMENT_ARMED = False
+_ENTRY_ORDER_PLACEMENT_ENABLED = False
 _CLIENT_ORDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{1,32}$")
 
 
@@ -36,10 +37,31 @@ def arm_order_placement(*, preflight_passed: bool = False) -> None:
     logger.warning("Order placement is ARMED after successful live preflight")
 
 
+def enable_entry_order_placement() -> None:
+    """Enable entries only while the process remains globally armed."""
+    if not _ORDER_PLACEMENT_ARMED:
+        raise PermissionError("Entry placement requires an armed live runtime")
+    global _ENTRY_ORDER_PLACEMENT_ENABLED  # noqa: PLW0603
+    _ENTRY_ORDER_PLACEMENT_ENABLED = True
+    logger.warning("Strategy entry order placement is ENABLED")
+
+
+def disable_entry_order_placement() -> None:
+    """Disable entry orders without affecting reduce-only closes."""
+    global _ENTRY_ORDER_PLACEMENT_ENABLED  # noqa: PLW0603
+    _ENTRY_ORDER_PLACEMENT_ENABLED = False
+    logger.warning("Strategy entry order placement is DISABLED")
+
+
+def entry_order_placement_enabled() -> bool:
+    return _ORDER_PLACEMENT_ARMED and _ENTRY_ORDER_PLACEMENT_ENABLED
+
+
 def disarm_order_placement() -> None:
     """Disarm order placement — the default safe state."""
-    global _ORDER_PLACEMENT_ARMED  # noqa: PLW0603
+    global _ORDER_PLACEMENT_ARMED, _ENTRY_ORDER_PLACEMENT_ENABLED  # noqa: PLW0603
     _ORDER_PLACEMENT_ARMED = False
+    _ENTRY_ORDER_PLACEMENT_ENABLED = False
     logger.info("🔒 Order placement DISARMED.")
 
 
@@ -262,6 +284,8 @@ class OKXClient:
                 "Order placement is DISARMED. "
                 "Start the runtime with --live and pass live preflight first."
             )
+        if not _ENTRY_ORDER_PLACEMENT_ENABLED:
+            raise PermissionError("Strategy entry order placement is disabled")
 
         # --- guard 2: explicit confirm ---
         if not confirm:

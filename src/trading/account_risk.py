@@ -16,11 +16,12 @@ from src.trading.sqlite_schema import (
     applied_schema_versions,
     configure_connection,
     initialize_schema,
+    record_schema_version,
 )
 
 
 _SCHEMA_COMPONENT = "account_risk"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS account_risk_limits (
     id                         TEXT PRIMARY KEY CHECK (id = 'account'),
@@ -30,6 +31,14 @@ CREATE TABLE IF NOT EXISTS account_risk_limits (
     max_leverage               TEXT NOT NULL,
     created_at                 TEXT NOT NULL,
     updated_at                 TEXT NOT NULL
+);
+"""
+
+_SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS entry_control (
+    id              TEXT PRIMARY KEY CHECK (id = 'account'),
+    entries_enabled INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL
 );
 """
 
@@ -65,6 +74,7 @@ class AccountRiskLimits:
     max_order_notional_usd: Decimal
     max_total_exposure_usd: Decimal
     max_leverage: Decimal
+    entries_enabled: bool = False
     created_at: str = ""
     updated_at: str = ""
 
@@ -89,6 +99,7 @@ class AccountRiskLimits:
             "max_order_notional_usd": float(self.max_order_notional_usd),
             "max_total_exposure_usd": float(self.max_total_exposure_usd),
             "max_leverage": float(self.max_leverage),
+            "entries_enabled": self.entries_enabled,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -100,13 +111,30 @@ class AccountRiskStore:
     def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or settings.MAYBECH_DB_PATH
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._init_db()
+
+    def _init_db(self) -> None:
         with self._conn() as conn:
             initialize_schema(
                 conn,
                 schema_sql=_SCHEMA,
                 component=_SCHEMA_COMPONENT,
-                version=_SCHEMA_VERSION,
+                version=1,
             )
+            versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
+            if _SCHEMA_VERSION not in versions:
+                conn.executescript(_SCHEMA_V2)
+                conn.execute(
+                    """INSERT OR IGNORE INTO entry_control
+                       (id, entries_enabled, updated_at)
+                       VALUES ('account', 0, ?)""",
+                    (datetime.now(timezone.utc).isoformat(),),
+                )
+                record_schema_version(
+                    conn,
+                    component=_SCHEMA_COMPONENT,
+                    version=_SCHEMA_VERSION,
+                )
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -126,6 +154,9 @@ class AccountRiskStore:
             row = conn.execute(
                 "SELECT * FROM account_risk_limits WHERE id = 'account'"
             ).fetchone()
+            control = conn.execute(
+                "SELECT entries_enabled FROM entry_control WHERE id = 'account'"
+            ).fetchone()
         if row is None:
             return None
         return AccountRiskLimits(
@@ -137,6 +168,7 @@ class AccountRiskStore:
                 row["max_total_exposure_usd"], field="max_total_exposure_usd"
             ),
             max_leverage=_decimal(row["max_leverage"], field="max_leverage"),
+            entries_enabled=bool(control["entries_enabled"]) if control else False,
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
         )
@@ -174,6 +206,26 @@ class AccountRiskStore:
         if saved is None:
             raise RuntimeError("Account risk limits were not persisted")
         return saved
+
+    def set_entries_enabled(self, enabled: bool) -> AccountRiskLimits | None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO entry_control (id, entries_enabled, updated_at)
+                   VALUES ('account', ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                    entries_enabled = excluded.entries_enabled,
+                    updated_at = excluded.updated_at""",
+                (1 if enabled else 0, now),
+            )
+        return self.get()
+
+    def entries_enabled(self) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT entries_enabled FROM entry_control WHERE id = 'account'"
+            ).fetchone()
+        return bool(row["entries_enabled"]) if row else False
 
 
 class EntryRiskBlocked(RuntimeError):
@@ -228,6 +280,8 @@ class AccountRiskGuard:
             raise EntryRiskBlocked("account risk limits are not configured")
         if not limits.enabled:
             raise EntryRiskBlocked("account risk limits are disabled")
+        if not limits.entries_enabled:
+            raise EntryRiskBlocked("strategy entries are disabled by the operator")
         limits.validate()
 
         size = _decimal(requested_size, field="requested_size")

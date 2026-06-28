@@ -90,6 +90,9 @@ Useful API endpoints:
 - `GET http://127.0.0.1:8000/execution/fills/status`
 - `GET http://127.0.0.1:8000/runtime/preflight`
 - `GET/PUT http://127.0.0.1:8000/risk/limits`
+- `GET http://127.0.0.1:8000/risk/entries`
+- `POST http://127.0.0.1:8000/risk/entries/enable`
+- `POST http://127.0.0.1:8000/risk/entries/kill`
 - `GET http://127.0.0.1:8000/positions/logical`
 - `ws://127.0.0.1:8000/ws/events`
 
@@ -115,6 +118,10 @@ Live startup also requires authenticated subscription to the OKX private
 `orders/SWAP` channel. New strategy entries stay blocked until durable REST
 fill catch-up is current and that stream is connected; reduce-only closes stay
 active independently.
+Strategy entries are disabled by default, including after the entry-control
+schema migration. Enabling or killing entries requires `{ "confirm": true }`.
+The kill command persists the disabled state before canceling Maybech
+`pending_open` orders and never disables reduce-only close submission.
 
 Compatibility wrapper:
 
