@@ -75,6 +75,7 @@ class LogicalPositionAllocation:
         "reason",
         "created_at",
         "metadata_json",
+        "applied",
     )
 
     def __init__(
@@ -90,6 +91,7 @@ class LogicalPositionAllocation:
         reason: str = "",
         created_at: str = "",
         metadata_json: str = "{}",
+        applied: bool | int = True,
     ) -> None:
         self.id = id or uuid4().hex[:12]
         self.position_id = position_id
@@ -101,6 +103,7 @@ class LogicalPositionAllocation:
         self.reason = reason
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
         self.metadata_json = metadata_json
+        self.applied = bool(applied)
 
     def to_dict(self) -> dict:
         return {attr: getattr(self, attr) for attr in self.__slots__}
@@ -275,7 +278,7 @@ class LogicalPositionCloseCondition:
 
 
 _SCHEMA_COMPONENT = "logical_positions"
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 
 _SCHEMA = """
@@ -308,6 +311,17 @@ CREATE TABLE IF NOT EXISTS logical_position_allocations (
     reason            TEXT NOT NULL DEFAULT '',
     created_at        TEXT NOT NULL,
     metadata_json     TEXT NOT NULL DEFAULT '{}',
+    applied           INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (position_id) REFERENCES logical_positions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS logical_position_orders (
+    exchange_order_id TEXT PRIMARY KEY,
+    position_id       TEXT NOT NULL,
+    client_order_id   TEXT NOT NULL DEFAULT '',
+    action            TEXT NOT NULL,
+    metadata_json     TEXT NOT NULL DEFAULT '{}',
+    created_at        TEXT NOT NULL,
     FOREIGN KEY (position_id) REFERENCES logical_positions(id) ON DELETE CASCADE
 );
 
@@ -333,6 +347,8 @@ CREATE INDEX IF NOT EXISTS idx_logical_positions_inst_side
     ON logical_positions(inst_id, side);
 CREATE INDEX IF NOT EXISTS idx_logical_position_allocations_position
     ON logical_position_allocations(position_id);
+CREATE INDEX IF NOT EXISTS idx_logical_position_orders_position
+    ON logical_position_orders(position_id);
 CREATE INDEX IF NOT EXISTS idx_logical_position_close_conditions_position
     ON logical_position_close_conditions(position_id);
 CREATE INDEX IF NOT EXISTS idx_logical_position_close_conditions_enabled
@@ -359,8 +375,10 @@ class LogicalPositionStore:
             versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
             if 3 not in versions:
                 self._migrate_v3(conn)
-            if _SCHEMA_VERSION not in versions:
+            if 4 not in versions:
                 self._migrate_v4(conn)
+            if _SCHEMA_VERSION not in versions:
+                self._migrate_v5(conn)
 
     @staticmethod
     def _migrate_v3(conn: sqlite3.Connection) -> None:
@@ -395,6 +413,68 @@ class LogicalPositionStore:
             "ON logical_positions(client_order_id) WHERE client_order_id != ''"
         )
         record_schema_version(conn, component=_SCHEMA_COMPONENT, version=4)
+
+    @staticmethod
+    def _migrate_v5(conn: sqlite3.Connection) -> None:
+        allocation_columns = {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(logical_position_allocations)"
+            ).fetchall()
+        }
+        if "applied" not in allocation_columns:
+            conn.execute(
+                "ALTER TABLE logical_position_allocations "
+                "ADD COLUMN applied INTEGER NOT NULL DEFAULT 1"
+            )
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS logical_position_orders (
+                exchange_order_id TEXT PRIMARY KEY,
+                position_id       TEXT NOT NULL,
+                client_order_id   TEXT NOT NULL DEFAULT '',
+                action            TEXT NOT NULL,
+                metadata_json     TEXT NOT NULL DEFAULT '{}',
+                created_at        TEXT NOT NULL,
+                FOREIGN KEY (position_id) REFERENCES logical_positions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_logical_position_orders_position
+                ON logical_position_orders(position_id);
+            """
+        )
+        rows = conn.execute(
+            """SELECT id, status, exchange_order_id, client_order_id,
+                      metadata_json, created_at
+               FROM logical_positions WHERE exchange_order_id != ''"""
+        ).fetchall()
+        for row in rows:
+            metadata = _json_loads(row["metadata_json"], {})
+            action = metadata.get("order_action") if isinstance(metadata, dict) else None
+            if action not in {"open", "reduce", "close"}:
+                action = (
+                    "open"
+                    if row["status"] == "pending_open"
+                    else "reduce"
+                    if row["status"] == "reducing"
+                    else "close"
+                    if row["status"] == "closing"
+                    else None
+                )
+            if action is not None:
+                conn.execute(
+                    """INSERT OR IGNORE INTO logical_position_orders
+                       (exchange_order_id, position_id, client_order_id, action,
+                        metadata_json, created_at)
+                       VALUES (?, ?, ?, ?, '{}', ?)""",
+                    (
+                        row["exchange_order_id"],
+                        row["id"],
+                        row["client_order_id"],
+                        action,
+                        row["created_at"],
+                    ),
+                )
+        record_schema_version(conn, component=_SCHEMA_COMPONENT, version=5)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -513,6 +593,14 @@ class LogicalPositionStore:
         if not order_id:
             return None
         with self._conn() as conn:
+            linked = conn.execute(
+                """SELECT p.* FROM logical_position_orders o
+                   JOIN logical_positions p ON p.id = o.position_id
+                   WHERE o.exchange_order_id = ?""",
+                (order_id,),
+            ).fetchone()
+            if linked is not None:
+                return LogicalPositionRecord.from_row(linked)
             row = conn.execute(
                 """SELECT * FROM logical_positions
                    WHERE exchange_order_id = ?
@@ -520,6 +608,69 @@ class LogicalPositionStore:
                 (order_id,),
             ).fetchone()
         return None if row is None else LogicalPositionRecord.from_row(row)
+
+    def link_execution_order(
+        self,
+        position_id: str,
+        *,
+        exchange_order_id: str,
+        client_order_id: str,
+        action: AllocationAction,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if not exchange_order_id or action not in {"open", "reduce", "close"}:
+            raise ValueError("exchange_order_id and execution action are required")
+        with self._conn() as conn:
+            if conn.execute(
+                "SELECT 1 FROM logical_positions WHERE id = ?",
+                (position_id,),
+            ).fetchone() is None:
+                raise ValueError(f"Logical position {position_id!r} does not exist")
+            existing = conn.execute(
+                """SELECT position_id, action FROM logical_position_orders
+                   WHERE exchange_order_id = ?""",
+                (exchange_order_id,),
+            ).fetchone()
+            if existing is not None:
+                if existing["position_id"] != position_id or existing["action"] != action:
+                    raise AllocationConflictError(
+                        f"Exchange order {exchange_order_id!r} already belongs to "
+                        "another position or action"
+                    )
+                return
+            conn.execute(
+                """INSERT INTO logical_position_orders
+                   (exchange_order_id, position_id, client_order_id, action,
+                    metadata_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    exchange_order_id,
+                    position_id,
+                    client_order_id,
+                    action,
+                    _json_dumps(metadata or {}),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+
+    def get_execution_order(self, exchange_order_id: str) -> dict[str, Any] | None:
+        if not exchange_order_id:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM logical_position_orders WHERE exchange_order_id = ?",
+                (exchange_order_id,),
+            ).fetchone()
+        return None if row is None else dict(row)
+
+    def has_execution_order(self, position_id: str, *, action: AllocationAction) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT 1 FROM logical_position_orders
+                   WHERE position_id = ? AND action = ? LIMIT 1""",
+                (position_id, action),
+            ).fetchone()
+        return row is not None
 
     def get_by_client_order_id(self, client_order_id: str) -> LogicalPositionRecord | None:
         if not client_order_id:
@@ -635,6 +786,7 @@ class LogicalPositionStore:
         status: LogicalPositionStatus,
         exchange_order_id: str,
         metadata: dict[str, Any],
+        client_order_id: str | None = None,
     ) -> LogicalPositionRecord | None:
         position = self.get(position_id)
         if position is None:
@@ -644,8 +796,20 @@ class LogicalPositionStore:
             current_metadata = {}
         position.status = status
         position.exchange_order_id = exchange_order_id
-        position.metadata_json = _json_dumps({**current_metadata, **metadata})
+        if client_order_id is not None:
+            position.client_order_id = client_order_id
+        merged_metadata = {**current_metadata, **metadata}
+        position.metadata_json = _json_dumps(merged_metadata)
         self.save(position)
+        action = merged_metadata.get("order_action")
+        if action in {"open", "reduce", "close"}:
+            self.link_execution_order(
+                position.id,
+                exchange_order_id=exchange_order_id,
+                client_order_id=position.client_order_id,
+                action=action,
+                metadata={"source": "mark_pending_execution"},
+            )
         return self.get(position_id)
 
     def claim_pending_execution(
@@ -743,17 +907,27 @@ class LogicalPositionStore:
             current_metadata = _json_loads(row["metadata_json"], {})
             if not isinstance(current_metadata, dict):
                 current_metadata = {}
+            merged_metadata = {**current_metadata, **(metadata or {})}
             conn.execute(
                 """UPDATE logical_positions SET
                    exchange_order_id = ?, metadata_json = ?, updated_at = ?
                    WHERE id = ? AND client_order_id = ?""",
                 (
                     exchange_order_id,
-                    _json_dumps({**current_metadata, **(metadata or {})}),
+                    _json_dumps(merged_metadata),
                     datetime.now(timezone.utc).isoformat(),
                     position_id,
                     client_order_id,
                 ),
+            )
+        action = merged_metadata.get("order_action")
+        if action in {"open", "reduce", "close"}:
+            self.link_execution_order(
+                position_id,
+                exchange_order_id=exchange_order_id,
+                client_order_id=client_order_id,
+                action=action,
+                metadata={"source": "link_exchange_order"},
             )
         return self.get(position_id)
 
@@ -764,7 +938,7 @@ class LogicalPositionStore:
         client_order_id: str,
         execution_status: str,
     ) -> LogicalPositionRecord | None:
-        """Release a pre-submitted intent when OKX confirms no matching order."""
+        """Recover a pre-submitted intent when OKX confirms no matching order."""
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT * FROM logical_positions WHERE id = ? AND client_order_id = ? "
@@ -783,6 +957,28 @@ class LogicalPositionStore:
             metadata = _json_loads(position.metadata_json, {})
             if not isinstance(metadata, dict):
                 metadata = {}
+            if position.status == "closing" and metadata.get("emergency_close") is True:
+                recovered_at = datetime.now(timezone.utc).isoformat()
+                metadata.update(
+                    {
+                        "execution_status": "emergency_close_retry_pending",
+                        "recovered_client_order_id": client_order_id,
+                        "recovered_at": recovered_at,
+                    }
+                )
+                conn.execute(
+                    """UPDATE logical_positions SET metadata_json = ?, updated_at = ?
+                       WHERE id = ? AND client_order_id = ? AND exchange_order_id = ''""",
+                    (
+                        _json_dumps(metadata),
+                        recovered_at,
+                        position_id,
+                        client_order_id,
+                    ),
+                )
+                position.metadata_json = _json_dumps(metadata)
+                position.updated_at = recovered_at
+                return position
             metadata.update(
                 {
                     "execution_status": execution_status,
@@ -1057,6 +1253,7 @@ class LogicalPositionStore:
         allocation: LogicalPositionAllocation,
         *,
         apply_to_position: bool = True,
+        allow_open_while_closing: bool = False,
     ) -> LogicalPositionRecord | None:
         with self._conn() as conn:
             position_row = conn.execute(
@@ -1078,12 +1275,18 @@ class LogicalPositionStore:
                     )
                 return position
 
-            self._validate_allocation(position, allocation)
+            self._validate_allocation(
+                position,
+                allocation,
+                allow_open_while_closing=allow_open_while_closing,
+                deferred=not apply_to_position,
+            )
+            allocation.applied = apply_to_position
             conn.execute(
                 """INSERT INTO logical_position_allocations
                    (id, position_id, action, quantity, price, fee,
-                    exchange_order_id, reason, created_at, metadata_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    exchange_order_id, reason, created_at, metadata_json, applied)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     allocation.id,
                     allocation.position_id,
@@ -1095,6 +1298,7 @@ class LogicalPositionStore:
                     allocation.reason,
                     allocation.created_at,
                     allocation.metadata_json,
+                    1 if allocation.applied else 0,
                 ),
             )
             if apply_to_position:
@@ -1115,6 +1319,60 @@ class LogicalPositionStore:
                     ),
                 )
         return position
+
+    def apply_deferred_allocations(
+        self,
+        position_id: str,
+    ) -> tuple[LogicalPositionRecord | None, list[LogicalPositionAllocation]]:
+        applied: list[LogicalPositionAllocation] = []
+        with self._conn() as conn:
+            position_row = conn.execute(
+                "SELECT * FROM logical_positions WHERE id = ?",
+                (position_id,),
+            ).fetchone()
+            if position_row is None:
+                return None, applied
+            position = LogicalPositionRecord.from_row(position_row)
+            rows = conn.execute(
+                """SELECT * FROM logical_position_allocations
+                   WHERE position_id = ? AND applied = 0
+                   ORDER BY created_at, id""",
+                (position_id,),
+            ).fetchall()
+            for row in rows:
+                allocation = LogicalPositionAllocation.from_row(row)
+                try:
+                    self._validate_allocation(
+                        position,
+                        allocation,
+                        allow_open_while_closing=True,
+                    )
+                except ValueError:
+                    break
+                self._apply_allocation_fields(position, allocation)
+                allocation.applied = True
+                conn.execute(
+                    """UPDATE logical_position_allocations SET applied = 1
+                       WHERE id = ? AND applied = 0""",
+                    (allocation.id,),
+                )
+                applied.append(allocation)
+            if applied:
+                position.updated_at = datetime.now(timezone.utc).isoformat()
+                conn.execute(
+                    """UPDATE logical_positions SET
+                       opened_quantity = ?, remaining_quantity = ?, entry_price = ?,
+                       status = ?, updated_at = ? WHERE id = ?""",
+                    (
+                        position.opened_quantity,
+                        position.remaining_quantity,
+                        position.entry_price,
+                        position.status,
+                        position.updated_at,
+                        position.id,
+                    ),
+                )
+        return position, applied
 
     def get_allocation(self, allocation_id: str) -> LogicalPositionAllocation | None:
         with self._conn() as conn:
@@ -1269,14 +1527,20 @@ class LogicalPositionStore:
     def _validate_allocation(
         position: LogicalPositionRecord,
         allocation: LogicalPositionAllocation,
+        *,
+        allow_open_while_closing: bool = False,
+        deferred: bool = False,
     ) -> None:
         if allocation.quantity < 0:
             raise ValueError("Allocation quantity cannot be negative")
         if allocation.action in {"open", "reduce", "close"} and allocation.quantity <= 0:
             raise ValueError(f"{allocation.action} allocation quantity must be positive")
-        if allocation.action == "open" and position.status not in {"planned", "pending_open", "open"}:
+        allowed_open_statuses = {"planned", "pending_open", "open"}
+        if allow_open_while_closing:
+            allowed_open_statuses.update({"reducing", "closing"})
+        if allocation.action == "open" and position.status not in allowed_open_statuses:
             raise ValueError(f"Cannot apply open allocation to {position.status} position")
-        if allocation.action in {"reduce", "close"}:
+        if allocation.action in {"reduce", "close"} and not deferred:
             current = position.remaining_quantity
             if current is None:
                 current = position.opened_quantity or 0.0

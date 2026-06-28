@@ -12,9 +12,11 @@ from src.trading.trade_store import TradeStore
 
 
 class FakeExecutor:
-    def __init__(self, result):
+    def __init__(self, result, close_result=None):
         self.result = result
+        self.close_result = close_result or {}
         self.calls = []
+        self.close_calls = []
 
     def approve_entry(self, **kwargs):
         return FakeRiskApproval(kwargs)
@@ -22,6 +24,24 @@ class FakeExecutor:
     def execute(self, **kwargs):
         self.calls.append(kwargs)
         return self.result
+
+    def close_position(self, **kwargs):
+        self.close_calls.append(kwargs)
+        return self.close_result
+
+
+class IntentCheckingExecutor(FakeExecutor):
+    def __init__(self, result, close_result):
+        super().__init__(result, close_result)
+        self.position_store = None
+
+    def close_position(self, **kwargs):
+        pending = self.position_store.get_by_client_order_id(kwargs["client_order_id"])
+        assert pending is not None
+        assert pending.status == "closing"
+        assert pending.exchange_order_id == ""
+        self.close_calls.append(kwargs)
+        return self.close_result
 
 
 class FakeRiskApproval:
@@ -252,6 +272,73 @@ def test_live_submission_marks_protection_failure_as_execution_failed(tmp_path):
     assert service.decisions_history[0]["execution_status"] == "protection_failed_canceling"
     assert position.status == "pending_open"
     assert position.exchange_order_id == "live-order"
+
+
+def test_filled_unprotected_entry_persists_and_submits_emergency_close(tmp_path):
+    service, strategy = _service(tmp_path, dry_run=False)
+    executor = IntentCheckingExecutor(
+        {
+            "ordId": "entry-order",
+            "maybechRequestedSize": "1",
+            "maybechProtectionVerified": False,
+            "maybechEmergencyCloseRequired": True,
+            "maybechEmergencyCloseClientOrderId": "mbe-close-a",
+            "maybechEmergencyCloseQuantity": "1",
+        },
+        {"ordId": "close-order", "clOrdId": "mbe-close-a"},
+    )
+    executor.position_store = service.position_store
+    service.executor = executor
+
+    signal = _process(service, strategy)
+
+    position = service.position_store.list(status="closing")[0]
+    assert signal["result"] == "emergency_close_submitted"
+    assert position.exchange_order_id == "close-order"
+    assert position.client_order_id == "mbe-close-a"
+    assert executor.close_calls[0]["quantity"] == 1.0
+    assert service.position_store.get_execution_order("entry-order")["action"] == "open"
+    assert service.position_store.get_execution_order("close-order")["action"] == "close"
+
+
+def test_emergency_close_submission_failure_keeps_retryable_intent(tmp_path):
+    service, strategy = _service(tmp_path, dry_run=False)
+    service.executor = FakeExecutor(
+        {
+            "ordId": "entry-order",
+            "maybechRequestedSize": "1",
+            "maybechProtectionVerified": False,
+            "maybechEmergencyCloseRequired": True,
+            "maybechEmergencyCloseClientOrderId": "mbe-close-a",
+            "maybechEmergencyCloseQuantity": "1",
+        },
+        {},
+    )
+
+    signal = _process(service, strategy)
+
+    position = service.position_store.list(status="closing")[0]
+    assert signal["result"] == "emergency_close_failed"
+    assert position.exchange_order_id == ""
+    assert position.client_order_id == "mbe-close-a"
+    assert service.position_store.get_execution_order("entry-order")["action"] == "open"
+
+    preserved = service.position_store.recover_client_order_intent(
+        position.id,
+        client_order_id="mbe-close-a",
+        execution_status="client_order_not_found",
+    )
+    assert preserved.status == "closing"
+    assert preserved.client_order_id == "mbe-close-a"
+
+    service.executor.close_result = {"ordId": "close-order"}
+    status = {"errors": []}
+    service._retry_emergency_closes(status)
+
+    retried = service.position_store.get(position.id)
+    assert retried.status == "closing"
+    assert retried.exchange_order_id == "close-order"
+    assert status["errors"] == []
 
 
 def test_strategy_service_executes_one_persisted_false_to_true_edge(tmp_path):

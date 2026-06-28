@@ -26,14 +26,11 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Resolve a fully filled FOK entry immediately if its active attached stop
-   cannot be proven. The runtime kills future entries now, but the new exposure
-   still needs a deterministic emergency close with correct fill allocation.
-2. Complete protective-stop lifecycle ownership. A stop-trigger fill
+1. Complete protective-stop lifecycle ownership. A stop-trigger fill
    must allocate to its logical unit, and software/manual closes must cancel or
    resize the unit's remaining OKX algo order so it cannot later reduce another
    unit in the merged net position.
-3. Complete demo-account open, cancellation, automatic close, protective-stop
+2. Complete demo-account open, cancellation, automatic close, protective-stop
    trigger, and restart recovery verification before arming a real account.
 
 ## Non-Blocking / Later

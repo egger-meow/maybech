@@ -196,6 +196,7 @@ class Executor:
             except Exception as protection_error:
                 cancel_requested = False
                 cancel_error = ""
+                emergency_close_client_id = ""
                 entry_kill_activated = order_state in {
                     "",
                     "filled",
@@ -210,6 +211,10 @@ class Executor:
                         cancel_requested = True
                     except Exception as exc:
                         cancel_error = str(exc)
+                if order_state == "filled":
+                    emergency_close_client_id = self._emergency_close_client_id(
+                        client_order_id
+                    )
                 logger.error(
                     "Protection verification failed for accepted order %s: %s",
                     order_id,
@@ -224,6 +229,9 @@ class Executor:
                     "maybechCancelError": cancel_error,
                     "maybechOrderState": order_state,
                     "maybechEntryKillActivated": entry_kill_activated,
+                    "maybechEmergencyCloseRequired": order_state == "filled",
+                    "maybechEmergencyCloseClientOrderId": emergency_close_client_id,
+                    "maybechEmergencyCloseQuantity": size,
                 }
             return {
                 **response,
@@ -293,6 +301,11 @@ class Executor:
     def _attachment_client_id(client_order_id: str) -> str:
         digest = hashlib.sha256(client_order_id.encode("utf-8")).hexdigest()
         return f"mba{digest[:29]}"
+
+    @staticmethod
+    def _emergency_close_client_id(client_order_id: str) -> str:
+        digest = hashlib.sha256(client_order_id.encode("utf-8")).hexdigest()
+        return f"mbe{digest[:29]}"
 
     def check_exits(self) -> list[dict]:
         return []

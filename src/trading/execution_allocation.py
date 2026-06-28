@@ -93,9 +93,59 @@ class ExecutionAllocationService:
                 sort_keys=True,
             ),
         )
-        updated = self.position_store.record_allocation(allocation)
+        if existing is not None and not existing.applied:
+            self.position_store.record_allocation(allocation)
+            return AllocationIngestionResult(
+                allocation=existing,
+                position=position,
+                idempotent=True,
+                execution_status="close_fill_deferred",
+            )
+        defer_close = (
+            existing is None
+            and action in {"reduce", "close"}
+            and (position.remaining_quantity or position.opened_quantity or 0.0)
+            < fill.quantity - 1e-12
+            and self.position_store.has_execution_order(position.id, action="open")
+        )
+        updated = self.position_store.record_allocation(
+            allocation,
+            apply_to_position=not defer_close,
+            allow_open_while_closing=(action == "open"),
+        )
         if updated is None:
             raise LookupError(f"Logical position {position.id!r} no longer exists")
+
+        if defer_close:
+            tracked = self.position_store.update_execution_tracking(
+                updated.id,
+                exchange_order_id=allocation.exchange_order_id,
+                execution_status="close_fill_deferred",
+                completed=True,
+            )
+            if tracked is not None:
+                updated = tracked
+            self.audit_store.create(
+                id=f"deferred-allocation:{allocation.id}",
+                type="position.allocation_deferred",
+                source="execution_allocation",
+                payload={
+                    "position_id": updated.id,
+                    "trade_id": updated.trade_id,
+                    "fill_id": allocation.id,
+                    "exchange_order_id": allocation.exchange_order_id,
+                    "action": allocation.action,
+                    "quantity": allocation.quantity,
+                    "reason": "close fill arrived before opening fill allocation",
+                },
+                created_at=allocation.created_at,
+            )
+            return AllocationIngestionResult(
+                allocation=allocation,
+                position=updated,
+                idempotent=False,
+                execution_status="close_fill_deferred",
+            )
 
         execution_status = self._update_trade_and_status(updated, allocation)
         tracked = self.position_store.update_execution_tracking(
@@ -114,10 +164,44 @@ class ExecutionAllocationService:
                 confirmation_source=fill.confirmation_source,
                 execution_status=execution_status,
             )
+        decision_allocation = allocation
+        if allocation.action == "open":
+            updated, deferred = self.position_store.apply_deferred_allocations(
+                updated.id
+            )
+            if updated is None:
+                raise LookupError(f"Logical position {position.id!r} no longer exists")
+            for deferred_allocation in deferred:
+                decision_allocation = deferred_allocation
+                execution_status = self._update_trade_and_status(
+                    updated,
+                    deferred_allocation,
+                )
+                tracked = self.position_store.merge_metadata(
+                    updated.id,
+                    {
+                        "execution_status": execution_status,
+                        "completed_order_id": deferred_allocation.exchange_order_id,
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                if tracked is not None:
+                    updated = tracked
+                deferred_metadata = self._allocation_metadata(deferred_allocation)
+                confirmation_source = deferred_metadata.get("confirmation_source")
+                if confirmation_source not in {"okx_fill", "dry_run", "recovery"}:
+                    confirmation_source = fill.confirmation_source
+                self._record_allocation_audit(
+                    updated,
+                    deferred_allocation,
+                    correlation_id=correlation_id,
+                    confirmation_source=confirmation_source,
+                    execution_status=execution_status,
+                )
         if correlation_id:
             self._update_correlated_decision(
                 updated,
-                allocation,
+                decision_allocation,
                 correlation_id=correlation_id,
                 execution_status=execution_status,
             )
@@ -159,13 +243,16 @@ class ExecutionAllocationService:
             raise LookupError(f"No logical position matches confirmed fill {reference!r}")
         return position
 
-    @staticmethod
     def _resolve_action(
+        self,
         position: LogicalPositionRecord,
         fill: ConfirmedExecutionFill,
     ) -> AllocationAction:
         if fill.action is not None:
             return fill.action
+        order = self.position_store.get_execution_order(fill.exchange_order_id)
+        if order is not None and order.get("action") in {"open", "reduce", "close"}:
+            return order["action"]
         metadata = ExecutionAllocationService._metadata(position)
         order_action = metadata.get("order_action")
         if order_action in {"open", "reduce", "close"}:
@@ -281,6 +368,14 @@ class ExecutionAllocationService:
     def _metadata(position: LogicalPositionRecord) -> dict[str, Any]:
         try:
             value = json.loads(position.metadata_json or "{}")
+        except json.JSONDecodeError:
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _allocation_metadata(allocation: LogicalPositionAllocation) -> dict[str, Any]:
+        try:
+            value = json.loads(allocation.metadata_json or "{}")
         except json.JSONDecodeError:
             return {}
         return value if isinstance(value, dict) else {}

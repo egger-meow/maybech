@@ -97,6 +97,9 @@ class StrategyService(DaemonService):
             "errors": [],
         }
 
+        if not self.dry_run:
+            self._retry_emergency_closes(status)
+
         if not self.dry_run and not self._execution_ingestion_ready():
             message = (
                 "Live entries blocked until REST execution catch-up is current "
@@ -383,6 +386,8 @@ class StrategyService(DaemonService):
             execution_status = "simulated"
         elif result and result.get("maybechProtectionVerified") is True:
             execution_status = "submitted"
+        elif result and result.get("maybechEmergencyCloseRequired") is True:
+            execution_status = "emergency_close_required"
         elif result and result.get("maybechCancelRequested") is True:
             execution_status = "protection_failed_canceling"
         elif result:
@@ -407,8 +412,36 @@ class StrategyService(DaemonService):
                     execution_result=result,
                     execution_status=execution_status,
                 )
+                if result.get("maybechEmergencyCloseRequired") is True:
+                    position, close_result, execution_status = (
+                        self._submit_emergency_close(
+                            position=position,
+                            correlation_id=decision_id,
+                            client_order_id=str(
+                                result.get("maybechEmergencyCloseClientOrderId") or ""
+                            ),
+                            quantity=float(
+                                result.get("maybechEmergencyCloseQuantity") or 0
+                            ),
+                            parent_order_id=self._extract_order_id(result),
+                        )
+                    )
+                    result["maybechEmergencyCloseResult"] = close_result
+                    result["maybechEmergencyCloseOrderId"] = self._extract_order_id(
+                        close_result
+                    )
+                    lifecycle.update(
+                        {
+                            "execution_status": execution_status,
+                            "execution_result": result,
+                            "emergency_close_order_id": result[
+                                "maybechEmergencyCloseOrderId"
+                            ],
+                        }
+                    )
             except Exception as exc:
                 logger.exception("Failed to persist submitted strategy action %s", decision_id)
+                execution_status = "persistence_failed"
                 lifecycle.update(
                     {"execution_status": "persistence_failed", "persistence_error": str(exc)}
                 )
@@ -452,6 +485,44 @@ class StrategyService(DaemonService):
             and status.get("caught_up") is True
             and status.get("websocket_connected") is True
         )
+
+    def _retry_emergency_closes(self, status: dict[str, Any]) -> None:
+        for position in self.position_store.list_pending_executions():
+            if position.status != "closing" or position.exchange_order_id:
+                continue
+            try:
+                metadata = json.loads(position.metadata_json or "{}")
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(metadata, dict) or metadata.get("emergency_close") is not True:
+                continue
+            client_order_id = position.client_order_id
+            quantity = float(metadata.get("close_quantity") or 0)
+            if not client_order_id or quantity <= 0:
+                status["errors"].append(
+                    f"Emergency close intent {position.id} is incomplete"
+                )
+                continue
+            updated, close_result, execution_status = self._place_emergency_close(
+                position=position,
+                client_order_id=client_order_id,
+                quantity=quantity,
+            )
+            if execution_status == "emergency_close_submitted":
+                self.audit_store.create(
+                    type="strategy.emergency_close_retried",
+                    source=self.name,
+                    payload={
+                        "strategy_id": updated.strategy_id,
+                        "position_id": updated.id,
+                        "client_order_id": client_order_id,
+                        "exchange_order_id": self._extract_order_id(close_result),
+                    },
+                )
+            else:
+                status["errors"].append(
+                    f"Emergency close retry remains pending for {position.id}"
+                )
 
     def _prepare_open_unit(
         self,
@@ -564,6 +635,89 @@ class StrategyService(DaemonService):
             if tracked is not None:
                 position = tracked
         return position
+
+    def _submit_emergency_close(
+        self,
+        *,
+        position: LogicalPositionRecord,
+        correlation_id: str,
+        client_order_id: str,
+        quantity: float,
+        parent_order_id: str,
+    ) -> tuple[LogicalPositionRecord, dict[str, Any], str]:
+        if self.executor is None:
+            raise RuntimeError("Executor is required")
+        if not client_order_id or not parent_order_id or quantity <= 0:
+            raise ValueError("Emergency close intent is incomplete")
+        claimed = self.position_store.claim_pending_execution(
+            position.id,
+            expected_status="pending_open",
+            status="closing",
+            client_order_id=client_order_id,
+            metadata={
+                "correlation_id": correlation_id,
+                "client_order_id": client_order_id,
+                "emergency_close_client_order_id": client_order_id,
+                "order_action": "close",
+                "close_reason": "active attached protection could not be verified",
+                "close_quantity": quantity,
+                "previous_exchange_order_id": parent_order_id,
+                "emergency_close": True,
+                "execution_status": "emergency_close_submitting",
+            },
+        )
+        if claimed is None:
+            raise RuntimeError("Emergency close intent could not claim logical position")
+        return self._place_emergency_close(
+            position=claimed,
+            client_order_id=client_order_id,
+            quantity=quantity,
+        )
+
+    def _place_emergency_close(
+        self,
+        *,
+        position: LogicalPositionRecord,
+        client_order_id: str,
+        quantity: float,
+    ) -> tuple[LogicalPositionRecord, dict[str, Any], str]:
+        if self.executor is None:
+            raise RuntimeError("Executor is required")
+        close_result = self.executor.close_position(
+            inst_id=position.inst_id,
+            position_side=position.side,
+            quantity=quantity,
+            client_order_id=client_order_id,
+            pos_side="net",
+        ) or {}
+        exchange_order_id = self._extract_order_id(close_result)
+        if not exchange_order_id:
+            pending = self.position_store.merge_metadata(
+                position.id,
+                {
+                    "execution_status": "emergency_close_retry_pending",
+                    "emergency_close_last_attempt_at": datetime.now(
+                        timezone.utc
+                    ).isoformat(),
+                },
+            )
+            if pending is None:
+                raise RuntimeError("Emergency close retry state could not be persisted")
+            return pending, close_result, "emergency_close_failed"
+
+        updated = self.position_store.mark_pending_execution(
+            position.id,
+            status="closing",
+            exchange_order_id=exchange_order_id,
+            client_order_id=client_order_id,
+            metadata={
+                "emergency_close_order_id": exchange_order_id,
+                "execution_status": "emergency_close_submitted",
+            },
+        )
+        if updated is None:
+            raise RuntimeError("Emergency close order could not link to logical position")
+        return updated, close_result, "emergency_close_submitted"
 
     def _save_decision(self, payload: dict[str, Any]) -> bool:
         try:

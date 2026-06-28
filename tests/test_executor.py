@@ -263,6 +263,9 @@ def test_live_filled_entry_kills_future_entries_when_active_protection_fails(tmp
     assert result["maybechProtectionVerified"] is False
     assert result["maybechCancelRequested"] is False
     assert result["maybechEntryKillActivated"] is True
+    assert result["maybechEmergencyCloseRequired"] is True
+    assert result["maybechEmergencyCloseClientOrderId"].startswith("mbe")
+    assert result["maybechEmergencyCloseQuantity"] == "0.3"
     assert executor.risk_store.entries_enabled() is False
     assert client.cancelled == []
 

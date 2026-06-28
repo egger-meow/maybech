@@ -15,7 +15,7 @@ def test_trade_and_logical_position_stores_share_schema_ledger(tmp_path):
     position_store = LogicalPositionStore(db_path)
 
     assert trade_store.applied_schema_versions() == [1]
-    assert position_store.applied_schema_versions() == [2, 3, 4]
+    assert position_store.applied_schema_versions() == [2, 3, 4, 5]
 
 
 def test_trade_store_saves_closes_and_removes_rules(tmp_path):

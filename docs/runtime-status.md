@@ -130,6 +130,13 @@ updates weighted entry price and quantities, opens the unit for management, and
 updates the correlated strategy decision to `filled`. A strategy FOK entry is
 not allowed to remain partially filled; that anomalous state cancels the
 remainder and disables future entries.
+If a completely filled FOK entry cannot prove its active attached stop, the
+runtime disables future entries and persists a deterministic reduce-only
+emergency-close intent before submitting it. Missing submissions remain
+retryable across restarts. Parent-entry and emergency-close order IDs retain
+immutable ownership of the same logical unit, and an early close fill is stored
+without changing quantity until the opening fill arrives and both allocations
+can be applied in order.
 `ExecutionFillService` polls authenticated three-month SWAP fill history every
 five seconds. It also consumes authenticated private `orders/SWAP` events every
 daemon cycle for low-latency fills and terminal cancellations. Login and
@@ -143,7 +150,8 @@ or history is exhausted. Interrupted pages replay safely because allocation IDs
 are idempotent. It normalizes OKX fill payloads and matches indexed exchange or
 client order IDs. Persisted client-order intents with no `ordId` are queried by
 `clOrdId`; accepted orders are linked, while stale intents absent from OKX fail
-an entry or release a close back to `open`.
+an entry or release a normal close back to `open`. Emergency-close intents stay
+in `closing` state for deterministic retry instead of being released.
 Unmatched manual/external orders remain unallocated and visible in status.
 The same poll checks every unit with an active exchange order id. Confirmed
 `canceled`, `rejected`, or `mmp_canceled` entry orders recover to `failed` when

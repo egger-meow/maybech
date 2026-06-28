@@ -119,3 +119,79 @@ def test_execution_allocator_recovers_position_by_client_order_id(tmp_path):
     assert result.position.status == "open"
     assert result.position.opened_quantity == 0.1
     assert position_store.list_allocations("unit-a")[0].exchange_order_id == "order-a"
+
+
+def test_emergency_close_fill_waits_for_late_open_fill(tmp_path):
+    trade_store, position_store, audit_store = _stores(tmp_path)
+    trade = TradeRecord(
+        id="trade-a",
+        strategy_id="strategy-a",
+        status="pending_open",
+        metadata_json=json.dumps(
+            {
+                "correlation_id": "decision-a",
+                "expected_quantity": 1,
+                "order_action": "open",
+            }
+        ),
+    )
+    trade_store.save_trade(trade)
+    position = LogicalPositionRecord.from_trade(trade)
+    position.client_order_id = "entry-client"
+    position_store.save(position)
+    position_store.link_exchange_order(
+        position.id,
+        client_order_id="entry-client",
+        exchange_order_id="entry-order",
+    )
+    position_store.claim_pending_execution(
+        position.id,
+        expected_status="pending_open",
+        status="closing",
+        client_order_id="close-client",
+        metadata={
+            "correlation_id": "decision-a",
+            "order_action": "close",
+            "previous_exchange_order_id": "entry-order",
+            "emergency_close": True,
+        },
+    )
+    position_store.mark_pending_execution(
+        position.id,
+        status="closing",
+        exchange_order_id="close-order",
+        client_order_id="close-client",
+        metadata={"execution_status": "emergency_close_submitted"},
+    )
+    service = ExecutionAllocationService(trade_store, position_store, audit_store)
+
+    close_result = service.ingest(
+        ConfirmedExecutionFill(
+            fill_id="close-fill",
+            exchange_order_id="close-order",
+            quantity=1,
+            price=1990,
+            confirmation_source="okx_fill",
+        )
+    )
+    deferred = position_store.get_allocation("close-fill")
+    open_result = service.ingest(
+        ConfirmedExecutionFill(
+            fill_id="open-fill",
+            exchange_order_id="entry-order",
+            quantity=1,
+            price=2000,
+            confirmation_source="okx_fill",
+        )
+    )
+
+    assert close_result.execution_status == "close_fill_deferred"
+    assert deferred.applied is False
+    assert open_result.execution_status == "closed"
+    assert open_result.position.opened_quantity == 1
+    assert open_result.position.remaining_quantity == 0
+    assert open_result.position.status == "closed"
+    assert json.loads(open_result.position.metadata_json)["execution_status"] == "closed"
+    assert all(allocation.applied for allocation in position_store.list_allocations(position.id))
+    assert len(audit_store.list(event_type="position.allocation_deferred")) == 1
+    assert len(audit_store.list(event_type="position.allocation_confirmed")) == 2
