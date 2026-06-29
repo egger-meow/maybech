@@ -40,3 +40,12 @@ capability moves from planned to partial or complete.
 ## Next Build Milestones
 
 1. Complete demo-account execution and restart verification before real money.
+
+## Demo Verification Evidence
+
+- 2026-06-29: a process-local `OKX_FLAG=1` read-only probe attempted account
+  configuration and open-position queries. OKX rejected authentication with
+  code `50110` because the current machine was not in the API key IP whitelist.
+  No order endpoint was called. Open, cancellation, automatic close,
+  protective-stop trigger, and restart recovery therefore remain unverified on
+  an actual demo account.
