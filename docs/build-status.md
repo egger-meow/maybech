@@ -39,9 +39,11 @@ capability moves from planned to partial or complete.
 
 ## Next Build Milestones
 
-1. Complete demo-account execution and restart verification before real money.
+1. Complete the staged real-account safety gate in `toImprove.md` before normal
+   operation. The disclosed production key must be revoked before any further
+   authenticated check or order-capable runtime start.
 
-## Demo Verification Evidence
+## Execution Verification Evidence
 
 - 2026-06-29: a process-local `OKX_FLAG=1` read-only probe attempted account
   configuration and open-position queries. OKX rejected authentication with
@@ -56,3 +58,8 @@ capability moves from planned to partial or complete.
   that the key belongs to the real account, which reports account level `2` and
   incompatible `long_short_mode`. No order endpoint was called. Verification
   requires a demo API key and a demo account configured for `net_mode`.
+- 2026-06-29: the operator canceled the demo path because a demo key is not
+  available and requested staged real-account preparation. Local state was
+  confirmed fail-closed: `MAYBECH_ARM_ORDERS=0`, no account risk record, entries
+  disabled, zero strategies, and zero active logical positions. The disclosed
+  production key must be revoked and replaced before authenticated work resumes.

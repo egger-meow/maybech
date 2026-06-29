@@ -26,8 +26,23 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Complete demo-account open, cancellation, automatic close, protective-stop
-   trigger, and restart recovery verification before arming a real account.
+### Priority Reorder Justification - 2026-06-29
+
+The operator explicitly canceled demo-account verification because a demo API
+key is unavailable and directed the project toward staged real-account
+preparation. Keeping the demo item first would permanently block the project
+without reducing real-account danger. The production credential was also
+disclosed in conversation, so using it before revocation would create a more
+immediate loss risk than the superseded demo gate. This reorder is necessary,
+not optional: real-money work must fail closed until the credential and account
+mode are safe, then prove each execution lifecycle with minimum exposure.
+
+1. Complete the staged real-account safety gate. Revoke the disclosed key and
+   install a replacement production key with Trade permission only, withdrawals
+   disabled, and an IP whitelist; prove authenticated `net_mode` read-only;
+   keep strategies absent and entries disabled by default; then verify minimum-
+   size open, cancellation, automatic close, protective-stop trigger, cleanup,
+   and restart recovery one bounded stage at a time before normal operation.
 
 ## Non-Blocking / Later
 
