@@ -50,3 +50,9 @@ capability moves from planned to partial or complete.
   protective-stop trigger, and restart recovery therefore remain unverified on
   an actual demo account. Configured private integration checks now fail on
   authentication errors instead of reporting a skipped, false-green run.
+- 2026-06-29: after the IP whitelist was updated, the same read-only demo probe
+  reached OKX but failed with code `50101` because the configured API key does
+  not belong to the demo environment. A read-only `OKX_FLAG=0` check confirmed
+  that the key belongs to the real account, which reports account level `2` and
+  incompatible `long_short_mode`. No order endpoint was called. Verification
+  requires a demo API key and a demo account configured for `net_mode`.
