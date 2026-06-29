@@ -229,6 +229,13 @@ The Position Management page has a logical-position contract now:
   close-condition mutations return `409` when they would alter an owned stop.
   Verification also requires the protected quantity to equal the logical unit's
   current remaining quantity; matching a stale persisted size is not accepted.
+- `POST /positions/logical/{position_id}/break-even`: with
+  `{ "confirm": true }`, move the owned stop to entry or a side-consistent
+  protected-profit offset. The command requires the enabled stop condition and
+  a `lock_in_pct` from `0` through `0.05`. Current ticker price must already be
+  beyond the directionally rounded target. The operation then uses the same
+  durable, verified stop-amend lifecycle and stores break-even evidence on the
+  condition and audit event.
 
 - `GET /positions/logical`: list current logical position units persisted in
   SQLite, with compatibility backfill from `TradeStore` records, first-class
@@ -275,10 +282,8 @@ the old rule unchanged, and an ambiguous result marks protection `failed` and
 disables entries. Background protection checks share the same execution lock so
 they cannot observe a valid amendment halfway through.
 
-The editable target surface remains:
+The editable target surface still includes:
 
-- `POST /positions/logical/{position_id}/break-even`: move or arm break-even
-  handling for one logical unit.
 - `GET /positions/groups`: list grouped summaries by instrument, side, strategy,
   or OKX net position.
 

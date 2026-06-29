@@ -48,6 +48,8 @@ class PositionProtectionService:
         *,
         expression: dict[str, Any],
         reason: str,
+        condition_metadata: dict[str, Any] | None = None,
+        intent_metadata: dict[str, Any] | None = None,
     ) -> LogicalPositionRecord:
         """Amend one owned exchange stop before publishing its new rule value."""
         with ENTRY_EXECUTION_LOCK:
@@ -90,9 +92,12 @@ class PositionProtectionService:
                 position,
                 expression,
             )
-            constraints = self._constraints(position.inst_id)
-            size = constraints.normalize_size(remaining)
-            normalized_stop = constraints.normalize_price(stop)
+            try:
+                constraints = self._constraints(position.inst_id)
+                size = constraints.normalize_size(remaining)
+                normalized_stop = constraints.normalize_price(stop)
+            except ValueError as exc:
+                raise PositionProtectionError(str(exc)) from exc
             pending = self._pending_orders(position.inst_id)
             order = self._find_pending(pending, protection.algo_client_order_id)
             self._verify_for_kind(
@@ -107,6 +112,7 @@ class PositionProtectionService:
             correlation_id = uuid4().hex
             requested_at = self._now()
             amend_intent = {
+                **(intent_metadata or {}),
                 "correlation_id": correlation_id,
                 "condition_id": condition_id,
                 "old_stop_loss": protection.stop_loss,
@@ -166,6 +172,11 @@ class PositionProtectionService:
                 position.id,
                 condition.id,
                 expression=normalized_expression,
+                metadata=(
+                    {**condition.metadata, **condition_metadata}
+                    if condition_metadata is not None
+                    else None
+                ),
             )
             if updated_condition is None:
                 self._fail_amend(
@@ -223,6 +234,89 @@ class PositionProtectionService:
                     f"protective stop completion audit failed: {exc}",
                 )
             return updated
+
+    def move_to_break_even(
+        self,
+        position_id: str,
+        condition_id: str,
+        *,
+        lock_in_pct: Decimal,
+        reason: str,
+    ) -> LogicalPositionRecord:
+        """Move an owned stop to entry or a side-consistent protected profit."""
+        with ENTRY_EXECUTION_LOCK:
+            position = self.store.get(position_id)
+            if position is None:
+                raise PositionProtectionError("logical position not found")
+            if position.side not in {"long", "short"}:
+                raise PositionProtectionError("logical position side must be long or short")
+            try:
+                lock_in = Decimal(str(lock_in_pct))
+                entry = Decimal(str(position.entry_price))
+            except (InvalidOperation, ValueError) as exc:
+                raise PositionProtectionError("invalid break-even price input") from exc
+            if not lock_in.is_finite() or lock_in < 0 or lock_in > Decimal("0.05"):
+                raise PositionProtectionError(
+                    "lock_in_pct must be between 0 and 0.05"
+                )
+            if not entry.is_finite() or entry <= 0:
+                raise PositionProtectionError("logical position entry price must be positive")
+
+            multiplier = Decimal("1") + (
+                lock_in if position.side == "long" else -lock_in
+            )
+            try:
+                constraints = self._constraints(position.inst_id)
+                target = constraints.normalize_break_even_price(
+                    entry * multiplier,
+                    position_side=position.side,
+                )
+                tickers = self.client.get_ticker(inst_id=position.inst_id)
+            except (PositionProtectionError, ValueError) as exc:
+                raise PositionProtectionError(str(exc)) from exc
+            if len(tickers) != 1:
+                raise PositionProtectionError(
+                    f"expected one ticker for {position.inst_id}, got {len(tickers)}"
+                )
+            try:
+                current = Decimal(str(tickers[0].get("last")))
+            except (InvalidOperation, ValueError) as exc:
+                raise PositionProtectionError("ticker last price is invalid") from exc
+            if not current.is_finite() or current <= 0:
+                raise PositionProtectionError("ticker last price must be positive")
+            target_decimal = Decimal(target)
+            favorable = (
+                current > target_decimal
+                if position.side == "long"
+                else current < target_decimal
+            )
+            if not favorable:
+                raise PositionProtectionError(
+                    "current price has not moved beyond the requested break-even stop"
+                )
+
+            applied_at = self._now()
+            break_even = {
+                "status": "applied",
+                "entry_price": position.entry_price,
+                "target_stop": target,
+                "current_price": str(current),
+                "lock_in_pct": str(lock_in),
+                "applied_at": applied_at,
+            }
+            expression = {
+                "type": "price_below" if position.side == "long" else "price_above",
+                "symbol": position.inst_id,
+                "value": float(target_decimal),
+            }
+            return self.amend_stop_condition(
+                position.id,
+                condition_id,
+                expression=expression,
+                reason=reason,
+                condition_metadata={"break_even": break_even},
+                intent_metadata={"operation": "break_even", "break_even": break_even},
+            )
 
     def protect(self, position_id: str) -> LogicalPositionRecord:
         with ENTRY_EXECUTION_LOCK:

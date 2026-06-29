@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -28,6 +29,7 @@ class ImportClient:
         self.drop_on_amend = False
         self.cancellations = []
         self.cancel_error = None
+        self.ticker = "3100"
 
     def get_positions(self, *, inst_type):
         assert inst_type == "SWAP"
@@ -52,6 +54,9 @@ class ImportClient:
                 "tickSz": "0.1",
             }
         ]
+
+    def get_ticker(self, *, inst_id):
+        return [{"instId": inst_id, "last": self.ticker}]
 
     def get_pending_algo_orders(self, *, inst_id):
         return [item for item in self.pending if item["instId"] == inst_id]
@@ -278,6 +283,50 @@ def test_stop_amend_rejects_stale_protection_quantity_before_submission(tmp_path
         )
 
     assert client.amendments == []
+
+
+def test_break_even_reuses_confirmed_amend_and_persists_operation_evidence(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+
+    updated = service.protection.move_to_break_even(
+        position.id,
+        condition.id,
+        lock_in_pct=Decimal("0.01"),
+        reason="protect one percent profit",
+    )
+
+    assert client.amendments[0]["stop_trigger_px"] == "3030"
+    protection = store.get_protection(position.id)
+    assert protection.stop_loss == 3030
+    assert protection.metadata["stop_amend"]["operation"] == "break_even"
+    saved_condition = store.get_close_condition(position.id, condition.id)
+    assert saved_condition.expression["value"] == 3030
+    assert saved_condition.metadata["break_even"]["status"] == "applied"
+    assert json.loads(updated.metadata_json)["exchange_protection"]["stop_loss"] == "3030"
+
+
+def test_break_even_rejects_unfavorable_current_price_without_amending(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+    client.ticker = "2999"
+
+    with pytest.raises(PositionProtectionError, match="has not moved beyond"):
+        service.protection.move_to_break_even(
+            position.id,
+            condition.id,
+            lock_in_pct=Decimal("0"),
+            reason="premature break-even",
+        )
+
+    assert client.amendments == []
+    assert store.get_protection(position.id).stop_loss == 2900
 
 
 def test_protection_can_be_canceled_and_proven_absent_before_close(tmp_path):

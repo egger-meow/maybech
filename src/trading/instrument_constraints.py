@@ -87,3 +87,19 @@ class InstrumentConstraints:
         rounding = ROUND_FLOOR if side == "long" else ROUND_CEILING
         ticks = (price / self.tick_size).to_integral_value(rounding=rounding)
         return decimal_string(ticks * self.tick_size)
+
+    def normalize_break_even_price(
+        self,
+        requested: object,
+        *,
+        position_side: str,
+    ) -> str:
+        """Round without weakening the requested break-even protection."""
+        self.validate_tradable()
+        price = _decimal(requested, field="break-even price")
+        side = position_side.lower()
+        if side not in {"long", "short"}:
+            raise ValueError("position_side must be 'long' or 'short'")
+        rounding = ROUND_CEILING if side == "long" else ROUND_FLOOR
+        ticks = (price / self.tick_size).to_integral_value(rounding=rounding)
+        return decimal_string(ticks * self.tick_size)

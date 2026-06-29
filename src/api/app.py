@@ -71,6 +71,7 @@ from src.api.schemas import (
     LogicalPositionCloseResponse,
     LogicalPositionAllocationResponse,
     PositionIntentResponse,
+    PositionBreakEvenCommand,
     PositionProtectionCommand,
     PositionStopAmendCommand,
     PositionRuleResponse,
@@ -1191,6 +1192,45 @@ def create_app(runner: DaemonRunner) -> FastAPI:
                 position_id,
                 payload.condition_id,
                 expression=payload.expression,
+                reason=payload.reason,
+            )
+        except PositionProtectionError as exc:
+            protection = position_store.get_protection(position_id)
+            if str(exc) in {"logical position not found", "close condition not found"}:
+                status_code = 404
+            elif protection is not None and protection.status == "failed":
+                status_code = 502
+            else:
+                status_code = 409
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        return _logical_position_response(
+            store=trade_store,
+            position_store=position_store,
+            position=position,
+            account_snapshot=runner.runtime.get_value("account.snapshot") or {},
+            intents=runner.runtime.get_value("position.intents") or [],
+            audit_events=runner.runtime.events.recent(limit=100),
+        )
+
+    @app.post(
+        "/positions/logical/{position_id}/break-even",
+        response_model=LogicalPositionUnitResponse,
+    )
+    def move_logical_position_to_break_even(
+        position_id: str,
+        payload: PositionBreakEvenCommand,
+    ) -> LogicalPositionUnitResponse:
+        trade_store = TradeStore()
+        position_store = LogicalPositionStore(trade_store.db_path)
+        try:
+            position = PositionProtectionService(
+                OKXClient(),
+                position_store,
+                AuditEventStore(trade_store.db_path),
+            ).move_to_break_even(
+                position_id,
+                payload.condition_id,
+                lock_in_pct=Decimal(str(payload.lock_in_pct)),
                 reason=payload.reason,
             )
         except PositionProtectionError as exc:

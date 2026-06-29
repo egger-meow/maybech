@@ -26,6 +26,14 @@ def test_instrument_constraints_use_decimal_precision():
     assert constraints.normalize_price("2000.126") == "2000.13"
     assert constraints.normalize_entry_limit("2000.126", position_side="long") == "2000.12"
     assert constraints.normalize_entry_limit("2000.121", position_side="short") == "2000.13"
+    assert (
+        constraints.normalize_break_even_price("2000.121", position_side="long")
+        == "2000.13"
+    )
+    assert (
+        constraints.normalize_break_even_price("2000.129", position_side="short")
+        == "2000.12"
+    )
 
 
 def test_instrument_constraints_reject_invalid_order_sizes():

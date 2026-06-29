@@ -131,6 +131,13 @@ A break-even operation moves risk on a logical position unit so the stop level
 protects the entry price or better after sufficient favorable movement. It must
 be tracked per logical unit, not only per OKX net position.
 
+The confirmed operation accepts a zero-to-five-percent protected-profit offset.
+Long targets round upward to the next valid tick and short targets round
+downward, so precision normalization cannot weaken the requested protection.
+Current price must already be beyond the target. The resulting stop change uses
+the owned protection amend intent and records entry, target, observed price,
+offset, and application time on the condition and durable audit event.
+
 ## Audit Event
 
 An audit event records what happened and why. Strategy triggers, blocked actions,

@@ -270,6 +270,13 @@ export type LogicalPositionUnitResponse = {
   "audit_events"?: RuntimeEventResponse[];
 };
 
+export type PositionBreakEvenCommand = {
+  "confirm": true;
+  "condition_id": string;
+  "lock_in_pct"?: number;
+  "reason"?: string;
+};
+
 export type PositionIntentResponse = {
   "inst_id"?: string;
   "side"?: string;
@@ -556,6 +563,7 @@ export type ApiSchemas = {
   "LogicalPositionCloseResponse": LogicalPositionCloseResponse;
   "LogicalPositionProtectionResponse": LogicalPositionProtectionResponse;
   "LogicalPositionUnitResponse": LogicalPositionUnitResponse;
+  "PositionBreakEvenCommand": PositionBreakEvenCommand;
   "PositionIntentResponse": PositionIntentResponse;
   "PositionProtectionCommand": PositionProtectionCommand;
   "PositionRuleCreate": PositionRuleCreate;

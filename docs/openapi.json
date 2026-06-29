@@ -1569,6 +1569,41 @@
         "title": "LogicalPositionUnitResponse",
         "type": "object"
       },
+      "PositionBreakEvenCommand": {
+        "properties": {
+          "condition_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Condition Id",
+            "type": "string"
+          },
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "lock_in_pct": {
+            "default": 0,
+            "maximum": 0.05,
+            "minimum": 0.0,
+            "title": "Lock In Pct",
+            "type": "number"
+          },
+          "reason": {
+            "default": "operator break-even",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "condition_id"
+        ],
+        "title": "PositionBreakEvenCommand",
+        "type": "object"
+      },
       "PositionIntentResponse": {
         "properties": {
           "action": {
@@ -3763,6 +3798,55 @@
           }
         },
         "summary": "Record Confirmed Position Fill"
+      }
+    },
+    "/positions/logical/{position_id}/break-even": {
+      "post": {
+        "operationId": "move_logical_position_to_break_even_positions_logical__position_id__break_even_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PositionBreakEvenCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionUnitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Logical Position To Break Even"
       }
     },
     "/positions/logical/{position_id}/close": {

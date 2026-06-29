@@ -1447,6 +1447,9 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
         def get_pending_algo_orders(self, *, inst_id, ord_type="conditional"):
             return [self.order] if ord_type == "conditional" else []
 
+        def get_ticker(self, *, inst_id):
+            return [{"instId": inst_id, "last": "3100"}]
+
         def amend_position_stop(self, **kwargs):
             self.amendments.append(kwargs)
             self.order["sz"] = kwargs["sz"]
@@ -1487,20 +1490,42 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
             "reason": "tighten operator stop",
         },
     )
+    unconfirmed_break_even = client.post(
+        "/positions/logical/protected-unit/break-even",
+        json={
+            "confirm": False,
+            "condition_id": condition.id,
+            "lock_in_pct": 0,
+            "reason": "protect entry",
+        },
+    )
+    break_even = client.post(
+        "/positions/logical/protected-unit/break-even",
+        json={
+            "confirm": True,
+            "condition_id": condition.id,
+            "lock_in_pct": 0,
+            "reason": "protect entry",
+        },
+    )
 
     assert generic.status_code == 409
     assert unconfirmed.status_code == 422
     assert amended.status_code == 200
-    assert amended.json()["protection"]["status"] == "active"
-    assert amended.json()["protection"]["stop_loss"] == 2850
-    assert amended.json()["close_conditions"][0]["expression"]["value"] == 2850
+    assert unconfirmed_break_even.status_code == 422
+    assert break_even.status_code == 200
+    assert break_even.json()["protection"]["status"] == "active"
+    assert break_even.json()["protection"]["stop_loss"] == 3000
+    assert break_even.json()["close_conditions"][0]["expression"]["value"] == 3000
+    assert break_even.json()["close_conditions"][0]["metadata"]["break_even"]["status"] == "applied"
     assert exchange.amendments[0]["confirm"] is True
-    assert len(
-        AuditEventStore(db_path).list(
-            event_type="position.protection_stop_amended",
-            position_id="protected-unit",
-        )
-    ) == 1
+    assert len(exchange.amendments) == 2
+    amend_events = AuditEventStore(db_path).list(
+        event_type="position.protection_stop_amended",
+        position_id="protected-unit",
+    )
+    assert len(amend_events) == 2
+    assert any(event.payload.get("operation") == "break_even" for event in amend_events)
 
 
 def test_api_rejects_invalid_logical_position_close_condition(monkeypatch, tmp_path):

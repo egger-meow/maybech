@@ -475,6 +475,13 @@ class PositionStopAmendCommand(BaseModel):
     reason: str = Field(min_length=1, max_length=256)
 
 
+class PositionBreakEvenCommand(BaseModel):
+    confirm: Literal[True]
+    condition_id: str = Field(min_length=1, max_length=128)
+    lock_in_pct: float = Field(default=0, ge=0, le=0.05)
+    reason: str = Field(default="operator break-even", min_length=1, max_length=256)
+
+
 class AccountExposureReconciliationResponse(BaseModel):
     safe_for_entries: bool
     state: Literal["balanced", "mismatch", "invalid", "protection_required"]
