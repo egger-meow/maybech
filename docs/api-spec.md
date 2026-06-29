@@ -74,9 +74,12 @@ exceed the total exposure limit; all numeric limits must be positive.
 
 Entry control is persisted separately from editable risk-limit values, so a
 risk-limit update cannot silently re-enable trading. Entries default to
-disabled. Enable and kill commands require `{ "confirm": true }`. Kill disables
-the persisted and process-local entry gates before resolving and canceling only
-Maybech `pending_open` orders. It reports requested, already-requested,
+disabled, and every live startup persists them disabled again. Enable and kill
+commands require `{ "confirm": true }`. Enable also requires a successfully
+preflighted live process; dry-run or otherwise unarmed calls return `409` and
+cannot schedule activation for a later restart. Kill disables the persisted and
+process-local entry gates before resolving and canceling only Maybech
+`pending_open` orders. It reports requested, already-requested,
 already-terminal, unresolved, and error counts. Cancellation failures never
 roll back the disabled state, and the entry gate does not affect reduce-only
 position closes.

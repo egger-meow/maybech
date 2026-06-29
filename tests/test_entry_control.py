@@ -126,18 +126,34 @@ def test_entry_kill_stays_disabled_when_some_cancellations_fail(tmp_path):
     assert manager.risk_store.entries_enabled() is False
 
 
-def test_entry_enable_requires_risk_limits_and_only_arms_live_process(tmp_path):
+def test_entry_enable_requires_an_armed_live_process(tmp_path):
     manager = _manager(tmp_path)
+    manager.risk_store.set_entries_enabled(False)
     disarm_order_placement()
 
-    offline = manager.enable_entries()
-    assert offline.entries_enabled is True
-    assert offline.process_entry_enabled is False
+    with pytest.raises(PermissionError, match="armed live runtime"):
+        manager.enable_entries()
+    assert manager.risk_store.entries_enabled() is False
 
     arm_order_placement(preflight_passed=True)
     online = manager.enable_entries()
+    assert online.entries_enabled is True
     assert online.process_entry_enabled is True
     disarm_order_placement()
+
+
+def test_live_startup_reset_disables_persisted_and_process_entry_gates(tmp_path):
+    manager = _manager(tmp_path)
+    arm_order_placement(preflight_passed=True)
+    enable_entry_order_placement()
+
+    result = manager.disable_for_startup()
+
+    assert result.entries_enabled is False
+    assert result.process_entry_enabled is False
+    assert manager.risk_store.entries_enabled() is False
+    audits = manager.audit_store.list(event_type="entry_control.startup_disabled")
+    assert len(audits) == 1
 
 
 def test_entry_enable_rolls_back_when_audit_cannot_be_persisted(tmp_path):

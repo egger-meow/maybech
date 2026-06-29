@@ -13,7 +13,6 @@ from src.daemon.strategy_service import StrategyService
 from src.exchange.client import (
     arm_order_placement,
     disarm_order_placement,
-    enable_entry_order_placement,
 )
 from src.runtime.live_preflight import dry_run_preflight_report, run_live_preflight
 from src.runtime.lease import RuntimeLease, RuntimeLeaseService
@@ -22,6 +21,7 @@ from src.trading.strategy_store import StrategyStore
 from src.trading.trade_store import TradeStore
 from src.trading.execution_allocation import ExecutionAllocationService
 from src.trading.account_risk import AccountRiskStore
+from src.trading.entry_control import EntryControlManager
 
 
 def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True) -> DaemonRunner:
@@ -36,6 +36,7 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
         if dry_run:
             preflight_status = dry_run_preflight_report()
         else:
+            EntryControlManager(risk_store=risk_store).disable_for_startup()
             report = run_live_preflight(
                 strategy_store=StrategyStore(store.db_path),
                 position_store=LogicalPositionStore(store.db_path),
@@ -81,9 +82,6 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
                 required_services.add("strategy")
             runner.setup_services(required_services=required_services)
             arm_order_placement(preflight_passed=report.passed)
-            limits = risk_store.get()
-            if limits is not None and limits.entries_enabled:
-                enable_entry_order_placement()
             runner.runtime.set_value(
                 "runtime.live_preflight",
                 report.to_dict(armed=True),

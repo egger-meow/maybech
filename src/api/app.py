@@ -595,7 +595,7 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     def enable_entries(payload: EntryControlCommand) -> EntryControlResponse:
         try:
             result = EntryControlManager().enable_entries()
-        except ValueError as exc:
+        except (PermissionError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return EntryControlResponse(**result.to_dict())
 

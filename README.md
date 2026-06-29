@@ -125,7 +125,10 @@ also locks a hashed demo/real OKX account scope. A second process targeting
 either resource exits before services run or orders are armed. Locks release
 automatically on process death and explicitly after order placement is disarmed.
 Strategy entries are disabled by default, including after the entry-control
-schema migration. Enabling or killing entries requires `{ "confirm": true }`.
+schema migration and every live runtime restart. Enabling entries requires a
+successfully preflighted live process plus `{ "confirm": true }`; dry-run or
+offline enable attempts are rejected instead of being scheduled for restart.
+Killing entries requires the same confirmation.
 The kill command persists the disabled state before canceling Maybech
 `pending_open` orders and never disables reduce-only close submission.
 

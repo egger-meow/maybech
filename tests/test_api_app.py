@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from src.api.app import create_app
 from src.daemon.service import DaemonRunner, DaemonService
 from src.daemon.position_manager_service import PositionManagerService
+from src.exchange.client import arm_order_placement, disarm_order_placement
 from src.trading.account_risk import AccountRiskStore
 from src.trading.entry_control import EntryControlManager
 from src.trading.audit_event_store import AuditEventStore
@@ -88,14 +89,19 @@ def test_api_requires_confirmation_for_entry_enable_and_kill(monkeypatch, tmp_pa
     )
 
     assert client.post("/risk/entries/enable", json={"confirm": False}).status_code == 422
-    enabled = client.post("/risk/entries/enable", json={"confirm": True})
-    killed = client.post("/risk/entries/kill", json={"confirm": True})
+    assert client.post("/risk/entries/enable", json={"confirm": True}).status_code == 409
+    arm_order_placement(preflight_passed=True)
+    try:
+        enabled = client.post("/risk/entries/enable", json={"confirm": True})
+        killed = client.post("/risk/entries/kill", json={"confirm": True})
 
-    assert enabled.status_code == 200
-    assert enabled.json()["entries_enabled"] is True
-    assert killed.status_code == 200
-    assert killed.json()["entries_enabled"] is False
-    assert client.get("/risk/entries").json()["entries_enabled"] is False
+        assert enabled.status_code == 200
+        assert enabled.json()["entries_enabled"] is True
+        assert killed.status_code == 200
+        assert killed.json()["entries_enabled"] is False
+        assert client.get("/risk/entries").json()["entries_enabled"] is False
+    finally:
+        disarm_order_placement()
 
 
 def test_api_imports_only_current_unexplained_position_gap(monkeypatch, tmp_path):

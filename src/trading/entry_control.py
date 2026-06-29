@@ -65,20 +65,30 @@ class EntryControlManager:
             updated_at=datetime.now(timezone.utc).isoformat(),
         )
 
+    def disable_for_startup(self) -> EntryControlResult:
+        """Require a fresh operator enable after every live runtime start."""
+        with ENTRY_EXECUTION_LOCK:
+            disable_entry_order_placement()
+            self.risk_store.set_entries_enabled(False)
+            result = EntryControlResult(
+                entries_enabled=False,
+                process_entry_enabled=False,
+                persisted=True,
+                updated_at=datetime.now(timezone.utc).isoformat(),
+            )
+            self._audit("entry_control.startup_disabled", result)
+            return result
+
     def enable_entries(self) -> EntryControlResult:
         with ENTRY_EXECUTION_LOCK:
             limits = self.risk_store.get()
             if limits is None or not limits.enabled:
                 raise ValueError("Enabled account risk limits are required")
-            saved = self.risk_store.set_entries_enabled(True)
-            if saved is None:
-                raise RuntimeError("Account risk limits disappeared during entry enable")
             try:
-                try:
-                    enable_entry_order_placement()
-                except PermissionError:
-                    # Persisted intent is applied by the next successful live startup.
-                    pass
+                enable_entry_order_placement()
+                saved = self.risk_store.set_entries_enabled(True)
+                if saved is None:
+                    raise RuntimeError("Account risk limits disappeared during entry enable")
                 result = EntryControlResult(
                     entries_enabled=True,
                     process_entry_enabled=entry_order_placement_enabled(),
