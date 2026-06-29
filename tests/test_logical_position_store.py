@@ -5,6 +5,7 @@ import pytest
 from src.trading.logical_position_store import (
     AllocationConflictError,
     LogicalPositionAllocation,
+    LogicalPositionProtection,
     LogicalPositionRecord,
     LogicalPositionStore,
 )
@@ -47,7 +48,7 @@ def test_logical_position_store_saves_and_lists_independent_units(tmp_path):
 def test_logical_position_store_records_schema_version(tmp_path):
     store = LogicalPositionStore(str(tmp_path / "positions.db"))
 
-    assert store.applied_schema_versions() == [2, 3, 4, 5]
+    assert store.applied_schema_versions() == [2, 3, 4, 5, 6]
 
 
 def test_logical_position_store_migrates_order_lookups(tmp_path):
@@ -93,7 +94,7 @@ def test_logical_position_store_migrates_order_lookups(tmp_path):
         )
     )
 
-    assert store.applied_schema_versions() == [2, 3, 4, 5]
+    assert store.applied_schema_versions() == [2, 3, 4, 5, 6]
     assert store.get_by_exchange_order_id("order-a").id == "unit-a"
     assert store.get_by_client_order_id("entryclient1").id == "unit-a"
 
@@ -116,6 +117,50 @@ def test_logical_position_store_backfills_from_trade_once(tmp_path):
     assert len(store.list(status="open")) == 1
     assert store.get("trade-a").source == "strategy"
     assert store.get("trade-a").trade_id == "trade-a"
+
+
+def test_logical_position_store_owns_one_unique_protection_per_unit(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "positions.db"))
+    store.save(LogicalPositionRecord(id="unit-a", status="open"))
+    store.save(LogicalPositionRecord(id="unit-b", status="open"))
+
+    protection = store.save_protection(
+        LogicalPositionProtection(
+            position_id="unit-a",
+            kind="attached_stop",
+            algo_id="algo-a",
+            algo_client_order_id="algo-client-a",
+            quantity=2,
+            stop_loss=1900,
+        )
+    )
+    triggered = store.update_protection(
+        "unit-a",
+        status="triggered",
+        trigger_order_id="trigger-order-a",
+    )
+
+    assert protection.status == "active"
+    assert store.get_protection_by_algo(algo_id="algo-a").position_id == "unit-a"
+    assert store.get_protection_by_algo(
+        algo_client_order_id="algo-client-a"
+    ).position_id == "unit-a"
+    assert triggered.trigger_order_id == "trigger-order-a"
+    assert store.get_protection_by_algo(
+        trigger_order_id="trigger-order-a"
+    ).position_id == "unit-a"
+
+    with pytest.raises(AllocationConflictError, match="another logical position"):
+        store.save_protection(
+            LogicalPositionProtection(
+                position_id="unit-b",
+                kind="standalone_stop",
+                algo_id="algo-a",
+                algo_client_order_id="algo-client-b",
+                quantity=1,
+                stop_loss=1800,
+            )
+        )
 
 
 def test_logical_position_store_updates_status_without_merging_units(tmp_path):

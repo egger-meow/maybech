@@ -236,6 +236,15 @@ def test_live_submission_creates_pending_unit_without_assuming_fill(tmp_path):
             "ordId": "live-order",
             "maybechRequestedSize": "2",
             "maybechProtectionVerified": True,
+            "maybechProtection": {
+                "active": {
+                    "algo_id": "algo-stop-a",
+                    "algo_client_order_id": "algo-client-a",
+                    "quantity": "2",
+                    "stop_loss": "95",
+                    "take_profit": "",
+                }
+            },
         }
     )
 
@@ -248,6 +257,7 @@ def test_live_submission_creates_pending_unit_without_assuming_fill(tmp_path):
     assert position.opened_quantity == 0.0
     assert position.client_order_id == service.executor.calls[0]["client_order_id"]
     assert position.exchange_order_id == "live-order"
+    assert service.position_store.get_protection(position.id).algo_id == "algo-stop-a"
     assert service.position_store.list_allocations(position.id) == []
     assert len(service.position_store.list_close_conditions(position.id)) == 1
 

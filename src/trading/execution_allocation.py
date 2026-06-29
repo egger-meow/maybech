@@ -205,6 +205,32 @@ class ExecutionAllocationService:
                 correlation_id=correlation_id,
                 execution_status=execution_status,
             )
+        protection = self.position_store.get_protection(position.id)
+        if protection is not None and decision_allocation.action in {"reduce", "close"}:
+            triggered_by_this_order = (
+                protection.trigger_order_id == decision_allocation.exchange_order_id
+            )
+            if updated.status == "closed" and protection.status in {
+                "canceled",
+                "triggered",
+            }:
+                self.position_store.update_protection(
+                    position.id,
+                    status="exhausted",
+                    metadata={
+                        "exhausted_by_fill_id": decision_allocation.id,
+                        "remaining_quantity": updated.remaining_quantity,
+                    },
+                )
+            elif triggered_by_this_order:
+                self.position_store.update_protection(
+                    position.id,
+                    status="triggered",
+                    metadata={
+                        "last_trigger_fill_id": decision_allocation.id,
+                        "remaining_quantity": updated.remaining_quantity,
+                    },
+                )
         return AllocationIngestionResult(
             allocation=existing or allocation,
             position=updated,

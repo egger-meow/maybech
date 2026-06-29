@@ -8,7 +8,11 @@ from src.daemon.service import DaemonRunner
 from src.exchange.fills import normalize_okx_fill
 from src.trading.execution_allocation import ExecutionAllocationService
 from src.trading.execution_cursor_store import ExecutionCursorStore
-from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
+from src.trading.logical_position_store import (
+    LogicalPositionProtection,
+    LogicalPositionRecord,
+    LogicalPositionStore,
+)
 from src.trading.trade_store import TradeRecord, TradeStore
 
 
@@ -66,6 +70,25 @@ class FakeOrderStream:
             "last_message_at": "2026-06-28T00:00:00+00:00",
             "last_error": "",
         }
+
+
+class FakeRearmProtection:
+    def __init__(self, store):
+        self.store = store
+        self.calls = []
+
+    def protect(self, position_id):
+        self.calls.append(position_id)
+        position = self.store.get(position_id)
+        self.store.update_protection(
+            position_id,
+            status="active",
+            quantity=position.remaining_quantity,
+        )
+        return self.store.get(position_id)
+
+    def verify_active(self, position_id):
+        return self.store.get_protection(position_id)
 
 
 def _raw_fill(fill_id="fill-a", order_id="order-a", bill_id=None, client_order_id=""):
@@ -174,6 +197,243 @@ def test_private_order_fill_is_idempotent_with_rest_catchup(tmp_path):
 
     assert position_store.get("same-unit").opened_quantity == 0.1
     assert len(position_store.list_allocations("same-unit")) == 1
+
+
+def test_protective_stop_trigger_fill_allocates_to_owned_logical_unit(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="protected-unit",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            opened_quantity=0.1,
+            remaining_quantity=0.1,
+            status="open",
+        )
+    )
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id="protected-unit",
+            kind="attached_stop",
+            algo_id="algo-stop-a",
+            algo_client_order_id="algo-client-a",
+            quantity=0.1,
+            stop_loss=1900,
+        )
+    )
+    fill = {**_raw_fill("stop-fill-a", "trigger-order-a"), "side": "sell"}
+    service = ExecutionFillService(
+        client=FakeFillClient(
+            [fill],
+            orders={
+                "trigger-order-a": {
+                    "ordId": "trigger-order-a",
+                    "instId": "ETH-USDT-SWAP",
+                    "algoId": "algo-stop-a",
+                    "algoClOrdId": "algo-client-a",
+                    "state": "filled",
+                }
+            },
+        ),
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+    )
+
+    service.tick()
+
+    position = position_store.get("protected-unit")
+    protection = position_store.get_protection("protected-unit")
+    allocation = position_store.get_allocation("stop-fill-a")
+    assert allocation.action == "close"
+    assert allocation.exchange_order_id == "trigger-order-a"
+    assert position.status == "closed"
+    assert position.remaining_quantity == 0
+    assert protection.status == "exhausted"
+    assert protection.trigger_order_id == "trigger-order-a"
+
+
+def test_canceled_software_close_rearms_protection_for_remaining_quantity(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="rearm-unit",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            opened_quantity=0.1,
+            remaining_quantity=0.1,
+            status="closing",
+            exchange_order_id="close-order-a",
+            client_order_id="close-client-a",
+            metadata_json='{"order_action":"close"}',
+        )
+    )
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id="rearm-unit",
+            kind="standalone_stop",
+            status="canceled",
+            algo_id="algo-old",
+            algo_client_order_id="algo-client-old",
+            quantity=0.1,
+            stop_loss=1900,
+        )
+    )
+    rearm = FakeRearmProtection(position_store)
+    client = FakeFillClient(
+        [],
+        orders={
+            "close-order-a": {
+                "ordId": "close-order-a",
+                "state": "canceled",
+                "instId": "ETH-USDT-SWAP",
+            }
+        },
+    )
+    service = ExecutionFillService(
+        client=client,
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+        protection_service=rearm,
+    )
+    runner = DaemonRunner()
+    runner.register(service)
+
+    service.tick()
+
+    status = runner.runtime.get_value("execution.fills.status")
+    assert position_store.get("rearm-unit").status == "open"
+    assert position_store.get_protection("rearm-unit").status == "active"
+    assert rearm.calls == ["rearm-unit"]
+    assert status["protection_rearmed"] == 1
+
+
+def test_partial_stop_trigger_stays_tracked_and_rearms_if_child_is_canceled(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="partial-stop-unit",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            opened_quantity=0.1,
+            remaining_quantity=0.1,
+            status="open",
+        )
+    )
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id="partial-stop-unit",
+            kind="attached_stop",
+            algo_id="algo-partial",
+            algo_client_order_id="algo-client-partial",
+            quantity=0.1,
+            stop_loss=1900,
+        )
+    )
+    fill = {
+        **_raw_fill("partial-stop-fill", "trigger-partial"),
+        "side": "sell",
+        "fillSz": "0.04",
+        "algoId": "algo-partial",
+        "algoClOrdId": "algo-client-partial",
+    }
+    client = FakeFillClient(
+        [fill],
+        orders={
+            "trigger-partial": {
+                "ordId": "trigger-partial",
+                "state": "partially_filled",
+                "instId": "ETH-USDT-SWAP",
+            }
+        },
+    )
+    rearm = FakeRearmProtection(position_store)
+    service = ExecutionFillService(
+        client=client,
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+        protection_service=rearm,
+    )
+
+    service.tick()
+
+    partial = position_store.get("partial-stop-unit")
+    assert partial.status == "closing"
+    assert partial.remaining_quantity == 0.06
+    assert partial.exchange_order_id == "trigger-partial"
+    assert position_store.get_protection(partial.id).status == "triggered"
+
+    client.fills = []
+    client.orders["trigger-partial"]["state"] = "canceled"
+    service.tick()
+
+    recovered = position_store.get("partial-stop-unit")
+    assert recovered.status == "open"
+    assert recovered.remaining_quantity == 0.06
+    assert position_store.get_protection(recovered.id).status == "active"
+    assert position_store.get_protection(recovered.id).quantity == 0.06
+    assert rearm.calls == ["partial-stop-unit"]
+
+
+def test_missing_close_after_restart_rearms_canceled_protection(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="restart-close-unit",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            opened_quantity=0.1,
+            remaining_quantity=0.1,
+            status="closing",
+            client_order_id="unknown-close-client",
+            metadata_json=(
+                '{"correlation_id":"unknown-close-client",'
+                '"order_action":"close","close_quantity":0.1}'
+            ),
+        )
+    )
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id="restart-close-unit",
+            kind="attached_stop",
+            status="canceled",
+            algo_id="algo-canceled",
+            algo_client_order_id="algo-client-canceled",
+            quantity=0.1,
+            stop_loss=1900,
+        )
+    )
+    rearm = FakeRearmProtection(position_store)
+    service = ExecutionFillService(
+        client=FakeFillClient([]),
+        allocator=ExecutionAllocationService(
+            trade_store=trade_store,
+            position_store=position_store,
+        ),
+        stale_after_seconds=0,
+        protection_service=rearm,
+    )
+
+    service.tick()
+
+    recovered = position_store.get("restart-close-unit")
+    assert recovered.status == "open"
+    assert recovered.client_order_id == ""
+    assert position_store.get_protection(recovered.id).status == "active"
+    assert rearm.calls == ["restart-close-unit"]
 
 
 def test_execution_fill_service_handles_partial_fill_cancel_and_restart_recovery(tmp_path):

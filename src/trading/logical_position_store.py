@@ -44,6 +44,15 @@ CloseConditionPurpose = Literal[
     "manual_review",
     "exit",
 ]
+ProtectionKind = Literal["attached_stop", "standalone_stop"]
+ProtectionStatus = Literal[
+    "active",
+    "canceling",
+    "canceled",
+    "triggered",
+    "exhausted",
+    "failed",
+]
 
 
 def _json_dumps(value: Any) -> str:
@@ -277,8 +286,69 @@ class LogicalPositionCloseCondition:
         return data
 
 
+class LogicalPositionProtection:
+    """One exchange-side protective algo owned by one logical unit."""
+
+    __slots__ = (
+        "position_id",
+        "kind",
+        "status",
+        "algo_id",
+        "algo_client_order_id",
+        "quantity",
+        "stop_loss",
+        "trigger_order_id",
+        "metadata_json",
+        "created_at",
+        "updated_at",
+    )
+
+    def __init__(
+        self,
+        *,
+        position_id: str,
+        kind: ProtectionKind,
+        status: ProtectionStatus = "active",
+        algo_id: str,
+        algo_client_order_id: str,
+        quantity: float,
+        stop_loss: float,
+        trigger_order_id: str = "",
+        metadata_json: str = "{}",
+        created_at: str = "",
+        updated_at: str = "",
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.position_id = position_id
+        self.kind = kind
+        self.status = status
+        self.algo_id = algo_id
+        self.algo_client_order_id = algo_client_order_id
+        self.quantity = quantity
+        self.stop_loss = stop_loss
+        self.trigger_order_id = trigger_order_id
+        self.metadata_json = metadata_json
+        self.created_at = created_at or now
+        self.updated_at = updated_at or now
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "LogicalPositionProtection":
+        return cls(**{key: row[key] for key in row.keys()})
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        value = _json_loads(self.metadata_json, {})
+        return value if isinstance(value, dict) else {}
+
+    def to_dict(self) -> dict[str, Any]:
+        data = {attr: getattr(self, attr) for attr in self.__slots__}
+        data["metadata"] = self.metadata
+        del data["metadata_json"]
+        return data
+
+
 _SCHEMA_COMPONENT = "logical_positions"
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 
 
 _SCHEMA = """
@@ -337,6 +407,21 @@ CREATE TABLE IF NOT EXISTS logical_position_close_conditions (
     FOREIGN KEY (position_id) REFERENCES logical_positions(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS logical_position_protections (
+    position_id          TEXT PRIMARY KEY,
+    kind                 TEXT NOT NULL,
+    status               TEXT NOT NULL,
+    algo_id              TEXT NOT NULL,
+    algo_client_order_id TEXT NOT NULL,
+    quantity             REAL NOT NULL,
+    stop_loss            REAL NOT NULL,
+    trigger_order_id     TEXT NOT NULL DEFAULT '',
+    metadata_json        TEXT NOT NULL DEFAULT '{}',
+    created_at           TEXT NOT NULL,
+    updated_at           TEXT NOT NULL,
+    FOREIGN KEY (position_id) REFERENCES logical_positions(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_logical_positions_status
     ON logical_positions(status);
 CREATE INDEX IF NOT EXISTS idx_logical_positions_strategy
@@ -353,6 +438,14 @@ CREATE INDEX IF NOT EXISTS idx_logical_position_close_conditions_position
     ON logical_position_close_conditions(position_id);
 CREATE INDEX IF NOT EXISTS idx_logical_position_close_conditions_enabled
     ON logical_position_close_conditions(enabled);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_logical_position_protections_algo
+    ON logical_position_protections(algo_id) WHERE algo_id != '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_logical_position_protections_client
+    ON logical_position_protections(algo_client_order_id)
+    WHERE algo_client_order_id != '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_logical_position_protections_trigger
+    ON logical_position_protections(trigger_order_id)
+    WHERE trigger_order_id != '';
 """
 
 
@@ -377,8 +470,10 @@ class LogicalPositionStore:
                 self._migrate_v3(conn)
             if 4 not in versions:
                 self._migrate_v4(conn)
-            if _SCHEMA_VERSION not in versions:
+            if 5 not in versions:
                 self._migrate_v5(conn)
+            if _SCHEMA_VERSION not in versions:
+                self._migrate_v6(conn)
 
     @staticmethod
     def _migrate_v3(conn: sqlite3.Connection) -> None:
@@ -475,6 +570,82 @@ class LogicalPositionStore:
                     ),
                 )
         record_schema_version(conn, component=_SCHEMA_COMPONENT, version=5)
+
+    @staticmethod
+    def _migrate_v6(conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS logical_position_protections (
+                position_id          TEXT PRIMARY KEY,
+                kind                 TEXT NOT NULL,
+                status               TEXT NOT NULL,
+                algo_id              TEXT NOT NULL,
+                algo_client_order_id TEXT NOT NULL,
+                quantity             REAL NOT NULL,
+                stop_loss            REAL NOT NULL,
+                trigger_order_id     TEXT NOT NULL DEFAULT '',
+                metadata_json        TEXT NOT NULL DEFAULT '{}',
+                created_at           TEXT NOT NULL,
+                updated_at           TEXT NOT NULL,
+                FOREIGN KEY (position_id) REFERENCES logical_positions(id) ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_logical_position_protections_algo
+                ON logical_position_protections(algo_id) WHERE algo_id != '';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_logical_position_protections_client
+                ON logical_position_protections(algo_client_order_id)
+                WHERE algo_client_order_id != '';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_logical_position_protections_trigger
+                ON logical_position_protections(trigger_order_id)
+                WHERE trigger_order_id != '';
+            """
+        )
+        rows = conn.execute(
+            "SELECT id, source, metadata_json, created_at FROM logical_positions"
+        ).fetchall()
+        for row in rows:
+            metadata = _json_loads(row["metadata_json"], {})
+            if not isinstance(metadata, dict):
+                continue
+            proof = metadata.get("exchange_protection")
+            kind: ProtectionKind = "standalone_stop"
+            if not isinstance(proof, dict):
+                execution_result = metadata.get("execution_result")
+                protection = (
+                    execution_result.get("maybechProtection")
+                    if isinstance(execution_result, dict)
+                    else None
+                )
+                proof = protection.get("active") if isinstance(protection, dict) else None
+                kind = "attached_stop"
+            if not isinstance(proof, dict):
+                continue
+            algo_id = str(proof.get("algo_id") or "")
+            algo_client_id = str(proof.get("algo_client_order_id") or "")
+            try:
+                quantity = float(proof.get("quantity"))
+                stop_loss = float(proof.get("stop_loss"))
+            except (TypeError, ValueError):
+                continue
+            if not algo_id or not algo_client_id or quantity <= 0 or stop_loss <= 0:
+                continue
+            conn.execute(
+                """INSERT OR IGNORE INTO logical_position_protections
+                   (position_id, kind, status, algo_id, algo_client_order_id,
+                    quantity, stop_loss, trigger_order_id, metadata_json,
+                    created_at, updated_at)
+                   VALUES (?, ?, 'active', ?, ?, ?, ?, '', '{}', ?, ?)""",
+                (
+                    row["id"],
+                    kind,
+                    algo_id,
+                    algo_client_id,
+                    quantity,
+                    stop_loss,
+                    row["created_at"],
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+        record_schema_version(conn, component=_SCHEMA_COMPONENT, version=6)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -671,6 +842,133 @@ class LogicalPositionStore:
                 (position_id, action),
             ).fetchone()
         return row is not None
+
+    def save_protection(
+        self,
+        protection: LogicalPositionProtection,
+    ) -> LogicalPositionProtection:
+        if (
+            not protection.position_id
+            or not protection.algo_id
+            or not protection.algo_client_order_id
+            or protection.quantity <= 0
+            or protection.stop_loss <= 0
+        ):
+            raise ValueError("Protection identity, quantity, and stop loss are required")
+        protection.updated_at = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            if conn.execute(
+                "SELECT 1 FROM logical_positions WHERE id = ?",
+                (protection.position_id,),
+            ).fetchone() is None:
+                raise ValueError(f"Logical position {protection.position_id!r} does not exist")
+            try:
+                conn.execute(
+                    """INSERT INTO logical_position_protections
+                       (position_id, kind, status, algo_id, algo_client_order_id,
+                        quantity, stop_loss, trigger_order_id, metadata_json,
+                        created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(position_id) DO UPDATE SET
+                        kind = excluded.kind,
+                        status = excluded.status,
+                        algo_id = excluded.algo_id,
+                        algo_client_order_id = excluded.algo_client_order_id,
+                        quantity = excluded.quantity,
+                        stop_loss = excluded.stop_loss,
+                        trigger_order_id = excluded.trigger_order_id,
+                        metadata_json = excluded.metadata_json,
+                        updated_at = excluded.updated_at""",
+                    (
+                        protection.position_id,
+                        protection.kind,
+                        protection.status,
+                        protection.algo_id,
+                        protection.algo_client_order_id,
+                        protection.quantity,
+                        protection.stop_loss,
+                        protection.trigger_order_id,
+                        protection.metadata_json,
+                        protection.created_at,
+                        protection.updated_at,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise AllocationConflictError(
+                    "Protection algo identity already belongs to another logical position"
+                ) from exc
+        saved = self.get_protection(protection.position_id)
+        if saved is None:
+            raise RuntimeError("Protection disappeared after persistence")
+        return saved
+
+    def get_protection(self, position_id: str) -> LogicalPositionProtection | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM logical_position_protections WHERE position_id = ?",
+                (position_id,),
+            ).fetchone()
+        return None if row is None else LogicalPositionProtection.from_row(row)
+
+    def get_protection_by_algo(
+        self,
+        *,
+        algo_id: str = "",
+        algo_client_order_id: str = "",
+        trigger_order_id: str = "",
+    ) -> LogicalPositionProtection | None:
+        conditions: list[str] = []
+        params: list[str] = []
+        if algo_id:
+            conditions.append("algo_id = ?")
+            params.append(algo_id)
+        if algo_client_order_id:
+            conditions.append("algo_client_order_id = ?")
+            params.append(algo_client_order_id)
+        if trigger_order_id:
+            conditions.append("trigger_order_id = ?")
+            params.append(trigger_order_id)
+        if not conditions:
+            return None
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM logical_position_protections WHERE "
+                + " OR ".join(conditions),
+                params,
+            ).fetchall()
+        if len(rows) > 1:
+            raise AllocationConflictError("Algo identity matches multiple protections")
+        return None if not rows else LogicalPositionProtection.from_row(rows[0])
+
+    def update_protection(
+        self,
+        position_id: str,
+        *,
+        status: ProtectionStatus | None = None,
+        quantity: float | None = None,
+        stop_loss: float | None = None,
+        trigger_order_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> LogicalPositionProtection | None:
+        protection = self.get_protection(position_id)
+        if protection is None:
+            return None
+        if status is not None:
+            protection.status = status
+        if quantity is not None:
+            if quantity <= 0:
+                raise ValueError("Protection quantity must be positive")
+            protection.quantity = quantity
+        if stop_loss is not None:
+            if stop_loss <= 0:
+                raise ValueError("Protection stop loss must be positive")
+            protection.stop_loss = stop_loss
+        if trigger_order_id is not None:
+            protection.trigger_order_id = trigger_order_id
+        if metadata is not None:
+            merged = {**protection.metadata, **metadata}
+            protection.metadata_json = _json_dumps(merged)
+        return self.save_protection(protection)
 
     def get_by_client_order_id(self, client_order_id: str) -> LogicalPositionRecord | None:
         if not client_order_id:

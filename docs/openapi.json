@@ -664,6 +664,26 @@
             "title": "Pages Fetched",
             "type": "integer"
           },
+          "protection_errors": {
+            "default": 0,
+            "title": "Protection Errors",
+            "type": "integer"
+          },
+          "protection_rearmed": {
+            "default": 0,
+            "title": "Protection Rearmed",
+            "type": "integer"
+          },
+          "protection_triggers_linked": {
+            "default": 0,
+            "title": "Protection Triggers Linked",
+            "type": "integer"
+          },
+          "protections_checked": {
+            "default": 0,
+            "title": "Protections Checked",
+            "type": "integer"
+          },
           "stale_cancel_requested": {
             "default": 0,
             "title": "Stale Cancel Requested",
@@ -1276,6 +1296,81 @@
         "title": "LogicalPositionCloseResponse",
         "type": "object"
       },
+      "LogicalPositionProtectionResponse": {
+        "properties": {
+          "algo_client_order_id": {
+            "title": "Algo Client Order Id",
+            "type": "string"
+          },
+          "algo_id": {
+            "title": "Algo Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "attached_stop",
+              "standalone_stop"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "position_id": {
+            "title": "Position Id",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "number"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "canceling",
+              "canceled",
+              "triggered",
+              "exhausted",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stop_loss": {
+            "title": "Stop Loss",
+            "type": "number"
+          },
+          "trigger_order_id": {
+            "default": "",
+            "title": "Trigger Order Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position_id",
+          "kind",
+          "status",
+          "algo_id",
+          "algo_client_order_id",
+          "quantity",
+          "stop_loss",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "LogicalPositionProtectionResponse",
+        "type": "object"
+      },
       "LogicalPositionUnitResponse": {
         "properties": {
           "allocations": {
@@ -1379,6 +1474,16 @@
               }
             ],
             "title": "Opened Quantity"
+          },
+          "protection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LogicalPositionProtectionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "reconciliation": {
             "anyOf": [

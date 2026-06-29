@@ -113,6 +113,10 @@ export type ExecutionFillIngestionStatusResponse = {
   "order_errors"?: number;
   "client_orders_linked"?: number;
   "missing_client_orders_recovered"?: number;
+  "protection_triggers_linked"?: number;
+  "protections_checked"?: number;
+  "protection_rearmed"?: number;
+  "protection_errors"?: number;
   "pages_fetched"?: number;
   "caught_up"?: boolean;
   "cursor_in_progress"?: boolean;
@@ -224,6 +228,20 @@ export type LogicalPositionCloseResponse = {
   "status"?: string | null;
 };
 
+export type LogicalPositionProtectionResponse = {
+  "position_id": string;
+  "kind": "attached_stop" | "standalone_stop";
+  "status": "active" | "canceling" | "canceled" | "triggered" | "exhausted" | "failed";
+  "algo_id": string;
+  "algo_client_order_id": string;
+  "quantity": number;
+  "stop_loss": number;
+  "trigger_order_id"?: string;
+  "metadata"?: Record<string, unknown>;
+  "created_at": string;
+  "updated_at": string;
+};
+
 export type LogicalPositionUnitResponse = {
   "id": string;
   "source"?: "strategy" | "manual" | "import" | "recovery" | "unknown";
@@ -243,6 +261,7 @@ export type LogicalPositionUnitResponse = {
   "created_at": string;
   "updated_at": string;
   "allocations"?: Record<string, unknown>[];
+  "protection"?: LogicalPositionProtectionResponse | null;
   "close_conditions"?: LogicalPositionCloseConditionResponse[];
   "legacy_trade_rules"?: TradeRuleResponse[];
   "current_intent"?: PositionIntentResponse | null;
@@ -528,6 +547,7 @@ export type ApiSchemas = {
   "LogicalPositionCloseConditionUpdate": LogicalPositionCloseConditionUpdate;
   "LogicalPositionCloseRequest": LogicalPositionCloseRequest;
   "LogicalPositionCloseResponse": LogicalPositionCloseResponse;
+  "LogicalPositionProtectionResponse": LogicalPositionProtectionResponse;
   "LogicalPositionUnitResponse": LogicalPositionUnitResponse;
   "PositionIntentResponse": PositionIntentResponse;
   "PositionProtectionCommand": PositionProtectionCommand;

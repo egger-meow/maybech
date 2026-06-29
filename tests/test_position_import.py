@@ -8,6 +8,7 @@ from src.trading.position_import import (
     PositionImportRequest,
     PositionImportService,
 )
+from src.trading.position_protection import PositionProtectionError
 
 
 class ImportClient:
@@ -15,6 +16,8 @@ class ImportClient:
         self.pending = []
         self.placements = []
         self.amendments = []
+        self.cancellations = []
+        self.cancel_error = None
 
     def get_positions(self, *, inst_type):
         assert inst_type == "SWAP"
@@ -68,6 +71,15 @@ class ImportClient:
         order["slTriggerPx"] = kwargs["stop_trigger_px"]
         return {"algoId": order["algoId"], "sCode": "0"}
 
+    def cancel_position_stop(self, **kwargs):
+        self.cancellations.append(kwargs)
+        if self.cancel_error is not None:
+            raise self.cancel_error
+        self.pending = [
+            item for item in self.pending if item["algoId"] != kwargs["algo_id"]
+        ]
+        return {"algoId": kwargs["algo_id"], "sCode": "0"}
+
 
 def _request():
     return PositionImportRequest(
@@ -97,6 +109,7 @@ def test_import_creates_exact_gap_with_required_stop_and_is_not_repeatable(tmp_p
     metadata = json.loads(position.metadata_json)
     assert metadata["exchange_protection_verified"] is True
     assert metadata["exchange_protection"]["algo_id"] == "protect-1"
+    assert store.get_protection(position.id).status == "active"
     assert client.placements[0]["sz"] == "2"
     assert client.placements[0]["stop_trigger_px"] == "2900"
     assert store.list_close_conditions(position.id)[0].expression["symbol"] == "ETH-USDT-SWAP"
@@ -139,3 +152,38 @@ def test_protection_retry_amends_existing_stop_after_condition_change(tmp_path):
 
     assert client.amendments[0]["stop_trigger_px"] == "2850"
     assert json.loads(updated.metadata_json)["exchange_protection"]["stop_loss"] == "2850"
+
+
+def test_protection_can_be_canceled_and_proven_absent_before_close(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+
+    canceled = service.protection.cancel_for_close(
+        position.id,
+        reason="operator_requested:test",
+    )
+
+    protection = store.get_protection(position.id)
+    assert canceled is True
+    assert protection.status == "canceled"
+    assert client.pending == []
+    assert client.cancellations == [
+        {"inst_id": "ETH-USDT-SWAP", "algo_id": "protect-1", "confirm": True}
+    ]
+
+
+def test_unknown_cancel_outcome_is_persisted_as_failed(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    client.cancel_error = TimeoutError("response lost")
+
+    with pytest.raises(PositionProtectionError, match="outcome is unknown"):
+        service.protection.cancel_for_close(position.id, reason="test close")
+
+    protection = store.get_protection(position.id)
+    assert protection.status == "failed"
+    assert protection.metadata["cancel_outcome"] == "unknown"

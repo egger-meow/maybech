@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import time
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from src.trading.entry_control import ENTRY_EXECUTION_LOCK
 from src.trading.instrument_constraints import InstrumentConstraints
-from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
+from src.trading.logical_position_store import (
+    LogicalPositionProtection,
+    LogicalPositionRecord,
+    LogicalPositionStore,
+)
 from src.trading.position_reconciliation import PositionReconciler
 
 
@@ -19,8 +25,6 @@ class PositionProtectionError(RuntimeError):
 
 class PositionProtectionService:
     """Create one independently sized OKX stop for one logical position unit."""
-
-    PROTECTABLE_SOURCES = {"import", "recovery"}
 
     def __init__(self, client: Any, store: LogicalPositionStore) -> None:
         self.client = client
@@ -48,10 +52,6 @@ class PositionProtectionService:
                 raise PositionProtectionError(str(exc)) from exc
 
     def _protect(self, position: LogicalPositionRecord) -> LogicalPositionRecord:
-        if position.source not in self.PROTECTABLE_SOURCES:
-            raise PositionProtectionError(
-                "standalone protection is only for imported or recovered positions"
-            )
         if position.status not in {"open", "reducing", "closing"}:
             raise PositionProtectionError("logical position is not active")
         quantity = position.remaining_quantity or position.opened_quantity or 0.0
@@ -72,17 +72,28 @@ class PositionProtectionService:
         constraints = self._constraints(position.inst_id)
         size = constraints.normalize_size(quantity)
         stop = constraints.normalize_price(self._stop_price(position))
-        algo_client_id = self._algo_client_id(position.id)
-        pending = self.client.get_pending_algo_orders(inst_id=position.inst_id)
+        existing_protection = self.store.get_protection(position.id)
+        algo_client_id = (
+            existing_protection.algo_client_order_id
+            if existing_protection is not None
+            and existing_protection.status not in {"canceled", "exhausted"}
+            else self._algo_client_id(position.id)
+        )
+        pending = self._pending_orders(position.inst_id)
         order = self._find_pending(pending, algo_client_id)
         if order is not None:
             try:
-                proof = self._verify_pending(
+                proof = self._verify_for_kind(
                     order,
                     position=position,
                     quantity=size,
                     stop=stop,
                     algo_client_id=algo_client_id,
+                    kind=(
+                        existing_protection.kind
+                        if existing_protection is not None
+                        else "standalone_stop"
+                    ),
                 )
             except PositionProtectionError:
                 self._verify_identity(
@@ -97,14 +108,19 @@ class PositionProtectionService:
                     stop_trigger_px=stop,
                     confirm=True,
                 )
-                pending = self.client.get_pending_algo_orders(inst_id=position.inst_id)
+                pending = self._pending_orders(position.inst_id)
                 order = self._find_pending(pending, algo_client_id)
-                proof = self._verify_pending(
+                proof = self._verify_for_kind(
                     order,
                     position=position,
                     quantity=size,
                     stop=stop,
                     algo_client_id=algo_client_id,
+                    kind=(
+                        existing_protection.kind
+                        if existing_protection is not None
+                        else "standalone_stop"
+                    ),
                 )
         else:
             accepted = self.client.place_position_stop(
@@ -127,7 +143,12 @@ class PositionProtectionService:
                     },
                 },
             )
-            pending = self.client.get_pending_algo_orders(inst_id=position.inst_id)
+            try:
+                pending = self._pending_orders(position.inst_id)
+            except Exception as exc:
+                raise PositionProtectionError(
+                    f"could not inspect active protective stop: {exc}"
+                ) from exc
             order = self._find_pending(pending, algo_client_id)
             proof = self._verify_pending(
                 order,
@@ -147,7 +168,208 @@ class PositionProtectionService:
         )
         if updated is None:
             raise PositionProtectionError("logical position disappeared during protection")
+        kind = (
+            existing_protection.kind
+            if existing_protection is not None
+            and existing_protection.algo_id == str(proof["algo_id"])
+            else "standalone_stop"
+        )
+        self.store.save_protection(
+            LogicalPositionProtection(
+                position_id=position.id,
+                kind=kind,
+                status="active",
+                algo_id=str(proof["algo_id"]),
+                algo_client_order_id=str(proof["algo_client_order_id"]),
+                quantity=float(proof["quantity"]),
+                stop_loss=float(proof["stop_loss"]),
+                metadata_json=json.dumps(
+                    {"verified_at": proof["verified_at"]},
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+            )
+        )
         return updated
+
+    def cancel_for_close(self, position_id: str, *, reason: str) -> bool:
+        """Cancel and prove removal of the unit's stop before a software close."""
+        with ENTRY_EXECUTION_LOCK:
+            position = self.store.get(position_id)
+            protection = self.store.get_protection(position_id)
+            if position is None:
+                raise PositionProtectionError("logical position not found")
+            if protection is None or protection.status in {"canceled", "exhausted"}:
+                return False
+            if protection.status != "active":
+                raise PositionProtectionError(
+                    f"protection is {protection.status}; software close is unsafe"
+                )
+            try:
+                pending = self._pending_orders(position.inst_id)
+            except Exception as exc:
+                raise PositionProtectionError(
+                    f"could not inspect active protective stop: {exc}"
+                ) from exc
+            order = self._find_pending(pending, protection.algo_client_order_id)
+            self._verify_for_kind(
+                order,
+                position=position,
+                quantity=str(protection.quantity),
+                stop=str(protection.stop_loss),
+                algo_client_id=protection.algo_client_order_id,
+                kind=protection.kind,
+            )
+            self.store.update_protection(
+                position.id,
+                status="canceling",
+                metadata={"cancel_reason": reason, "cancel_requested_at": self._now()},
+            )
+            try:
+                self.client.cancel_position_stop(
+                    inst_id=position.inst_id,
+                    algo_id=protection.algo_id,
+                    confirm=True,
+                )
+            except Exception as exc:
+                self.store.update_protection(
+                    position.id,
+                    status="failed",
+                    metadata={
+                        "cancel_error": str(exc),
+                        "cancel_outcome": "unknown",
+                    },
+                )
+                raise PositionProtectionError(
+                    f"protective stop cancellation outcome is unknown: {exc}"
+                ) from exc
+            for _ in range(5):
+                try:
+                    pending = self._pending_orders(position.inst_id)
+                except Exception as exc:
+                    self.store.update_protection(
+                        position.id,
+                        status="failed",
+                        metadata={
+                            "cancel_error": str(exc),
+                            "cancel_outcome": "unknown",
+                        },
+                    )
+                    raise PositionProtectionError(
+                        f"protective stop cancellation outcome is unknown: {exc}"
+                    ) from exc
+                if self._find_pending(
+                    pending,
+                    protection.algo_client_order_id,
+                ) is None:
+                    self.store.update_protection(
+                        position.id,
+                        status="canceled",
+                        metadata={"canceled_at": self._now()},
+                    )
+                    self.store.merge_metadata(
+                        position.id,
+                        {
+                            "exchange_protection_verified": False,
+                            "exchange_protection_error": "canceled for software close",
+                            "protection_canceled_for_close": True,
+                        },
+                    )
+                    return True
+                time.sleep(0.1)
+            self.store.update_protection(
+                position.id,
+                status="active",
+                metadata={"cancel_error": "OKX still reports protection as pending"},
+            )
+            raise PositionProtectionError(
+                "OKX still reports protection as pending after cancellation"
+            )
+
+    def verify_active(self, position_id: str) -> LogicalPositionProtection:
+        """Prove the persisted protection still exists exactly on OKX."""
+        position = self.store.get(position_id)
+        protection = self.store.get_protection(position_id)
+        if position is None:
+            raise PositionProtectionError("logical position not found")
+        if protection is None:
+            raise PositionProtectionError("logical position has no owned protection")
+        if protection.status != "active":
+            raise PositionProtectionError(f"protection is {protection.status}")
+        pending = self._pending_orders(position.inst_id)
+        order = self._find_pending(pending, protection.algo_client_order_id)
+        self._verify_for_kind(
+            order,
+            position=position,
+            quantity=str(protection.quantity),
+            stop=str(protection.stop_loss),
+            algo_client_id=protection.algo_client_order_id,
+            kind=protection.kind,
+        )
+        return protection
+
+    def _pending_orders(self, inst_id: str) -> list[dict[str, Any]]:
+        try:
+            orders = [
+                *self.client.get_pending_algo_orders(
+                    inst_id=inst_id,
+                    ord_type="conditional",
+                ),
+                *self.client.get_pending_algo_orders(inst_id=inst_id, ord_type="oco"),
+            ]
+        except TypeError:
+            orders = self.client.get_pending_algo_orders(inst_id=inst_id)
+        unique: dict[str, dict[str, Any]] = {}
+        for order in orders:
+            key = str(order.get("algoId") or order.get("algoClOrdId") or id(order))
+            unique[key] = order
+        return list(unique.values())
+
+    @staticmethod
+    def _verify_for_kind(
+        order: dict[str, Any] | None,
+        *,
+        position: LogicalPositionRecord,
+        quantity: str,
+        stop: str,
+        algo_client_id: str,
+        kind: str,
+    ) -> dict[str, Any]:
+        if kind == "standalone_stop":
+            return PositionProtectionService._verify_pending(
+                order,
+                position=position,
+                quantity=quantity,
+                stop=stop,
+                algo_client_id=algo_client_id,
+            )
+        if order is None:
+            raise PositionProtectionError("OKX does not report the stop as pending")
+        checks = {
+            "algo client ID": str(order.get("algoClOrdId") or "") == algo_client_id,
+            "instrument": str(order.get("instId") or "") == position.inst_id,
+            "state": str(order.get("state") or "").lower() == "live",
+            "size": PositionProtectionService._same_decimal(order.get("sz"), quantity),
+            "stop trigger": PositionProtectionService._same_decimal(
+                order.get("slTriggerPx"), stop
+            ),
+            "stop order price": str(order.get("slOrdPx") or "") == "-1",
+            "algo ID": bool(str(order.get("algoId") or "")),
+        }
+        failed = [name for name, passed in checks.items() if not passed]
+        if failed:
+            raise PositionProtectionError(
+                "OKX attached protection verification failed: " + ", ".join(failed)
+            )
+        return {
+            "type": "attached_stop",
+            "algo_id": str(order["algoId"]),
+            "algo_client_order_id": algo_client_id,
+            "quantity": quantity,
+            "stop_loss": stop,
+            "trigger_price_type": str(order.get("slTriggerPxType") or "last"),
+            "verified_at": PositionProtectionService._now(),
+        }
 
     def _constraints(self, inst_id: str) -> InstrumentConstraints:
         payloads = self.client.get_instruments(inst_type="SWAP", inst_id=inst_id)

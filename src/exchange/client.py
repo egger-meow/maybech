@@ -520,6 +520,28 @@ class OKXClient:
         )
         return _accepted_algo_result(response, label="amend_position_stop")
 
+    def cancel_position_stop(
+        self,
+        *,
+        inst_id: str,
+        algo_id: str,
+        confirm: bool = False,
+    ) -> dict:
+        """Cancel one known protective algo before reducing its logical unit."""
+        if not _ORDER_PLACEMENT_ARMED:
+            raise PermissionError(
+                "Order placement is DISARMED. Start the runtime with --live "
+                "and pass live preflight first."
+            )
+        if not confirm:
+            raise ValueError("confirm=True is required to cancel exchange protection")
+        if not inst_id or not algo_id:
+            raise ValueError("inst_id and algo_id are required")
+        response = self.trade_api.cancel_algo_order(
+            [{"instId": inst_id, "algoId": algo_id}]
+        )
+        return _accepted_algo_result(response, label="cancel_position_stop")
+
 
 def _validate_client_order_id(client_order_id: str) -> None:
     if not _CLIENT_ORDER_ID_PATTERN.fullmatch(client_order_id):

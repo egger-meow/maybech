@@ -8,6 +8,7 @@ from src.trading.entry_control import EntryControlManager
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.logical_position_store import (
     LogicalPositionAllocation,
+    LogicalPositionProtection,
     LogicalPositionRecord,
     LogicalPositionStore,
 )
@@ -1143,6 +1144,16 @@ def test_api_projects_open_trades_as_logical_positions(monkeypatch, tmp_path):
         purpose="stop_loss",
         expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 2900},
     )
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id=trade.id,
+            kind="attached_stop",
+            algo_id="algo-api-a",
+            algo_client_order_id="algo-client-api-a",
+            quantity=0.1,
+            stop_loss=2900,
+        )
+    )
 
     runner = DaemonRunner()
     runner.runtime.set_value(
@@ -1187,6 +1198,8 @@ def test_api_projects_open_trades_as_logical_positions(monkeypatch, tmp_path):
     assert logical["metadata"]["backfilled_from_trade"] is True
     assert logical["close_conditions"][0]["id"] == "lp-stop-loss"
     assert logical["close_conditions"][0]["purpose"] == "stop_loss"
+    assert logical["protection"]["status"] == "active"
+    assert logical["protection"]["algo_id"] == "algo-api-a"
     assert logical["legacy_trade_rules"][0]["group"]["id"] == "stop-loss"
     assert logical["current_intent"]["action"] == "hold"
     assert logical["okx_net_position"]["position"] == "0.1"

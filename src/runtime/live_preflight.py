@@ -12,6 +12,10 @@ from src.runtime.lease import account_scope as build_account_scope
 from src.trading.account_risk import AccountRiskStore
 from src.trading.instrument_constraints import InstrumentConstraints
 from src.trading.logical_position_store import LogicalPositionStore
+from src.trading.position_protection import (
+    PositionProtectionError,
+    PositionProtectionService,
+)
 from src.trading.strategy_runtime import order_size, validate_strategy_for_execution
 from src.trading.strategy_store import StrategyStore
 
@@ -133,7 +137,8 @@ def run_live_preflight(
             if requested_size is not None:
                 sizes_by_instrument.setdefault(inst_id, []).append(requested_size)
 
-    for position in position_store.list_active():
+    active_positions = position_store.list_active()
+    for position in active_positions:
         if not position.inst_id:
             errors.append(f"active logical position {position.id} has no instrument")
         else:
@@ -152,6 +157,16 @@ def run_live_preflight(
                 constraints.normalize_size(requested_size)
         except Exception as exc:
             errors.append(f"instrument {inst_id}: {exc}")
+
+    protection_service = PositionProtectionService(client, position_store)
+    for position in active_positions:
+        remaining = position.remaining_quantity or position.opened_quantity or 0.0
+        if remaining <= 0:
+            continue
+        try:
+            protection_service.verify_active(position.id)
+        except PositionProtectionError as exc:
+            errors.append(f"logical position {position.id} protection: {exc}")
 
     if errors:
         raise LivePreflightError(errors)

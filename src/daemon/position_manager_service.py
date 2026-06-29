@@ -9,7 +9,6 @@ submit reduce-only closes and wait for confirmed fill allocation.
 from __future__ import annotations
 
 import json
-import logging
 import time
 from collections import deque
 from typing import Any
@@ -17,7 +16,8 @@ from uuid import uuid4
 
 from src.data.candles import CandleManager
 from src.daemon.service import DaemonService
-from src.exchange.client import OKXClient
+from src.exchange.client import OKXClient, disable_entry_order_placement
+from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.executor import Executor
 from src.trading.logical_position_store import (
@@ -25,6 +25,10 @@ from src.trading.logical_position_store import (
     LogicalPositionCloseCondition,
     LogicalPositionRecord,
     LogicalPositionStore,
+)
+from src.trading.position_protection import (
+    PositionProtectionError,
+    PositionProtectionService,
 )
 from src.trading.rules import RuleGroup
 from src.trading.signal_context import (
@@ -55,6 +59,7 @@ class PositionManagerService(DaemonService):
         candle_limit: int = 120,
         audit_store: AuditEventStore | None = None,
         close_executor: Executor | None = None,
+        protection_service: PositionProtectionService | None = None,
     ) -> None:
         super().__init__()
         self.store = store
@@ -65,17 +70,31 @@ class PositionManagerService(DaemonService):
         self.candle_limit = candle_limit
         self.audit_store = audit_store or AuditEventStore(store.db_path)
         self.close_executor = close_executor
+        self.protection_service = protection_service
         self._price_history: dict[str, deque[tuple[float, float]]] = {}
         self._max_history_seconds = 600
 
     def setup(self) -> None:
         if self.close_executor is None:
             self.close_executor = Executor(OKXClient(), dry_run=self.dry_run)
+        if (
+            not self.dry_run
+            and self.protection_service is None
+            and hasattr(self.close_executor, "client")
+        ):
+            self.protection_service = PositionProtectionService(
+                self.close_executor.client,
+                LogicalPositionStore(self.store.db_path),
+            )
         logger.info("PositionManagerService setup complete. Dry run: %s", self.dry_run)
 
     def tick(self) -> None:
         if self.runtime is None:
             return
+
+        retrying_positions = (
+            self._retry_unknown_closes() if not self.dry_run else set()
+        )
 
         prices = self._gather_prices()
         if not prices:
@@ -106,6 +125,18 @@ class PositionManagerService(DaemonService):
 
         intents: list[dict] = []
         for position in open_positions:
+            if position.id in retrying_positions:
+                intents.append(
+                    {
+                        "position_id": position.id,
+                        "trade_id": position.trade_id,
+                        "inst_id": position.inst_id,
+                        "side": position.side,
+                        "action": "hold",
+                        "reason": "close submission recovery completed this tick",
+                    }
+                )
+                continue
             trade = trades_by_id.get(position.trade_id or position.id)
             current_price = prices.get(position.inst_id, 0.0)
             if current_price <= 0:
@@ -531,6 +562,52 @@ class PositionManagerService(DaemonService):
                     "reason": "position was claimed by another close request",
                 }
 
+            protection = position_store.get_protection(position.id)
+            protection_canceled = False
+            if protection is not None:
+                if self.protection_service is None:
+                    position_store.release_pending_execution(
+                        position.id,
+                        correlation_id=correlation_id,
+                        restore_status="open",
+                    )
+                    reason = "protective-stop lifecycle service is unavailable"
+                    self._publish_and_record_event(
+                        "position.close_blocked",
+                        {**close_intent, "reason": reason},
+                    )
+                    return {
+                        **close_intent,
+                        "action": "manual_review",
+                        "reason": reason,
+                    }
+                try:
+                    protection_canceled = self.protection_service.cancel_for_close(
+                        position.id,
+                        reason=exit_reason,
+                    )
+                except PositionProtectionError as exc:
+                    position_store.release_pending_execution(
+                        position.id,
+                        correlation_id=correlation_id,
+                        restore_status="open",
+                    )
+                    current_protection = position_store.get_protection(position.id)
+                    if current_protection is not None and current_protection.status in {
+                        "canceling",
+                        "failed",
+                    }:
+                        self._disable_entries_after_protection_failure()
+                    self._publish_and_record_event(
+                        "position.close_blocked",
+                        {**close_intent, "reason": str(exc)},
+                    )
+                    return {
+                        **close_intent,
+                        "action": "manual_review",
+                        "reason": str(exc),
+                    }
+
             try:
                 result = self.close_executor.close_position(
                     inst_id=position.inst_id,
@@ -540,28 +617,92 @@ class PositionManagerService(DaemonService):
                     pos_side=self._exchange_position_side(position),
                 )
             except Exception as exc:
+                if protection_canceled:
+                    position_store.merge_metadata(
+                        position.id,
+                        {
+                            "execution_status": "close_submission_unknown",
+                            "close_submission_attempts": 1,
+                            "close_submission_error": str(exc),
+                        },
+                    )
+                    self._publish_and_record_event(
+                        "position.close_submission_unknown",
+                        {**close_intent, "error": str(exc)},
+                    )
+                    return {
+                        **close_intent,
+                        "action": "close_submission_pending",
+                        "reason": "close acceptance is unknown; retry is scheduled",
+                    }
                 position_store.release_pending_execution(
                     position.id,
                     correlation_id=correlation_id,
                     restore_status="open",
                 )
+                restoration_error = self._restore_protection_after_failed_close(
+                    position.id,
+                    required=protection_canceled,
+                )
                 self._publish_and_record_event(
                     "position.close_submission_failed",
-                    {**close_intent, "error": str(exc)},
+                    {
+                        **close_intent,
+                        "error": str(exc),
+                        "protection_restoration_error": restoration_error,
+                    },
                 )
-                return {**close_intent, "action": "close_submission_failed"}
+                return {
+                    **close_intent,
+                    "action": (
+                        "manual_review" if restoration_error else "close_submission_failed"
+                    ),
+                    "reason": restoration_error or None,
+                }
             order_id = self._extract_order_id(result)
             if not order_id:
+                if protection_canceled:
+                    position_store.merge_metadata(
+                        position.id,
+                        {
+                            "execution_status": "close_submission_unknown",
+                            "close_submission_attempts": 1,
+                            "close_submission_result": result,
+                        },
+                    )
+                    self._publish_and_record_event(
+                        "position.close_submission_unknown",
+                        {**close_intent, "execution_result": result},
+                    )
+                    return {
+                        **close_intent,
+                        "action": "close_submission_pending",
+                        "reason": "close acceptance is unknown; retry is scheduled",
+                    }
                 position_store.release_pending_execution(
                     position.id,
                     correlation_id=correlation_id,
                     restore_status="open",
                 )
+                restoration_error = self._restore_protection_after_failed_close(
+                    position.id,
+                    required=protection_canceled,
+                )
                 self._publish_and_record_event(
                     "position.close_submission_failed",
-                    {**close_intent, "execution_result": result},
+                    {
+                        **close_intent,
+                        "execution_result": result,
+                        "protection_restoration_error": restoration_error,
+                    },
                 )
-                return {**close_intent, "action": "close_submission_failed"}
+                return {
+                    **close_intent,
+                    "action": (
+                        "manual_review" if restoration_error else "close_submission_failed"
+                    ),
+                    "reason": restoration_error or None,
+                }
 
             updated = position_store.mark_pending_execution(
                 position.id,
@@ -664,6 +805,159 @@ class PositionManagerService(DaemonService):
             "strategy_id": position.strategy_id,
             **trigger_payload,
         }
+
+    def _retry_unknown_closes(self) -> set[str]:
+        touched: set[str] = set()
+        if self.close_executor is None:
+            return touched
+        position_store = LogicalPositionStore(self.store.db_path)
+        for position in position_store.list_pending_executions():
+            if position.status != "closing" or position.exchange_order_id:
+                continue
+            try:
+                metadata = json.loads(position.metadata_json or "{}")
+            except json.JSONDecodeError:
+                continue
+            if metadata.get("execution_status") != "close_submission_unknown":
+                continue
+            touched.add(position.id)
+            client_order_id = position.client_order_id
+            quantity = float(metadata.get("close_quantity") or 0)
+            attempts = int(metadata.get("close_submission_attempts") or 0)
+            if not client_order_id or quantity <= 0:
+                continue
+
+            if attempts >= 3:
+                resolved = self._resolve_unknown_close(
+                    position_store=position_store,
+                    position=position,
+                    client_order_id=client_order_id,
+                )
+                if resolved:
+                    continue
+                recovered = position_store.recover_client_order_intent(
+                    position.id,
+                    client_order_id=client_order_id,
+                    execution_status="close_not_found_after_retries",
+                )
+                if recovered is not None:
+                    restoration_error = self._restore_protection_after_failed_close(
+                        position.id,
+                        required=True,
+                    )
+                    self._publish_and_record_event(
+                        "position.close_submission_failed",
+                        {
+                            "position_id": position.id,
+                            "client_order_id": client_order_id,
+                            "attempts": attempts,
+                            "protection_restoration_error": restoration_error,
+                        },
+                    )
+                continue
+
+            try:
+                result = self.close_executor.close_position(
+                    inst_id=position.inst_id,
+                    position_side=position.side,
+                    quantity=quantity,
+                    client_order_id=client_order_id,
+                    pos_side=self._exchange_position_side(position),
+                ) or {}
+            except Exception as exc:
+                position_store.merge_metadata(
+                    position.id,
+                    {
+                        "close_submission_attempts": attempts + 1,
+                        "close_submission_error": str(exc),
+                    },
+                )
+                continue
+            order_id = self._extract_order_id(result)
+            if order_id:
+                position_store.mark_pending_execution(
+                    position.id,
+                    status="closing",
+                    exchange_order_id=order_id,
+                    client_order_id=client_order_id,
+                    metadata={
+                        "execution_status": "submitted",
+                        "close_order_id": order_id,
+                        "close_submission_attempts": attempts + 1,
+                    },
+                )
+                self._publish_and_record_event(
+                    "position.close_submitted",
+                    {
+                        "position_id": position.id,
+                        "client_order_id": client_order_id,
+                        "exchange_order_id": order_id,
+                        "retry": True,
+                    },
+                )
+            else:
+                position_store.merge_metadata(
+                    position.id,
+                    {"close_submission_attempts": attempts + 1},
+                )
+        return touched
+
+    def _resolve_unknown_close(
+        self,
+        *,
+        position_store: LogicalPositionStore,
+        position: LogicalPositionRecord,
+        client_order_id: str,
+    ) -> bool:
+        client = getattr(self.close_executor, "client", None)
+        if client is None:
+            return False
+        try:
+            orders = client.get_order(
+                position.inst_id,
+                client_order_id=client_order_id,
+            )
+        except Exception:
+            return True
+        if len(orders) != 1:
+            return False
+        order_id = self._extract_order_id(orders[0])
+        if not order_id:
+            return True
+        position_store.mark_pending_execution(
+            position.id,
+            status="closing",
+            exchange_order_id=order_id,
+            client_order_id=client_order_id,
+            metadata={
+                "execution_status": "exchange_order_recovered",
+                "close_order_id": order_id,
+            },
+        )
+        return True
+
+    def _restore_protection_after_failed_close(
+        self,
+        position_id: str,
+        *,
+        required: bool,
+    ) -> str:
+        if not required:
+            return ""
+        if self.protection_service is None:
+            error = "protective stop was canceled but cannot be restored"
+            self._disable_entries_after_protection_failure()
+            return error
+        try:
+            self.protection_service.protect(position_id)
+        except PositionProtectionError as exc:
+            self._disable_entries_after_protection_failure()
+            return f"protective stop restoration failed: {exc}"
+        return ""
+
+    def _disable_entries_after_protection_failure(self) -> None:
+        AccountRiskStore(self.store.db_path).set_entries_enabled(False)
+        disable_entry_order_placement()
 
     def _publish_and_record_event(self, event_type: str, payload: dict) -> None:
         self.publish_event(event_type, payload)

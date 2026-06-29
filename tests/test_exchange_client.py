@@ -49,6 +49,13 @@ class FakeTradeApi:
             "data": [{"algoId": kwargs["algoId"], "sCode": "0", "sMsg": ""}],
         }
 
+    def cancel_algo_order(self, params):
+        self.kwargs = params
+        return {
+            "code": "0",
+            "data": [{"algoId": params[0]["algoId"], "sCode": "0", "sMsg": ""}],
+        }
+
 
 class FakeAccountApi:
     def __init__(self):
@@ -307,3 +314,13 @@ def test_okx_client_places_and_lists_guarded_position_stop(monkeypatch):
         "newSlOrdPx": "-1",
         "newSlTriggerPxType": "last",
     }
+
+    canceled = client.cancel_position_stop(
+        inst_id="ETH-USDT-SWAP",
+        algo_id="algo-a",
+        confirm=True,
+    )
+    assert canceled["algoId"] == "algo-a"
+    assert client.trade_api.kwargs == [
+        {"instId": "ETH-USDT-SWAP", "algoId": "algo-a"}
+    ]

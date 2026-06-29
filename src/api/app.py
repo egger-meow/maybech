@@ -258,6 +258,7 @@ def _logical_position_response(
         for event in audit_events
         if event.payload.get("trade_id") == rule_owner_id or event.payload.get("position_id") == position.id
     ]
+    protection = position_store.get_protection(position.id)
     return LogicalPositionUnitResponse(
         id=position.id,
         source=position.source,
@@ -277,6 +278,7 @@ def _logical_position_response(
         created_at=position.created_at,
         updated_at=position.updated_at,
         allocations=[allocation.to_dict() for allocation in position_store.list_allocations(position.id)],
+        protection=None if protection is None else protection.to_dict(),
         close_conditions=[
             _close_condition_response(condition)
             for condition in position_store.list_close_conditions(position.id)

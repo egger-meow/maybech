@@ -17,6 +17,7 @@ from src.trading.executor import Executor
 from src.trading.entry_control import ENTRY_EXECUTION_LOCK
 from src.trading.logical_position_store import (
     LogicalPositionAllocation,
+    LogicalPositionProtection,
     LogicalPositionRecord,
     LogicalPositionStore,
 )
@@ -602,6 +603,32 @@ class StrategyService(DaemonService):
         if linked is None:
             raise RuntimeError("Prepared position could not link exchange order")
         position = linked
+        protection = execution_result.get("maybechProtection")
+        active_protection = (
+            protection.get("active") if isinstance(protection, dict) else None
+        )
+        if isinstance(active_protection, dict):
+            self.position_store.save_protection(
+                LogicalPositionProtection(
+                    position_id=position.id,
+                    kind="attached_stop",
+                    status="active",
+                    algo_id=str(active_protection.get("algo_id") or ""),
+                    algo_client_order_id=str(
+                        active_protection.get("algo_client_order_id") or ""
+                    ),
+                    quantity=float(active_protection.get("quantity") or 0),
+                    stop_loss=float(active_protection.get("stop_loss") or 0),
+                    metadata_json=json.dumps(
+                        {
+                            "take_profit": active_protection.get("take_profit"),
+                            "parent_order_id": order_id,
+                        },
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                )
+            )
 
         if self.dry_run:
             updated = self.position_store.record_allocation(

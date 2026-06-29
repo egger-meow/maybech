@@ -128,6 +128,10 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     order_errors: int = 0
     client_orders_linked: int = 0
     missing_client_orders_recovered: int = 0
+    protection_triggers_linked: int = 0
+    protections_checked: int = 0
+    protection_rearmed: int = 0
+    protection_errors: int = 0
     pages_fetched: int = 0
     caught_up: bool = False
     cursor_in_progress: bool = False
@@ -397,6 +401,27 @@ class LogicalPositionAllocationResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class LogicalPositionProtectionResponse(BaseModel):
+    position_id: str
+    kind: Literal["attached_stop", "standalone_stop"]
+    status: Literal[
+        "active",
+        "canceling",
+        "canceled",
+        "triggered",
+        "exhausted",
+        "failed",
+    ]
+    algo_id: str
+    algo_client_order_id: str
+    quantity: float
+    stop_loss: float
+    trigger_order_id: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    updated_at: str
+
+
 class ConfirmedPositionFillResponse(BaseModel):
     allocation: LogicalPositionAllocationResponse
     idempotent: bool
@@ -508,6 +533,7 @@ class LogicalPositionUnitResponse(BaseModel):
     created_at: str
     updated_at: str
     allocations: list[dict[str, Any]] = Field(default_factory=list)
+    protection: LogicalPositionProtectionResponse | None = None
     close_conditions: list[LogicalPositionCloseConditionResponse] = Field(default_factory=list)
     legacy_trade_rules: list[TradeRuleResponse] = Field(default_factory=list)
     current_intent: PositionIntentResponse | None = None

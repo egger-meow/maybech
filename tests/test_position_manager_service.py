@@ -5,7 +5,11 @@ from src.trading.execution_allocation import (
     ConfirmedExecutionFill,
     ExecutionAllocationService,
 )
-from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
+from src.trading.logical_position_store import (
+    LogicalPositionProtection,
+    LogicalPositionRecord,
+    LogicalPositionStore,
+)
 from src.trading.rules import PositionRule, RuleGroup
 from src.trading.trade_store import TradeRecord, TradeStore
 
@@ -21,13 +25,34 @@ class FakeCandleManager:
 
 
 class FakeCloseExecutor:
-    def __init__(self, result):
+    def __init__(self, result, sequence=None):
         self.result = result
         self.calls = []
+        self.sequence = sequence
 
     def close_position(self, **kwargs):
+        if self.sequence is not None:
+            self.sequence.append("close")
         self.calls.append(kwargs)
         return self.result
+
+
+class FakeProtectionService:
+    def __init__(self, store, sequence):
+        self.store = store
+        self.sequence = sequence
+        self.restores = []
+
+    def cancel_for_close(self, position_id, *, reason):
+        self.sequence.append("cancel_protection")
+        self.store.update_protection(position_id, status="canceled")
+        return True
+
+    def protect(self, position_id):
+        self.sequence.append("restore_protection")
+        self.restores.append(position_id)
+        self.store.update_protection(position_id, status="active")
+        return self.store.get(position_id)
 
 
 def _service_with_triggered_rule(tmp_path, *, dry_run: bool) -> tuple[PositionManagerService, TradeStore, str]:
@@ -197,6 +222,71 @@ def test_failed_live_close_submission_releases_position_claim(tmp_path):
     assert position.exchange_order_id == ""
     assert position.client_order_id == ""
     assert store.get_trade(trade_id).status == "open"
+
+
+def test_live_close_cancels_owned_protection_before_submission(tmp_path):
+    service, store, trade_id = _service_with_triggered_rule(tmp_path, dry_run=False)
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id=trade_id,
+            kind="attached_stop",
+            algo_id="algo-a",
+            algo_client_order_id="algo-client-a",
+            quantity=0.1,
+            stop_loss=90,
+        )
+    )
+    sequence = []
+    service.close_executor = FakeCloseExecutor(
+        {"ordId": "close-order-a"},
+        sequence=sequence,
+    )
+    service.protection_service = FakeProtectionService(position_store, sequence)
+
+    service.tick()
+
+    assert sequence == ["cancel_protection", "close"]
+    assert position_store.get_protection(trade_id).status == "canceled"
+    assert position_store.get(trade_id).status == "closing"
+
+
+def test_failed_close_rearms_owned_protection(tmp_path):
+    service, store, trade_id = _service_with_triggered_rule(tmp_path, dry_run=False)
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id=trade_id,
+            kind="attached_stop",
+            algo_id="algo-a",
+            algo_client_order_id="algo-client-a",
+            quantity=0.1,
+            stop_loss=90,
+        )
+    )
+    sequence = []
+    service.close_executor = FakeCloseExecutor({}, sequence=sequence)
+    service.protection_service = FakeProtectionService(position_store, sequence)
+
+    service.tick()
+
+    assert sequence == ["cancel_protection", "close"]
+    assert position_store.get_protection(trade_id).status == "canceled"
+    assert position_store.get(trade_id).status == "closing"
+
+    service.tick()
+    service.tick()
+    service.tick()
+
+    assert sequence == [
+        "cancel_protection",
+        "close",
+        "close",
+        "close",
+        "restore_protection",
+    ]
+    assert position_store.get_protection(trade_id).status == "active"
+    assert position_store.get(trade_id).status == "open"
 
 
 def test_position_manager_closes_trade_from_logical_close_condition(tmp_path):

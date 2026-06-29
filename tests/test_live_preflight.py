@@ -10,7 +10,11 @@ from src.daemon.service import DaemonRunner
 from src.exchange.client import arm_order_placement, disarm_order_placement
 from src.runtime.live_preflight import LivePreflightError, run_live_preflight
 from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
-from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
+from src.trading.logical_position_store import (
+    LogicalPositionProtection,
+    LogicalPositionRecord,
+    LogicalPositionStore,
+)
 from src.trading.strategy_store import StrategyStore
 from src.trading.trade_store import TradeStore
 
@@ -23,6 +27,7 @@ class FakePreflightClient:
         account_level="2",
         account_uid="account-123",
         instruments=None,
+        pending_algos=None,
     ):
         self.flag = "1"
         self.position_mode = position_mode
@@ -30,6 +35,7 @@ class FakePreflightClient:
         self.account_uid = account_uid
         self.instruments = instruments or {}
         self.instrument_calls = []
+        self.pending_algos = pending_algos or []
 
     def get_account_config(self):
         return [
@@ -44,6 +50,13 @@ class FakePreflightClient:
         self.instrument_calls.append((inst_type, inst_id))
         payload = self.instruments.get(inst_id)
         return [] if payload is None else [payload]
+
+    def get_pending_algo_orders(self, *, inst_id, ord_type="conditional"):
+        return [
+            item
+            for item in self.pending_algos
+            if item["instId"] == inst_id and item["ordType"] == ord_type
+        ]
 
 
 def _set_live_environment(monkeypatch):
@@ -134,16 +147,42 @@ def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypa
         LogicalPositionRecord(
             id="position-a",
             inst_id="BTC-USDT-SWAP",
+            side="long",
             status="open",
             opened_quantity=1,
             remaining_quantity=1,
+        )
+    )
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id="position-a",
+            kind="standalone_stop",
+            algo_id="algo-position-a",
+            algo_client_order_id="algo-client-position-a",
+            quantity=1,
+            stop_loss=90,
         )
     )
     client = FakePreflightClient(
         instruments={
             "BTC-USDT-SWAP": _instrument("BTC-USDT-SWAP"),
             "ETH-USDT-SWAP": _instrument("ETH-USDT-SWAP"),
-        }
+        },
+        pending_algos=[
+            {
+                "algoId": "algo-position-a",
+                "algoClOrdId": "algo-client-position-a",
+                "instId": "BTC-USDT-SWAP",
+                "side": "sell",
+                "ordType": "conditional",
+                "state": "live",
+                "posSide": "net",
+                "reduceOnly": "true",
+                "sz": "1",
+                "slTriggerPx": "90",
+                "slOrdPx": "-1",
+            }
+        ],
     )
 
     report = run_live_preflight(
@@ -163,6 +202,35 @@ def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypa
         ("SWAP", "BTC-USDT-SWAP"),
         ("SWAP", "ETH-USDT-SWAP"),
     ]
+
+
+def test_live_preflight_rejects_active_unit_without_owned_protection(
+    monkeypatch,
+    tmp_path,
+):
+    _set_live_environment(monkeypatch)
+    strategy_store = StrategyStore(str(tmp_path / "trades.db"))
+    _valid_risk(strategy_store.db_path)
+    position_store = LogicalPositionStore(strategy_store.db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="unprotected-unit",
+            inst_id="BTC-USDT-SWAP",
+            side="long",
+            status="open",
+            opened_quantity=1,
+            remaining_quantity=1,
+        )
+    )
+
+    with pytest.raises(LivePreflightError, match="has no owned protection"):
+        run_live_preflight(
+            client=FakePreflightClient(
+                instruments={"BTC-USDT-SWAP": _instrument("BTC-USDT-SWAP")}
+            ),
+            strategy_store=strategy_store,
+            position_store=position_store,
+        )
 
 
 @pytest.mark.parametrize(

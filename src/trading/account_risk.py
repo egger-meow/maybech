@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -324,7 +323,7 @@ class AccountRiskGuard:
                 "OKX exposure does not reconcile to logical positions: "
                 f"{reconciliation.state}"
             )
-        self._verify_imported_protection(logical_positions)
+        self._verify_owned_protection(logical_positions)
 
         existing_exposure = (
             self._position_exposure(exchange_positions)
@@ -349,40 +348,42 @@ class AccountRiskGuard:
             approved_at=datetime.now(timezone.utc).isoformat(),
         )
 
-    def _verify_imported_protection(self, positions: list[Any]) -> None:
+    def _verify_owned_protection(self, positions: list[Any]) -> None:
         pending_by_instrument: dict[str, list[dict[str, Any]]] = {}
         for position in positions:
-            if position.source not in {"import", "recovery"}:
+            remaining = position.remaining_quantity or position.opened_quantity or 0.0
+            if remaining <= 0:
                 continue
-            try:
-                metadata = json.loads(position.metadata_json or "{}")
-            except json.JSONDecodeError as exc:
+            protection = self.position_store.get_protection(position.id)
+            if protection is None:
                 raise EntryRiskBlocked(
-                    f"logical position {position.id} has invalid protection metadata"
-                ) from exc
-            proof = metadata.get("exchange_protection") if isinstance(metadata, dict) else None
-            if not isinstance(proof, dict):
+                    f"logical position {position.id} has no owned exchange protection"
+                )
+            if protection.status != "active":
                 raise EntryRiskBlocked(
-                    f"logical position {position.id} has no exchange protection proof"
+                    f"logical position {position.id} protection is {protection.status}"
                 )
             pending = pending_by_instrument.get(position.inst_id)
             if pending is None:
-                pending = self.client.get_pending_algo_orders(inst_id=position.inst_id)
+                pending = self._pending_protections(position.inst_id)
                 pending_by_instrument[position.inst_id] = pending
-            algo_id = str(proof.get("algo_id") or "")
-            algo_client_id = str(proof.get("algo_client_order_id") or "")
             matches = [
                 order
                 for order in pending
-                if str(order.get("algoId") or "") == algo_id
-                and str(order.get("algoClOrdId") or "") == algo_client_id
+                if str(order.get("algoId") or "") == protection.algo_id
+                and str(order.get("algoClOrdId") or "")
+                == protection.algo_client_order_id
             ]
             expected_side = "sell" if position.side == "long" else "buy"
             active = len(matches) == 1 and self._protection_matches(
                 matches[0],
                 position=position,
                 expected_side=expected_side,
-                proof=proof,
+                proof={
+                    "quantity": protection.quantity,
+                    "stop_loss": protection.stop_loss,
+                    "kind": protection.kind,
+                },
             )
             if not active:
                 raise EntryRiskBlocked(
@@ -410,7 +411,12 @@ class AccountRiskGuard:
             (
                 str(order.get("instId") or "") == position.inst_id,
                 str(order.get("side") or "").lower() == expected_side,
-                str(order.get("ordType") or "").lower() == "conditional",
+                str(order.get("ordType") or "").lower()
+                in (
+                    {"conditional"}
+                    if proof.get("kind") == "standalone_stop"
+                    else {"conditional", "oco"}
+                ),
                 str(order.get("state") or "").lower() == "live",
                 str(order.get("posSide") or "").lower() == "net",
                 _is_true(order.get("reduceOnly")),
@@ -419,6 +425,23 @@ class AccountRiskGuard:
                 str(order.get("slOrdPx") or "") == "-1",
             )
         )
+
+    def _pending_protections(self, inst_id: str) -> list[dict[str, Any]]:
+        try:
+            orders = [
+                *self.client.get_pending_algo_orders(
+                    inst_id=inst_id,
+                    ord_type="conditional",
+                ),
+                *self.client.get_pending_algo_orders(inst_id=inst_id, ord_type="oco"),
+            ]
+        except TypeError:
+            orders = self.client.get_pending_algo_orders(inst_id=inst_id)
+        unique: dict[str, dict[str, Any]] = {}
+        for order in orders:
+            key = str(order.get("algoId") or order.get("algoClOrdId") or id(order))
+            unique[key] = order
+        return list(unique.values())
 
     def _instrument(self, inst_id: str) -> dict[str, Any]:
         cached = self._instruments.get(inst_id)

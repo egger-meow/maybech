@@ -11,9 +11,15 @@ from src.daemon.service import DaemonService
 from src.exchange.client import OKXClient
 from src.exchange.fills import normalize_okx_fill
 from src.exchange.websocket import OKXPrivateOrderStream
+from src.exchange.client import disable_entry_order_placement
+from src.trading.account_risk import AccountRiskStore
 from src.trading.logical_position_store import AllocationConflictError
 from src.trading.execution_cursor_store import ExecutionCursorStore
 from src.trading.execution_allocation import ExecutionAllocationService
+from src.trading.position_protection import (
+    PositionProtectionError,
+    PositionProtectionService,
+)
 from src.utils.logger import setup_logger
 
 
@@ -41,6 +47,7 @@ class ExecutionFillService(DaemonService):
         private_order_stream: OKXPrivateOrderStream | None = None,
         enable_private_stream: bool = False,
         rest_poll_interval: float = 0.0,
+        protection_service: PositionProtectionService | None = None,
     ) -> None:
         super().__init__()
         self.client = client
@@ -56,10 +63,16 @@ class ExecutionFillService(DaemonService):
         self.rest_poll_interval = max(0.0, rest_poll_interval)
         self._next_rest_poll = 0.0
         self._last_rest_status: dict[str, Any] = {}
+        self.protection_service = protection_service
 
     def setup(self) -> None:
         if self.client is None:
             self.client = OKXClient()
+        if self.protection_service is None:
+            self.protection_service = PositionProtectionService(
+                self.client,
+                self.allocator.position_store,
+            )
         if self.enable_private_stream:
             if self.private_order_stream is None:
                 self.private_order_stream = OKXPrivateOrderStream(
@@ -91,6 +104,7 @@ class ExecutionFillService(DaemonService):
                 logger.error("OKX fill catch-up failed: %s", exc)
 
             self._reconcile_pending_orders(status)
+            self._reconcile_owned_protections(status)
             cursor = self.cursor_store.get(self.FILL_STREAM_ID)
             status["cursor_in_progress"] = cursor.in_progress
             status["high_water_bill_id"] = cursor.high_water_id
@@ -130,6 +144,10 @@ class ExecutionFillService(DaemonService):
             "order_errors": 0,
             "client_orders_linked": 0,
             "missing_client_orders_recovered": 0,
+            "protection_triggers_linked": 0,
+            "protections_checked": 0,
+            "protection_rearmed": 0,
+            "protection_errors": 0,
             "pages_fetched": 0,
             "caught_up": False,
             "cursor_in_progress": False,
@@ -286,6 +304,7 @@ class ExecutionFillService(DaemonService):
         status: dict[str, Any],
     ) -> None:
         for raw_fill in raw_fills:
+            self._link_protection_trigger(raw_fill, status)
             try:
                 fill = normalize_okx_fill(raw_fill)
             except ValueError as exc:
@@ -326,6 +345,92 @@ class ExecutionFillService(DaemonService):
                         "execution_status": result.execution_status,
                     },
                 )
+
+    def _link_protection_trigger(
+        self,
+        raw_order_or_fill: dict[str, Any],
+        status: dict[str, Any],
+    ) -> None:
+        order_id = str(raw_order_or_fill.get("ordId") or "")
+        if not order_id or self.allocator.position_store.get_by_exchange_order_id(order_id):
+            return
+        payload = raw_order_or_fill
+        algo_id = str(payload.get("algoId") or "")
+        algo_client_id = str(
+            payload.get("algoClOrdId") or payload.get("attachAlgoClOrdId") or ""
+        )
+        if not algo_id and not algo_client_id and self.client is not None:
+            inst_id = str(payload.get("instId") or "")
+            if inst_id:
+                try:
+                    orders = self.client.get_order(inst_id, order_id=order_id)
+                except Exception as exc:
+                    status["protection_errors"] += 1
+                    logger.warning(
+                        "Failed to inspect unmatched order %s for algo ownership: %s",
+                        order_id,
+                        exc,
+                    )
+                    return
+                if len(orders) == 1:
+                    payload = orders[0]
+                    algo_id = str(payload.get("algoId") or "")
+                    algo_client_id = str(payload.get("algoClOrdId") or "")
+        protection = self.allocator.position_store.get_protection_by_algo(
+            algo_id=algo_id,
+            algo_client_order_id=algo_client_id,
+        )
+        if protection is None:
+            return
+        position = self.allocator.position_store.get(protection.position_id)
+        if position is None:
+            raise LookupError(
+                f"Protection owner {protection.position_id!r} no longer exists"
+            )
+        trigger_client_order_id = str(payload.get("clOrdId") or "")
+        if position.status in {"open", "reducing"}:
+            self.allocator.position_store.mark_pending_execution(
+                protection.position_id,
+                status="closing",
+                exchange_order_id=order_id,
+                client_order_id=trigger_client_order_id,
+                metadata={
+                    "order_action": "close",
+                    "close_reason": "exchange protective stop triggered",
+                    "execution_status": "protection_triggered",
+                    "protection_algo_id": protection.algo_id,
+                },
+            )
+        else:
+            self.allocator.position_store.link_execution_order(
+                protection.position_id,
+                exchange_order_id=order_id,
+                client_order_id=trigger_client_order_id,
+                action="close",
+                metadata={
+                    "source": "protective_stop_trigger",
+                    "algo_id": protection.algo_id,
+                    "algo_client_order_id": protection.algo_client_order_id,
+                },
+            )
+        self.allocator.position_store.update_protection(
+            protection.position_id,
+            status="triggered",
+            trigger_order_id=order_id,
+            metadata={"trigger_detected_at": datetime.now(timezone.utc).isoformat()},
+        )
+        status["protection_triggers_linked"] += 1
+        self.allocator.audit_store.create(
+            id=f"protection-trigger:{protection.algo_id}:{order_id}",
+            type="position.protection_triggered",
+            source=self.name,
+            payload={
+                "position_id": protection.position_id,
+                "algo_id": protection.algo_id,
+                "algo_client_order_id": protection.algo_client_order_id,
+                "trigger_order_id": order_id,
+            },
+        )
 
     def _record_fill_rejection(
         self,
@@ -405,6 +510,11 @@ class ExecutionFillService(DaemonService):
                                 "client_order_id": client_order_id,
                                 "recovered_status": recovered.status,
                             },
+                        )
+                        self._rearm_protection_if_needed(
+                            recovered,
+                            order_id="",
+                            status=status,
                         )
                     continue
                 status["order_errors"] += 1
@@ -572,6 +682,85 @@ class ExecutionFillService(DaemonService):
             payload=payload,
         )
         self.publish_event("execution.order_terminal_recovered", payload)
+        self._rearm_protection_if_needed(
+            recovered,
+            order_id=order_id,
+            status=status,
+        )
+
+    def _rearm_protection_if_needed(
+        self,
+        position: Any,
+        *,
+        order_id: str,
+        status: dict[str, Any],
+    ) -> None:
+        protection = self.allocator.position_store.get_protection(position.id)
+        if (
+            position.status == "open"
+            and protection is not None
+            and protection.status in {"canceled", "triggered"}
+        ):
+            try:
+                if self.protection_service is None:
+                    raise PositionProtectionError(
+                        "protective-stop lifecycle service is unavailable"
+                    )
+                self.protection_service.protect(position.id)
+                self.allocator.position_store.merge_metadata(
+                    position.id,
+                    {"protection_canceled_for_close": False},
+                )
+                status["protection_rearmed"] += 1
+            except PositionProtectionError as exc:
+                status["protection_errors"] += 1
+                AccountRiskStore(self.allocator.trade_store.db_path).set_entries_enabled(
+                    False
+                )
+                disable_entry_order_placement()
+                self.allocator.audit_store.create(
+                    type="position.protection_rearm_failed",
+                    source=self.name,
+                    payload={
+                        "position_id": position.id,
+                        "exchange_order_id": order_id,
+                        "error": str(exc),
+                    },
+                )
+
+    def _reconcile_owned_protections(self, status: dict[str, Any]) -> None:
+        if self.protection_service is None:
+            return
+        for position in self.allocator.position_store.list(status="open", limit=500):
+            remaining = position.remaining_quantity or position.opened_quantity or 0.0
+            if remaining <= 0:
+                continue
+            status["protections_checked"] += 1
+            protection = self.allocator.position_store.get_protection(position.id)
+            if protection is not None and protection.status == "triggered":
+                status["protection_errors"] += 1
+                self._disable_entries_for_protection_error()
+                continue
+            try:
+                self.protection_service.verify_active(position.id)
+                continue
+            except PositionProtectionError:
+                pass
+            try:
+                self.protection_service.protect(position.id)
+                status["protection_rearmed"] += 1
+            except PositionProtectionError as exc:
+                status["protection_errors"] += 1
+                self._disable_entries_for_protection_error()
+                self.allocator.audit_store.create(
+                    type="position.protection_reconcile_failed",
+                    source=self.name,
+                    payload={"position_id": position.id, "error": str(exc)},
+                )
+
+    def _disable_entries_for_protection_error(self) -> None:
+        AccountRiskStore(self.allocator.trade_store.db_path).set_entries_enabled(False)
+        disable_entry_order_placement()
 
     @staticmethod
     def _order_age_seconds(order: dict[str, Any]) -> float:
