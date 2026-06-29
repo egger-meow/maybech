@@ -115,6 +115,9 @@ credentials, `MAYBECH_ARM_ORDERS=1`, a derivatives-capable account in
 checks. Startup aborts before daemon
 threads run if any preflight check fails. `OKX_FLAG=1` targets demo trading;
 `OKX_FLAG=0` targets real trading.
+Demo mode reads only `DEMO_OKX_API_KEY`, `DEMO_OKX_API_SECRET`, and
+`DEMO_OKX_PASSPHRASE`. Production mode reads only the corresponding unprefixed
+`OKX_*` variables, preventing endpoint mode and credential-set mixing.
 Live startup also requires authenticated subscription to the OKX private
 `orders/SWAP` channel. New strategy entries stay blocked until durable REST
 fill catch-up is current and that stream is connected; reduce-only closes stay

@@ -18,6 +18,10 @@ It also exposes `GET /market/btc-regime`, `GET /strategy/decisions`, and `GET /p
 Copy `.env.example` to `.env` for local operator settings. All backend stores
 share `MAYBECH_DB_PATH` (`data/trades.db` by default). Use an absolute path for
 service or scheduled-task deployments where the working directory may vary.
+Production credentials use `OKX_API_KEY`, `OKX_API_SECRET`, and
+`OKX_PASSPHRASE`. Demo credentials use the corresponding `DEMO_OKX_*` names.
+`OKX_FLAG=1` must select only demo credentials; `OKX_FLAG=0` must select only
+production credentials. Never copy real values into `.env.example` or docs.
 Trading instruments, timeframe, signals, default close rules, and contract
 counts are strategy data in SQLite; they are intentionally absent from `.env`.
 Before `--live`, populate `metadata.order_size_contracts` and

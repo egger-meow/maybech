@@ -2,8 +2,9 @@
 Integration tests — calls real OKX API (read-only, no orders placed).
 
 Prerequisites:
-  - .env file with valid OKX_API_KEY, OKX_API_SECRET, OKX_PASSPHRASE
-  - OKX_FLAG=1 (demo mode recommended)
+  - .env contains the credential set matching OKX_FLAG
+  - OKX_FLAG=1 selects DEMO_OKX_API_KEY/SECRET/PASSPHRASE
+  - OKX_FLAG=0 selects OKX_API_KEY/SECRET/PASSPHRASE
 
 Run:
   .venv\\Scripts\\python.exe -m pytest tests/test_okx_integration.py -v

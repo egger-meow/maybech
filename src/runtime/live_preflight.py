@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from src.config.settings import load_okx_connection_settings
 from src.exchange.client import OKXClient
 from src.runtime.lease import account_scope as build_account_scope
 from src.trading.account_risk import AccountRiskStore
@@ -188,12 +189,19 @@ def run_live_preflight(
 
 def _validate_local_environment() -> list[str]:
     errors: list[str] = []
-    for key in ("OKX_API_KEY", "OKX_API_SECRET", "OKX_PASSPHRASE"):
-        if not os.getenv(key, "").strip():
-            errors.append(f"{key} is required")
     flag = os.getenv("OKX_FLAG", "1")
     if flag not in {"0", "1"}:
         errors.append("OKX_FLAG must be '0' for real trading or '1' for demo trading")
+    else:
+        connection = load_okx_connection_settings(flag)
+        prefix = "DEMO_" if flag == "1" else ""
+        for key, value in (
+            (f"{prefix}OKX_API_KEY", connection.api_key),
+            (f"{prefix}OKX_API_SECRET", connection.api_secret),
+            (f"{prefix}OKX_PASSPHRASE", connection.passphrase),
+        ):
+            if not value.strip():
+                errors.append(f"{key} is required")
     if os.getenv("MAYBECH_ARM_ORDERS", "0") != "1":
         errors.append("MAYBECH_ARM_ORDERS must be exactly '1' for --live startup")
     return errors

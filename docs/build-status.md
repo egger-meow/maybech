@@ -39,10 +39,10 @@ capability moves from planned to partial or complete.
 
 ## Next Build Milestones
 
-1. Complete the execution-confirmed logical-unit reduce lifecycle in
-   `toImprove.md` using typed interfaces and mocks. Credential rotation remains
-   a separate external gate: the disclosed key must not be used for any
-   authenticated check, order-capable action, or live runtime start.
+1. Prove the complete minimum-size demo lifecycle in `toImprove.md`, including
+   execution-confirmed logical-unit reduce and restart recovery.
+2. Stage minimum-exposure production verification only after the demo lifecycle
+   passes, with unattended strategy entries still disabled.
 
 ## Execution Verification Evidence
 
@@ -59,8 +59,7 @@ capability moves from planned to partial or complete.
   that the key belongs to the real account, which reports account level `2` and
   incompatible `long_short_mode`. No order endpoint was called. Verification
   requires a demo API key and a demo account configured for `net_mode`.
-- 2026-06-29: the operator canceled the demo path because a demo key is not
-  available and requested staged real-account preparation. Local state was
-  confirmed fail-closed: `MAYBECH_ARM_ORDERS=0`, no account risk record, entries
-  disabled, zero strategies, and zero active logical positions. The disclosed
-  production key must be revoked and replaced before authenticated work resumes.
+- 2026-06-29: dedicated production and demo keys were created and the previously
+  disclosed key was revoked. Demo verification is active again and must use the
+  `DEMO_OKX_*` credentials with `OKX_FLAG=1`. The historical failed probes above
+  are retained as evidence only; they are not current blockers.

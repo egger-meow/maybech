@@ -24,35 +24,25 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 5. Missing or stale UI/runtime information that prevents fluent operator control.
 6. A hidden or underlying safety threat that could become dangerous during real-money operation.
 
-## External Blocked Gate
-
-Credential rotation and real-account verification are externally blocked
-because the operator cannot currently create another API key. The disclosed key
-must not be used. Authenticated OKX calls, account verification, order-capable
-actions, and live execution remain disabled. This gate blocks live verification
-only; it does not block backend work using persisted state, typed interfaces,
-mocks, and local tests.
-
 ## Current Priorities
 
-### Priority Update Justification - 2026-06-29
-
-The prior item combined an unavailable external credential action with all
-backend readiness, causing unrelated backend work to stop. The operator
-explicitly directed the project to keep the credential blocked while continuing
-non-authenticated backend foundations. The next concrete operator-control and
-state-correctness blocker is per-unit reduce execution, which must be correct
-before real money can be managed from the product API.
-
-1. Complete the execution-confirmed logical-position reduce lifecycle through
-   typed backend interfaces and mocks. A confirmed reduce command must claim an
-   exact unit quantity, safely cancel or resize its owned stop, submit only a
-   reduce-only intent, wait for confirmed fills before changing quantity,
-   restore exact protection for any remainder, recover unknown/canceled/restart
-   outcomes idempotently, and persist complete audit evidence.
+1. Prove the complete demo lifecycle using the dedicated demo credentials:
+   read-only account and position-mode verification, minimum-size open,
+   cancellation, close and partial reduce, protective-stop attach/resize/cancel,
+   cleanup, and restart recovery. Logical-position state must change only from
+   confirmed execution evidence, retries must be idempotent, and every action
+   must retain durable audit evidence.
+2. Stage production-account readiness only after priority 1 passes. Production
+   verification must use the dedicated production credentials, minimum exposure,
+   explicit process and operator arming, and disabled unattended strategy entries.
+   Demo and production credentials must never be selected for the wrong OKX
+   environment.
 
 ## Non-Blocking / Later
 
 Items here may be useful, but they must not interrupt `Current Priorities` while real-money safety blockers still exist.
 
 Add work here only when it is not required to prevent uncontrolled behavior, excessive loss, incorrect live execution, broken operator control, unexpected state, or hidden safety threats.
+
+- Frontend polish, broad architecture cleanup, and unrelated refactors remain
+  deferred until the backend execution finish line is proven.

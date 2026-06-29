@@ -60,9 +60,9 @@ class FakePreflightClient:
 
 
 def _set_live_environment(monkeypatch):
-    monkeypatch.setenv("OKX_API_KEY", "key")
-    monkeypatch.setenv("OKX_API_SECRET", "secret")
-    monkeypatch.setenv("OKX_PASSPHRASE", "passphrase")
+    monkeypatch.setenv("DEMO_OKX_API_KEY", "key")
+    monkeypatch.setenv("DEMO_OKX_API_SECRET", "secret")
+    monkeypatch.setenv("DEMO_OKX_PASSPHRASE", "passphrase")
     monkeypatch.setenv("OKX_FLAG", "1")
     monkeypatch.setenv("MAYBECH_ARM_ORDERS", "1")
 
@@ -118,9 +118,9 @@ def _valid_risk(db_path):
 
 def test_live_preflight_rejects_missing_local_safety_configuration(monkeypatch, tmp_path):
     for key in (
-        "OKX_API_KEY",
-        "OKX_API_SECRET",
-        "OKX_PASSPHRASE",
+        "DEMO_OKX_API_KEY",
+        "DEMO_OKX_API_SECRET",
+        "DEMO_OKX_PASSPHRASE",
         "MAYBECH_ARM_ORDERS",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -133,7 +133,7 @@ def test_live_preflight_rejects_missing_local_safety_configuration(monkeypatch, 
             position_store=LogicalPositionStore(store.db_path),
         )
 
-    assert "OKX_API_KEY is required" in exc_info.value.errors
+    assert "DEMO_OKX_API_KEY is required" in exc_info.value.errors
     assert "MAYBECH_ARM_ORDERS must be exactly '1'" in str(exc_info.value)
 
 

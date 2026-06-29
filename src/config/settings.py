@@ -26,13 +26,53 @@ def _get_int(key: str, default: int = 0) -> int:
 
 
 @dataclass(frozen=True)
+class OKXConnectionSettings:
+    flag: str
+    api_key: str
+    api_secret: str
+    passphrase: str
+
+    @property
+    def execution_mode(self) -> str:
+        return "demo" if self.flag == "1" else "production"
+
+
+def load_okx_connection_settings(flag: str | None = None) -> OKXConnectionSettings:
+    """Select one complete credential set for the requested OKX environment."""
+    selected_flag = _get("OKX_FLAG", "1") if flag is None else str(flag)
+    if selected_flag == "1":
+        return OKXConnectionSettings(
+            flag=selected_flag,
+            api_key=_get("DEMO_OKX_API_KEY"),
+            api_secret=_get("DEMO_OKX_API_SECRET"),
+            passphrase=_get("DEMO_OKX_PASSPHRASE"),
+        )
+    if selected_flag == "0":
+        return OKXConnectionSettings(
+            flag=selected_flag,
+            api_key=_get("OKX_API_KEY"),
+            api_secret=_get("OKX_API_SECRET"),
+            passphrase=_get("OKX_PASSPHRASE"),
+        )
+    raise ValueError("OKX_FLAG must be '0' for production or '1' for demo")
+
+
+@dataclass(frozen=True)
 class Settings:
     """Immutable application settings — populated from environment variables."""
 
     # OKX API
-    OKX_API_KEY: str = field(default_factory=lambda: _get("OKX_API_KEY"))
-    OKX_API_SECRET: str = field(default_factory=lambda: _get("OKX_API_SECRET"))
-    OKX_PASSPHRASE: str = field(default_factory=lambda: _get("OKX_PASSPHRASE"))
+    # These public fields are the credentials selected by OKX_FLAG. Callers do
+    # not choose a credential namespace independently from the endpoint mode.
+    OKX_API_KEY: str = field(
+        default_factory=lambda: load_okx_connection_settings().api_key
+    )
+    OKX_API_SECRET: str = field(
+        default_factory=lambda: load_okx_connection_settings().api_secret
+    )
+    OKX_PASSPHRASE: str = field(
+        default_factory=lambda: load_okx_connection_settings().passphrase
+    )
     OKX_FLAG: str = field(default_factory=lambda: _get("OKX_FLAG", "1"))
 
     # Persistence
