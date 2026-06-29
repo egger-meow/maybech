@@ -6,7 +6,10 @@ import pytest
 from src.daemon.execution_fill_service import ExecutionFillService
 from src.daemon.service import DaemonRunner
 from src.exchange.fills import normalize_okx_fill
-from src.trading.execution_allocation import ExecutionAllocationService
+from src.trading.execution_allocation import (
+    ConfirmedExecutionFill,
+    ExecutionAllocationService,
+)
 from src.trading.execution_cursor_store import ExecutionCursorStore
 from src.trading.logical_position_store import (
     LogicalPositionProtection,
@@ -313,6 +316,88 @@ def test_canceled_software_close_rearms_protection_for_remaining_quantity(tmp_pa
     assert position_store.get_protection("rearm-unit").status == "active"
     assert rearm.calls == ["rearm-unit"]
     assert status["protection_rearmed"] == 1
+
+
+def test_canceled_partial_reduce_recovers_confirmed_remainder_and_protection(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="reduce-unit",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            opened_quantity=0.1,
+            remaining_quantity=0.1,
+            status="reducing",
+            exchange_order_id="reduce-order-a",
+            client_order_id="reduce-client-a",
+            metadata_json=(
+                '{"order_action":"reduce","execution_quantity":0.04}'
+            ),
+        )
+    )
+    position_store.link_execution_order(
+        "reduce-unit",
+        exchange_order_id="reduce-order-a",
+        client_order_id="reduce-client-a",
+        action="reduce",
+    )
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id="reduce-unit",
+            kind="standalone_stop",
+            status="canceled",
+            algo_id="algo-old",
+            algo_client_order_id="algo-client-old",
+            quantity=0.1,
+            stop_loss=1900,
+        )
+    )
+    allocator = ExecutionAllocationService(
+        trade_store=trade_store,
+        position_store=position_store,
+    )
+    partial = allocator.ingest(
+        ConfirmedExecutionFill(
+            fill_id="reduce-fill-a",
+            exchange_order_id="reduce-order-a",
+            quantity=0.02,
+            price=2000,
+            confirmation_source="okx_fill",
+        )
+    )
+    assert partial.execution_status == "partially_reduced"
+
+    rearm = FakeRearmProtection(position_store)
+    service = ExecutionFillService(
+        client=FakeFillClient(
+            [],
+            orders={
+                "reduce-order-a": {
+                    "ordId": "reduce-order-a",
+                    "state": "canceled",
+                    "instId": "ETH-USDT-SWAP",
+                }
+            },
+        ),
+        allocator=allocator,
+        protection_service=rearm,
+    )
+    runner = DaemonRunner()
+    runner.register(service)
+
+    service.tick()
+
+    recovered = position_store.get("reduce-unit")
+    protection = position_store.get_protection("reduce-unit")
+    assert recovered.status == "open"
+    assert recovered.remaining_quantity == 0.08
+    assert recovered.exchange_order_id == ""
+    assert recovered.client_order_id == ""
+    assert protection.status == "active"
+    assert protection.quantity == 0.08
+    assert rearm.calls == ["reduce-unit"]
 
 
 def test_partial_stop_trigger_stays_tracked_and_rearms_if_child_is_canceled(tmp_path):

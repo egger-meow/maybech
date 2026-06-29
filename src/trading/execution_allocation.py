@@ -152,7 +152,13 @@ class ExecutionAllocationService:
             updated.id,
             exchange_order_id=allocation.exchange_order_id,
             execution_status=execution_status,
-            completed=execution_status in {"filled", "closed"},
+            completed=(
+                execution_status in {"filled", "closed"}
+                or (
+                    allocation.action == "reduce"
+                    and execution_status == "reduced"
+                )
+            ),
         )
         if tracked is not None:
             updated = tracked
@@ -320,6 +326,24 @@ class ExecutionAllocationService:
                     exit_reason=allocation.reason,
                 )
             return "closed"
+        if allocation.action == "reduce":
+            expected_quantity = self._metadata_float(position, "execution_quantity")
+            if expected_quantity is None:
+                expected_quantity = self._metadata_float(position, "close_quantity")
+            if expected_quantity is not None and allocation.exchange_order_id:
+                filled_quantity = sum(
+                    item.quantity
+                    for item in self.position_store.list_allocations(position.id)
+                    if item.action == "reduce"
+                    and item.exchange_order_id == allocation.exchange_order_id
+                )
+                if filled_quantity < expected_quantity - 1e-12:
+                    self.position_store.update_status(
+                        position.id,
+                        status="reducing",
+                        remaining_quantity=position.remaining_quantity,
+                    )
+                    return "partially_reduced"
         return "reduced"
 
     def _record_allocation_audit(

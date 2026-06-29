@@ -1,4 +1,5 @@
 from src.daemon.events import RuntimeState
+from src.daemon.execution_fill_service import ExecutionFillService
 from src.daemon.position_manager_service import PositionManagerService
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.execution_allocation import (
@@ -10,6 +11,7 @@ from src.trading.logical_position_store import (
     LogicalPositionRecord,
     LogicalPositionStore,
 )
+from src.trading.position_protection import PositionProtectionError
 from src.trading.rules import PositionRule, RuleGroup
 from src.trading.trade_store import TradeRecord, TradeStore
 
@@ -51,8 +53,26 @@ class FakeProtectionService:
     def protect(self, position_id):
         self.sequence.append("restore_protection")
         self.restores.append(position_id)
-        self.store.update_protection(position_id, status="active")
-        return self.store.get(position_id)
+        position = self.store.get(position_id)
+        remaining = position.remaining_quantity or position.opened_quantity
+        self.store.update_protection(
+            position_id,
+            status="active",
+            quantity=remaining,
+        )
+        return position
+
+    def verify_active(self, position_id):
+        position = self.store.get(position_id)
+        protection = self.store.get_protection(position_id)
+        remaining = position.remaining_quantity or position.opened_quantity
+        if (
+            protection is None
+            or protection.status != "active"
+            or protection.quantity != remaining
+        ):
+            raise PositionProtectionError("protection is not exact")
+        return protection
 
 
 def _service_with_triggered_rule(tmp_path, *, dry_run: bool) -> tuple[PositionManagerService, TradeStore, str]:
@@ -207,6 +227,160 @@ def test_live_close_submission_waits_for_confirmed_partial_fills(tmp_path):
     assert "position.close_requested" in audit_types
     assert "position.close_submitted" in audit_types
     assert "position.allocation_confirmed" in audit_types
+
+
+def test_dry_run_reduce_changes_only_requested_logical_quantity(tmp_path):
+    service, store, trade_id = _service_with_triggered_rule(tmp_path, dry_run=True)
+
+    result = service.request_reduce(
+        trade_id,
+        quantity=0.04,
+        reason="manual risk reduction",
+    )
+
+    position_store = LogicalPositionStore(store.db_path)
+    position = position_store.get(trade_id)
+    assert result["action"] == "reduced"
+    assert position.status == "open"
+    assert position.remaining_quantity == 0.06
+    assert store.get_trade(trade_id).status == "open"
+    allocation = position_store.list_allocations(trade_id)[0]
+    assert allocation.action == "reduce"
+    assert allocation.quantity == 0.04
+    assert len(AuditEventStore(store.db_path).list(event_type="position.reduced")) == 1
+
+
+def test_live_reduce_waits_for_target_fills_then_restores_remaining_protection(tmp_path):
+    service, store, trade_id = _service_with_triggered_rule(tmp_path, dry_run=False)
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id=trade_id,
+            kind="attached_stop",
+            algo_id="algo-a",
+            algo_client_order_id="algo-client-a",
+            quantity=0.1,
+            stop_loss=90,
+        )
+    )
+    sequence = []
+    service.close_executor = FakeCloseExecutor(
+        {"ordId": "reduce-order-a"},
+        sequence=sequence,
+    )
+    service.protection_service = FakeProtectionService(position_store, sequence)
+
+    submitted = service.request_reduce(
+        trade_id,
+        quantity=0.04,
+        reason="manual risk reduction",
+    )
+
+    pending = position_store.get(trade_id)
+    assert submitted["action"] == "reduce_submitted"
+    assert pending.status == "reducing"
+    assert pending.remaining_quantity == 0.1
+    assert position_store.get_execution_order("reduce-order-a")["action"] == "reduce"
+    assert sequence == ["cancel_protection", "close"]
+    assert service.close_executor.calls[0]["quantity"] == 0.04
+
+    allocator = ExecutionAllocationService(
+        trade_store=store,
+        position_store=position_store,
+    )
+    partial = allocator.ingest(
+        ConfirmedExecutionFill(
+            fill_id="reduce-fill-1",
+            exchange_order_id="reduce-order-a",
+            quantity=0.02,
+            price=120,
+            confirmation_source="okx_fill",
+        )
+    )
+    completed = allocator.ingest(
+        ConfirmedExecutionFill(
+            fill_id="reduce-fill-2",
+            exchange_order_id="reduce-order-a",
+            quantity=0.02,
+            price=119,
+            confirmation_source="okx_fill",
+        )
+    )
+
+    assert partial.execution_status == "partially_reduced"
+    assert partial.position.status == "reducing"
+    assert partial.position.remaining_quantity == 0.08
+    assert partial.position.exchange_order_id == "reduce-order-a"
+    assert completed.execution_status == "reduced"
+    assert completed.position.status == "open"
+    assert completed.position.remaining_quantity == 0.06
+    assert completed.position.exchange_order_id == ""
+    assert position_store.get_protection(trade_id).status == "canceled"
+
+    fill_service = ExecutionFillService(
+        client=object(),
+        allocator=allocator,
+        protection_service=service.protection_service,
+    )
+    fill_status = fill_service._empty_status()
+    fill_service._reconcile_owned_protections(fill_status)
+    protection = position_store.get_protection(trade_id)
+    assert protection.status == "active"
+    assert protection.quantity == 0.06
+    assert fill_status["protection_rearmed"] == 1
+    audit_types = {
+        event.type
+        for event in AuditEventStore(store.db_path).list(position_id=trade_id)
+    }
+    assert "position.reduce_requested" in audit_types
+    assert "position.reduce_submitted" in audit_types
+
+
+def test_unknown_reduce_submission_reuses_intent_and_restores_protection(tmp_path):
+    service, store, trade_id = _service_with_triggered_rule(tmp_path, dry_run=False)
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id=trade_id,
+            kind="attached_stop",
+            algo_id="algo-a",
+            algo_client_order_id="algo-client-a",
+            quantity=0.1,
+            stop_loss=90,
+        )
+    )
+    sequence = []
+    service.close_executor = FakeCloseExecutor({}, sequence=sequence)
+    service.protection_service = FakeProtectionService(position_store, sequence)
+
+    submitted = service.request_reduce(
+        trade_id,
+        quantity=0.04,
+        reason="manual risk reduction",
+    )
+    assert submitted["action"] == "reduce_submission_pending"
+    client_order_id = position_store.get(trade_id).client_order_id
+
+    service.tick()
+    service.tick()
+    service.tick()
+
+    recovered = position_store.get(trade_id)
+    assert recovered.status == "open"
+    assert recovered.remaining_quantity == 0.1
+    assert recovered.client_order_id == ""
+    assert position_store.get_protection(trade_id).status == "active"
+    assert all(
+        call["client_order_id"] == client_order_id
+        for call in service.close_executor.calls
+    )
+    assert len({call["client_order_id"] for call in service.close_executor.calls}) == 1
+    audit_types = {
+        event.type
+        for event in AuditEventStore(store.db_path).list(position_id=trade_id)
+    }
+    assert "position.reduce_submission_unknown" in audit_types
+    assert "position.reduce_submission_failed" in audit_types
 
 
 def test_failed_live_close_submission_releases_position_claim(tmp_path):

@@ -424,6 +424,7 @@
               {
                 "enum": [
                   "partially_filled",
+                  "partially_reduced",
                   "filled",
                   "reduced",
                   "closed"
@@ -1370,6 +1371,160 @@
           "updated_at"
         ],
         "title": "LogicalPositionProtectionResponse",
+        "type": "object"
+      },
+      "LogicalPositionReduceRequest": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "quantity": {
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity",
+            "type": "number"
+          },
+          "reason": {
+            "default": "manual reduce",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "quantity"
+        ],
+        "title": "LogicalPositionReduceRequest",
+        "type": "object"
+      },
+      "LogicalPositionReduceResponse": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "current_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Price"
+          },
+          "exchange_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Order Id"
+          },
+          "execution_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Status"
+          },
+          "exit_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Reason"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "position_id": {
+            "title": "Position Id",
+            "type": "string"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "trade_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Id"
+          }
+        },
+        "required": [
+          "position_id",
+          "inst_id",
+          "side",
+          "action"
+        ],
+        "title": "LogicalPositionReduceResponse",
         "type": "object"
       },
       "LogicalPositionUnitResponse": {
@@ -4206,6 +4361,55 @@
           }
         },
         "summary": "Amend Logical Position Stop"
+      }
+    },
+    "/positions/logical/{position_id}/reduce": {
+      "post": {
+        "operationId": "reduce_logical_position_positions_logical__position_id__reduce_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogicalPositionReduceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionReduceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reduce Logical Position"
       }
     },
     "/risk/entries": {

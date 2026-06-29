@@ -432,7 +432,13 @@ class ConfirmedPositionFillResponse(BaseModel):
     opened_quantity: float | None = None
     remaining_quantity: float | None = None
     average_entry_price: float
-    execution_status: Literal["partially_filled", "filled", "reduced", "closed"] | str
+    execution_status: Literal[
+        "partially_filled",
+        "partially_reduced",
+        "filled",
+        "reduced",
+        "closed",
+    ] | str
 
 
 class LogicalPositionCloseRequest(BaseModel):
@@ -454,6 +460,16 @@ class LogicalPositionCloseResponse(BaseModel):
     exchange_order_id: str | None = None
     execution_status: str | None = None
     status: str | None = None
+
+
+class LogicalPositionReduceRequest(BaseModel):
+    confirm: Literal[True]
+    quantity: float = Field(gt=0)
+    reason: str = Field(default="manual reduce", min_length=1, max_length=256)
+
+
+class LogicalPositionReduceResponse(LogicalPositionCloseResponse):
+    pass
 
 
 class ExternalPositionImportRequest(BaseModel):

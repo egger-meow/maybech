@@ -12,6 +12,8 @@ import type {
   LogicalPositionCloseConditionUpdate,
   LogicalPositionCloseRequest,
   LogicalPositionCloseResponse,
+  LogicalPositionReduceRequest,
+  LogicalPositionReduceResponse,
   LogicalPositionAllocationResponse,
   LogicalPositionUnitResponse,
   RuntimeEventResponse,
@@ -47,6 +49,8 @@ export type {
   LogicalPositionCloseConditionUpdate,
   LogicalPositionCloseRequest,
   LogicalPositionCloseResponse,
+  LogicalPositionReduceRequest,
+  LogicalPositionReduceResponse,
   LogicalPositionAllocationResponse,
   PositionIntentResponse as PositionIntent,
   PositionRuleResponse as PositionRule,
@@ -287,6 +291,15 @@ export const closeLogicalPosition = (
 ): Promise<LogicalPositionCloseResponse> =>
   postData<LogicalPositionCloseResponse>(
     `/positions/logical/${encodeURIComponent(positionId)}/close`,
+    payload,
+  );
+
+export const reduceLogicalPosition = (
+  positionId: string,
+  payload: LogicalPositionReduceRequest,
+): Promise<LogicalPositionReduceResponse> =>
+  postData<LogicalPositionReduceResponse>(
+    `/positions/logical/${encodeURIComponent(positionId)}/reduce`,
     payload,
   );
 

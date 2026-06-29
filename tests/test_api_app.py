@@ -487,6 +487,57 @@ def test_manual_close_api_delegates_to_confirmed_close_lifecycle(tmp_path):
     assert store.get_trade(trade.id).status == "open"
 
 
+def test_manual_reduce_api_claims_exact_quantity_without_changing_position(tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="unit-reduce",
+            source="manual",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            opened_quantity=0.1,
+            remaining_quantity=0.1,
+            entry_price=2000,
+        )
+    )
+    manager = PositionManagerService(
+        store,
+        dry_run=False,
+        close_executor=ApiCloseExecutor(),
+    )
+    runner = DaemonRunner()
+    runner.register(manager)
+    runner.runtime.set_value(
+        "account.snapshot",
+        {"positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "2050"}]},
+    )
+    client = TestClient(create_app(runner))
+
+    missing_confirmation = client.post(
+        "/positions/logical/unit-reduce/reduce",
+        json={"quantity": 0.04, "reason": "operator trim"},
+    )
+    full_quantity = client.post(
+        "/positions/logical/unit-reduce/reduce",
+        json={"confirm": True, "quantity": 0.1, "reason": "operator trim"},
+    )
+    response = client.post(
+        "/positions/logical/unit-reduce/reduce",
+        json={"confirm": True, "quantity": 0.04, "reason": "operator trim"},
+    )
+
+    assert missing_confirmation.status_code == 422
+    assert full_quantity.status_code == 409
+    assert response.status_code == 200
+    assert response.json()["action"] == "reduce_submitted"
+    assert response.json()["quantity"] == 0.04
+    pending = position_store.get("unit-reduce")
+    assert pending.status == "reducing"
+    assert pending.remaining_quantity == 0.1
+    assert position_store.get_execution_order("api-close-order")["action"] == "reduce"
+
+
 def test_api_validates_and_evaluates_signal_expression():
     client = TestClient(create_app(DaemonRunner()))
 
@@ -865,6 +916,8 @@ def test_openapi_exposes_frontend_contract_schemas():
     assert "ConfirmedPositionFillResponse" in schemas
     assert "LogicalPositionCloseRequest" in schemas
     assert "LogicalPositionCloseResponse" in schemas
+    assert "LogicalPositionReduceRequest" in schemas
+    assert "LogicalPositionReduceResponse" in schemas
     assert "ExecutionFillIngestionStatusResponse" in schemas
     assert "AuditEventResponse" in schemas
     assert "ServiceStatusResponse" in schemas
@@ -881,6 +934,7 @@ def test_openapi_exposes_frontend_contract_schemas():
     assert "/positions/logical/{position_id}/close-conditions" in spec["paths"]
     assert "/positions/logical/{position_id}/allocations" in spec["paths"]
     assert "/positions/logical/{position_id}/close" in spec["paths"]
+    assert "/positions/logical/{position_id}/reduce" in spec["paths"]
     assert "/positions/logical/{position_id}/close-conditions/{condition_id}" in spec["paths"]
 
 

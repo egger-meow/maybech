@@ -250,6 +250,44 @@ class PositionManagerService(DaemonService):
             },
         )
 
+    def request_reduce(
+        self,
+        position_id: str,
+        *,
+        quantity: float,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Submit or simulate one operator-confirmed partial logical-unit reduce."""
+        position_store = LogicalPositionStore(self.store.db_path)
+        position = position_store.get(position_id)
+        if position is None:
+            raise LookupError("Logical position not found")
+        if position.status != "open":
+            raise ValueError(f"Position is {position.status}, not open")
+        remaining = position.remaining_quantity or position.opened_quantity or 0.0
+        if quantity <= 0:
+            raise ValueError("Reduce quantity must be positive")
+        if quantity >= remaining:
+            raise ValueError(
+                "Reduce quantity must be less than remaining quantity; use close instead"
+            )
+        trade = self.store.get_trade(position.trade_id) if position.trade_id else None
+        prices = self._gather_prices() if self.runtime is not None else {}
+        return self._handle_close_trigger(
+            position_store=position_store,
+            position=position,
+            trade=trade,
+            current_price=prices.get(position.inst_id, position.entry_price),
+            btc_price=prices.get("BTC-USDT-SWAP", 0.0),
+            exit_reason=f"operator_reduce:{reason}",
+            trigger_payload={
+                "trigger_type": "operator_reduce",
+                "operator_reason": reason,
+            },
+            execution_action="reduce",
+            requested_quantity=quantity,
+        )
+
     def _gather_prices(self) -> dict[str, float]:
         prices: dict[str, float] = {}
         btc_regime = self.runtime.get_value("market.btc_regime")
@@ -476,7 +514,23 @@ class PositionManagerService(DaemonService):
         btc_price: float,
         exit_reason: str,
         trigger_payload: dict,
+        execution_action: str = "close",
+        requested_quantity: float | None = None,
     ) -> dict:
+        if execution_action not in {"close", "reduce"}:
+            raise ValueError("execution_action must be close or reduce")
+        remaining_quantity = (
+            position.remaining_quantity or position.opened_quantity or 0.0
+        )
+        execution_quantity = (
+            remaining_quantity if requested_quantity is None else requested_quantity
+        )
+        if execution_quantity <= 0 or execution_quantity > remaining_quantity:
+            raise ValueError("Execution quantity exceeds remaining logical quantity")
+        if execution_action == "reduce" and execution_quantity >= remaining_quantity:
+            raise ValueError("Reduce quantity must leave positive logical quantity")
+        pending_status = "closing" if execution_action == "close" else "reducing"
+        event_prefix = f"position.{execution_action}"
         event_payload = {
             "position_id": position.id,
             "trade_id": position.trade_id,
@@ -486,19 +540,22 @@ class PositionManagerService(DaemonService):
             "exit_reason": exit_reason,
             "strategy_id": position.strategy_id,
             "dry_run": self.dry_run,
+            "execution_action": execution_action,
+            "quantity": execution_quantity,
             **trigger_payload,
         }
 
         if not self.dry_run and self.close_executor is None:
             logger.error(
-                "LIVE CLOSE BLOCKED: %s %s %s reason=%s. "
+                "LIVE %s BLOCKED: %s %s %s reason=%s. "
                 "No exchange close-order executor is wired.",
+                execution_action.upper(),
                 position.id,
                 position.side,
                 position.inst_id,
                 exit_reason,
             )
-            self._publish_and_record_event("position.close_blocked", {
+            self._publish_and_record_event(f"{event_prefix}_blocked", {
                 **event_payload,
                 "reason": "live close order executor is not implemented",
             })
@@ -507,7 +564,7 @@ class PositionManagerService(DaemonService):
                 "trade_id": position.trade_id,
                 "inst_id": position.inst_id,
                 "side": position.side,
-                "action": "manual_close_required",
+                "action": f"manual_{execution_action}_required",
                 "reason": exit_reason,
                 "current_price": current_price,
                 "strategy_id": position.strategy_id,
@@ -515,42 +572,48 @@ class PositionManagerService(DaemonService):
             }
 
         if not self.dry_run:
-            close_quantity = position.remaining_quantity or position.opened_quantity or 0.0
             correlation_id = uuid4().hex
             close_intent = {
                 **event_payload,
                 "correlation_id": correlation_id,
-                "quantity": close_quantity,
                 "execution_status": "pending_submission",
             }
-            if close_quantity <= 0:
+            if execution_quantity <= 0:
                 self._publish_and_record_event(
-                    "position.close_submission_failed",
+                    f"{event_prefix}_submission_failed",
                     {**close_intent, "reason": "position has no allocated quantity"},
                 )
-                return {**close_intent, "action": "close_submission_failed"}
-            if not self._try_record_audit_event("position.close_requested", close_intent):
+                return {
+                    **close_intent,
+                    "action": f"{execution_action}_submission_failed",
+                }
+            if not self._try_record_audit_event(
+                f"{event_prefix}_requested",
+                close_intent,
+            ):
                 self.publish_event(
-                    "position.close_blocked",
+                    f"{event_prefix}_blocked",
                     {**close_intent, "reason": "pre-submission audit persistence failed"},
                 )
                 return {
                     **close_intent,
-                    "action": "manual_close_required",
+                    "action": f"manual_{execution_action}_required",
                     "reason": "pre-submission audit persistence failed",
                 }
 
             claimed = position_store.claim_pending_execution(
                 position.id,
                 expected_status="open",
-                status="closing",
+                status=pending_status,
                 client_order_id=correlation_id,
                 metadata={
                     "correlation_id": correlation_id,
                     "client_order_id": correlation_id,
-                    "order_action": "close",
+                    "order_action": execution_action,
+                    "execution_reason": exit_reason,
+                    "execution_quantity": execution_quantity,
                     "close_reason": exit_reason,
-                    "close_quantity": close_quantity,
+                    "close_quantity": execution_quantity,
                     "previous_exchange_order_id": position.exchange_order_id,
                     "execution_status": "submitting",
                 },
@@ -558,8 +621,8 @@ class PositionManagerService(DaemonService):
             if claimed is None:
                 return {
                     **close_intent,
-                    "action": "close_already_pending",
-                    "reason": "position was claimed by another close request",
+                    "action": f"{execution_action}_already_pending",
+                    "reason": "position was claimed by another exit request",
                 }
 
             protection = position_store.get_protection(position.id)
@@ -573,7 +636,7 @@ class PositionManagerService(DaemonService):
                     )
                     reason = "protective-stop lifecycle service is unavailable"
                     self._publish_and_record_event(
-                        "position.close_blocked",
+                        f"{event_prefix}_blocked",
                         {**close_intent, "reason": reason},
                     )
                     return {
@@ -599,7 +662,7 @@ class PositionManagerService(DaemonService):
                     }:
                         self._disable_entries_after_protection_failure()
                     self._publish_and_record_event(
-                        "position.close_blocked",
+                        f"{event_prefix}_blocked",
                         {**close_intent, "reason": str(exc)},
                     )
                     return {
@@ -612,7 +675,7 @@ class PositionManagerService(DaemonService):
                 result = self.close_executor.close_position(
                     inst_id=position.inst_id,
                     position_side=position.side,
-                    quantity=close_quantity,
+                    quantity=execution_quantity,
                     client_order_id=correlation_id,
                     pos_side=self._exchange_position_side(position),
                 )
@@ -621,19 +684,21 @@ class PositionManagerService(DaemonService):
                     position_store.merge_metadata(
                         position.id,
                         {
-                            "execution_status": "close_submission_unknown",
+                            "execution_status": f"{execution_action}_submission_unknown",
+                            "execution_submission_attempts": 1,
+                            "execution_submission_error": str(exc),
                             "close_submission_attempts": 1,
                             "close_submission_error": str(exc),
                         },
                     )
                     self._publish_and_record_event(
-                        "position.close_submission_unknown",
+                        f"{event_prefix}_submission_unknown",
                         {**close_intent, "error": str(exc)},
                     )
                     return {
                         **close_intent,
-                        "action": "close_submission_pending",
-                        "reason": "close acceptance is unknown; retry is scheduled",
+                        "action": f"{execution_action}_submission_pending",
+                        "reason": "exit acceptance is unknown; retry is scheduled",
                     }
                 position_store.release_pending_execution(
                     position.id,
@@ -645,7 +710,7 @@ class PositionManagerService(DaemonService):
                     required=protection_canceled,
                 )
                 self._publish_and_record_event(
-                    "position.close_submission_failed",
+                    f"{event_prefix}_submission_failed",
                     {
                         **close_intent,
                         "error": str(exc),
@@ -655,7 +720,9 @@ class PositionManagerService(DaemonService):
                 return {
                     **close_intent,
                     "action": (
-                        "manual_review" if restoration_error else "close_submission_failed"
+                        "manual_review"
+                        if restoration_error
+                        else f"{execution_action}_submission_failed"
                     ),
                     "reason": restoration_error or None,
                 }
@@ -665,19 +732,21 @@ class PositionManagerService(DaemonService):
                     position_store.merge_metadata(
                         position.id,
                         {
-                            "execution_status": "close_submission_unknown",
+                            "execution_status": f"{execution_action}_submission_unknown",
+                            "execution_submission_attempts": 1,
+                            "execution_submission_result": result,
                             "close_submission_attempts": 1,
                             "close_submission_result": result,
                         },
                     )
                     self._publish_and_record_event(
-                        "position.close_submission_unknown",
+                        f"{event_prefix}_submission_unknown",
                         {**close_intent, "execution_result": result},
                     )
                     return {
                         **close_intent,
-                        "action": "close_submission_pending",
-                        "reason": "close acceptance is unknown; retry is scheduled",
+                        "action": f"{execution_action}_submission_pending",
+                        "reason": "exit acceptance is unknown; retry is scheduled",
                     }
                 position_store.release_pending_execution(
                     position.id,
@@ -689,7 +758,7 @@ class PositionManagerService(DaemonService):
                     required=protection_canceled,
                 )
                 self._publish_and_record_event(
-                    "position.close_submission_failed",
+                    f"{event_prefix}_submission_failed",
                     {
                         **close_intent,
                         "execution_result": result,
@@ -699,28 +768,33 @@ class PositionManagerService(DaemonService):
                 return {
                     **close_intent,
                     "action": (
-                        "manual_review" if restoration_error else "close_submission_failed"
+                        "manual_review"
+                        if restoration_error
+                        else f"{execution_action}_submission_failed"
                     ),
                     "reason": restoration_error or None,
                 }
 
             updated = position_store.mark_pending_execution(
                 position.id,
-                status="closing",
+                status=pending_status,
                 exchange_order_id=order_id,
                 metadata={
                     "correlation_id": correlation_id,
-                    "order_action": "close",
-                    "close_order_id": order_id,
+                    "order_action": execution_action,
+                    "execution_order_id": order_id,
+                    f"{execution_action}_order_id": order_id,
                     "client_order_id": correlation_id,
+                    "execution_reason": exit_reason,
+                    "execution_quantity": execution_quantity,
                     "close_reason": exit_reason,
-                    "close_quantity": close_quantity,
+                    "close_quantity": execution_quantity,
                     "execution_status": "submitted",
                 },
             )
             if updated is None:
                 self._publish_and_record_event(
-                    "position.close_submission_failed",
+                    f"{event_prefix}_submission_failed",
                     {
                         **close_intent,
                         "exchange_order_id": order_id,
@@ -735,16 +809,18 @@ class PositionManagerService(DaemonService):
                 "execution_result": result,
                 "execution_status": "submitted",
             }
-            self._publish_and_record_event("position.close_submitted", submitted_payload)
+            self._publish_and_record_event(
+                f"{event_prefix}_submitted",
+                submitted_payload,
+            )
             return {
                 **submitted_payload,
-                "action": "close_submitted",
+                "action": f"{execution_action}_submitted",
                 "status": updated.status,
             }
 
-        close_quantity = position.remaining_quantity or position.opened_quantity or 0.0
         closed_trade = None
-        if trade is not None:
+        if execution_action == "close" and trade is not None:
             closed_trade = self.store.close_trade(
                 trade.id,
                 exit_price=current_price,
@@ -755,8 +831,8 @@ class PositionManagerService(DaemonService):
         updated_position = position_store.record_allocation(
             LogicalPositionAllocation(
                 position_id=position.id,
-                action="close",
-                quantity=close_quantity,
+                action=execution_action,
+                quantity=execution_quantity,
                 price=current_price,
                 reason=exit_reason,
                 metadata_json=json.dumps(
@@ -772,19 +848,24 @@ class PositionManagerService(DaemonService):
         if updated_position is None:
             updated_position = position_store.update_status(
                 position.id,
-                status="closed",
-                remaining_quantity=0.0,
+                status="closed" if execution_action == "close" else "open",
+                remaining_quantity=(
+                    0.0
+                    if execution_action == "close"
+                    else remaining_quantity - execution_quantity
+                ),
             )
 
         logger.info(
-            "POSITION CLOSED: %s %s %s @ %.4f (reason=%s)",
+            "POSITION %s: %s %s %s @ %.4f (reason=%s)",
+            execution_action.upper(),
             position.id,
             position.side,
             position.inst_id,
             current_price,
             exit_reason,
         )
-        self._publish_and_record_event("position.closed", {
+        self._publish_and_record_event(f"position.{execution_action}d", {
             **event_payload,
             "entry_price": position.entry_price,
             "exit_price": current_price,
@@ -797,7 +878,7 @@ class PositionManagerService(DaemonService):
             "trade_id": position.trade_id,
             "inst_id": position.inst_id,
             "side": position.side,
-            "action": "closed",
+            "action": f"{execution_action}d",
             "reason": exit_reason,
             "current_price": current_price,
             "pnl": None if closed_trade is None else closed_trade.pnl,
@@ -812,18 +893,29 @@ class PositionManagerService(DaemonService):
             return touched
         position_store = LogicalPositionStore(self.store.db_path)
         for position in position_store.list_pending_executions():
-            if position.status != "closing" or position.exchange_order_id:
+            if position.status not in {"closing", "reducing"} or position.exchange_order_id:
                 continue
             try:
                 metadata = json.loads(position.metadata_json or "{}")
             except json.JSONDecodeError:
                 continue
-            if metadata.get("execution_status") != "close_submission_unknown":
+            execution_action = str(metadata.get("order_action") or "close")
+            if execution_action not in {"close", "reduce"}:
+                continue
+            if metadata.get("execution_status") != f"{execution_action}_submission_unknown":
                 continue
             touched.add(position.id)
             client_order_id = position.client_order_id
-            quantity = float(metadata.get("close_quantity") or 0)
-            attempts = int(metadata.get("close_submission_attempts") or 0)
+            quantity = float(
+                metadata.get("execution_quantity")
+                or metadata.get("close_quantity")
+                or 0
+            )
+            attempts = int(
+                metadata.get("execution_submission_attempts")
+                or metadata.get("close_submission_attempts")
+                or 0
+            )
             if not client_order_id or quantity <= 0:
                 continue
 
@@ -838,7 +930,9 @@ class PositionManagerService(DaemonService):
                 recovered = position_store.recover_client_order_intent(
                     position.id,
                     client_order_id=client_order_id,
-                    execution_status="close_not_found_after_retries",
+                    execution_status=(
+                        f"{execution_action}_not_found_after_retries"
+                    ),
                 )
                 if recovered is not None:
                     restoration_error = self._restore_protection_after_failed_close(
@@ -846,7 +940,7 @@ class PositionManagerService(DaemonService):
                         required=True,
                     )
                     self._publish_and_record_event(
-                        "position.close_submission_failed",
+                        f"position.{execution_action}_submission_failed",
                         {
                             "position_id": position.id,
                             "client_order_id": client_order_id,
@@ -868,6 +962,8 @@ class PositionManagerService(DaemonService):
                 position_store.merge_metadata(
                     position.id,
                     {
+                        "execution_submission_attempts": attempts + 1,
+                        "execution_submission_error": str(exc),
                         "close_submission_attempts": attempts + 1,
                         "close_submission_error": str(exc),
                     },
@@ -877,17 +973,19 @@ class PositionManagerService(DaemonService):
             if order_id:
                 position_store.mark_pending_execution(
                     position.id,
-                    status="closing",
+                    status="closing" if execution_action == "close" else "reducing",
                     exchange_order_id=order_id,
                     client_order_id=client_order_id,
                     metadata={
                         "execution_status": "submitted",
-                        "close_order_id": order_id,
+                        "execution_order_id": order_id,
+                        f"{execution_action}_order_id": order_id,
+                        "execution_submission_attempts": attempts + 1,
                         "close_submission_attempts": attempts + 1,
                     },
                 )
                 self._publish_and_record_event(
-                    "position.close_submitted",
+                    f"position.{execution_action}_submitted",
                     {
                         "position_id": position.id,
                         "client_order_id": client_order_id,
@@ -898,7 +996,10 @@ class PositionManagerService(DaemonService):
             else:
                 position_store.merge_metadata(
                     position.id,
-                    {"close_submission_attempts": attempts + 1},
+                    {
+                        "execution_submission_attempts": attempts + 1,
+                        "close_submission_attempts": attempts + 1,
+                    },
                 )
         return touched
 
@@ -926,12 +1027,13 @@ class PositionManagerService(DaemonService):
             return True
         position_store.mark_pending_execution(
             position.id,
-            status="closing",
+            status=position.status,
             exchange_order_id=order_id,
             client_order_id=client_order_id,
             metadata={
                 "execution_status": "exchange_order_recovered",
-                "close_order_id": order_id,
+                "execution_order_id": order_id,
+                f"{self._metadata_order_action(position)}_order_id": order_id,
             },
         )
         return True
@@ -1008,6 +1110,15 @@ class PositionManagerService(DaemonService):
                 if exchange_side in {"net", position.side}:
                     return exchange_side
         return ""
+
+    @staticmethod
+    def _metadata_order_action(position: LogicalPositionRecord) -> str:
+        try:
+            metadata = json.loads(position.metadata_json or "{}")
+        except json.JSONDecodeError:
+            return "close"
+        action = str(metadata.get("order_action") or "close")
+        return action if action in {"close", "reduce"} else "close"
 
     def _legacy_rule_info(self, trade: TradeRecord) -> list[dict]:
         return [

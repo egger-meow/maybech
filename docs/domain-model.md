@@ -125,6 +125,12 @@ their persisted condition matches. Manual close commands are separate and
 require explicit operator confirmation. Both paths use reduce-only orders,
 atomic `open -> closing` claims, and confirmed fill allocation.
 
+A manual partial reduce claims an exact quantity smaller than the remaining
+unit, using `open -> reducing`. Confirmed partial fills reduce the unit but keep
+the intent pending until its requested quantity is filled or the order becomes
+terminal. The owned stop is then restored at the exact confirmed remainder.
+Response-loss and restart recovery reuse the original client order id.
+
 ## Break-Even Operation
 
 A break-even operation moves risk on a logical position unit so the stop level

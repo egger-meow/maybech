@@ -113,6 +113,11 @@ unit and backing trade. In armed live mode, triggered conditions automatically
 submit a reduce-only market close without waiting for operator confirmation.
 The unit atomically moves to `closing` and only confirmed fills reduce quantity
 or close its backing trade.
+`POST /positions/logical/{position_id}/reduce` performs the same confirmed
+lifecycle for an exact partial quantity. The unit remains `reducing` across
+partial fills, reuses one client order id after response loss or restart, and
+returns to `open` only after target completion or terminal recovery. Its owned
+stop is restored at the exact confirmed remainder before normal management.
 Those evaluations and close outcomes are persisted in `audit_events`, including
 invalid expressions and candle-context failures.
 
@@ -179,7 +184,8 @@ Unmatched manual/external orders remain unallocated and visible in status.
 The same poll checks every unit with an active exchange order id. Confirmed
 `canceled`, `rejected`, or `mmp_canceled` entry orders recover to `failed` when
 unfilled or `open` when partially filled; canceled close/reduce orders recover
-to `open` while quantity remains. Active orders older than five minutes receive
+to `open` while confirmed quantity remains, and canceled protection is re-armed
+at that exact remainder. Active orders older than five minutes receive
 one cancellation request and remain pending until OKX confirms a terminal state.
 If OKX reports `filled` but no matching fill details arrive for three consecutive
 polls, the unit emits one deduplicated durable

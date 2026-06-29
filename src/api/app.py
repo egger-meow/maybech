@@ -69,6 +69,8 @@ from src.api.schemas import (
     LogicalPositionCloseConditionUpdate,
     LogicalPositionCloseRequest,
     LogicalPositionCloseResponse,
+    LogicalPositionReduceRequest,
+    LogicalPositionReduceResponse,
     LogicalPositionAllocationResponse,
     PositionIntentResponse,
     PositionBreakEvenCommand,
@@ -1377,6 +1379,32 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return LogicalPositionCloseResponse(**result)
+
+    @app.post(
+        "/positions/logical/{position_id}/reduce",
+        response_model=LogicalPositionReduceResponse,
+    )
+    def reduce_logical_position(
+        position_id: str,
+        payload: LogicalPositionReduceRequest,
+    ) -> LogicalPositionReduceResponse:
+        manager = runner.services.get("position_manager")
+        if manager is None or not hasattr(manager, "request_reduce"):
+            raise HTTPException(
+                status_code=503,
+                detail="Position manager service is not available",
+            )
+        try:
+            result = manager.request_reduce(
+                position_id,
+                quantity=payload.quantity,
+                reason=payload.reason,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return LogicalPositionReduceResponse(**result)
 
     @app.get(
         "/positions/logical/{position_id}/close-conditions",

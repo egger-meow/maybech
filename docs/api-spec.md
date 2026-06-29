@@ -265,6 +265,13 @@ The Position Management page has a logical-position contract now:
 - `POST /positions/logical/{position_id}/close`: explicitly confirmed manual
   operator close. It delegates to the same reduce-only submission and confirmed
   fill lifecycle as automatic exits.
+- `POST /positions/logical/{position_id}/reduce`: explicitly confirmed partial
+  reduce for an exact quantity smaller than the unit's current remainder. The
+  unit atomically enters `reducing`, its owned stop is canceled before the
+  reduce-only order is submitted, and quantity changes only from confirmed
+  fills. Partial fills remain `reducing`; target completion or terminal
+  cancellation returns the unit to `open` and restores exact protection for the
+  confirmed remainder. Unknown submissions retain and retry one client order id.
 
 Enabled close conditions and legacy rules do not call this manual endpoint and
 do not wait for a person. In armed live mode, `PositionManagerService` submits

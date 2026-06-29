@@ -78,7 +78,7 @@ export type ConfirmedPositionFillResponse = {
   "opened_quantity"?: number | null;
   "remaining_quantity"?: number | null;
   "average_entry_price": number;
-  "execution_status": "partially_filled" | "filled" | "reduced" | "closed" | string;
+  "execution_status": "partially_filled" | "partially_reduced" | "filled" | "reduced" | "closed" | string;
 };
 
 export type EntryControlCommand = {
@@ -240,6 +240,28 @@ export type LogicalPositionProtectionResponse = {
   "metadata"?: Record<string, unknown>;
   "created_at": string;
   "updated_at": string;
+};
+
+export type LogicalPositionReduceRequest = {
+  "confirm": true;
+  "quantity": number;
+  "reason"?: string;
+};
+
+export type LogicalPositionReduceResponse = {
+  "position_id": string;
+  "trade_id"?: string | null;
+  "inst_id": string;
+  "side": string;
+  "action": string;
+  "reason"?: string | null;
+  "exit_reason"?: string | null;
+  "current_price"?: number | null;
+  "quantity"?: number | null;
+  "correlation_id"?: string | null;
+  "exchange_order_id"?: string | null;
+  "execution_status"?: string | null;
+  "status"?: string | null;
 };
 
 export type LogicalPositionUnitResponse = {
@@ -562,6 +584,8 @@ export type ApiSchemas = {
   "LogicalPositionCloseRequest": LogicalPositionCloseRequest;
   "LogicalPositionCloseResponse": LogicalPositionCloseResponse;
   "LogicalPositionProtectionResponse": LogicalPositionProtectionResponse;
+  "LogicalPositionReduceRequest": LogicalPositionReduceRequest;
+  "LogicalPositionReduceResponse": LogicalPositionReduceResponse;
   "LogicalPositionUnitResponse": LogicalPositionUnitResponse;
   "PositionBreakEvenCommand": PositionBreakEvenCommand;
   "PositionIntentResponse": PositionIntentResponse;
