@@ -72,3 +72,10 @@ capability moves from planned to partial or complete.
   OKX demo did not expose immediate fills through recent or first-page archive
   queries, so the verifier used authenticated terminal order state,
   `accFillSz`, and `avgPx` as deterministic `recovery` allocations.
+- 2026-06-29: dedicated production credentials authenticated successfully.
+  Read-only inspection found zero nonzero SWAP positions, pending orders, and
+  pending algos, with `net_mode` active. The account remains Spot level
+  `acctLv=1`; an isolated full preflight failed before arming with the required
+  derivatives-account-level error. Minimum-exposure production execution is
+  therefore externally blocked until the operator changes the OKX account to
+  Futures (`acctLv=2`), Multi-currency margin (`3`), or Portfolio margin (`4`).

@@ -31,7 +31,10 @@ An item is necessary only if leaving it unfixed could cause one or more of these
    verification must use the dedicated production credentials, minimum exposure,
    explicit process and operator arming, and disabled unattended strategy entries.
    Demo and production credentials must never be selected for the wrong OKX
-   environment.
+   environment. Current external gate: the production account authenticates and
+   is flat in `net_mode`, but OKX reports Spot account level `acctLv=1`; the
+   operator must switch it to Futures, Multi-currency margin, or Portfolio
+   margin before the existing preflight will permit any SWAP verification.
 
 ## Non-Blocking / Later
 

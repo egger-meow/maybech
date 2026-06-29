@@ -53,6 +53,10 @@ configured or actively managed SWAP instrument. Only a complete pass honors
 `MAYBECH_ARM_ORDERS=1`; otherwise the
 process exits before daemon services start. Inspect the successful report at
 `GET /runtime/preflight` when using the API runtime.
+OKX Spot account level `acctLv=1` is intentionally rejected even when API
+authentication and `net_mode` succeed. Change the account to Futures,
+Multi-currency margin, or Portfolio margin in OKX before attempting staged SWAP
+verification; do not bypass this preflight check.
 Every runtime acquires a database lock; live startup also acquires one hashed
 OKX-account lock. This prevents a dry process from consuming signal edges or
 mutating the same SQLite state beside a live process.
