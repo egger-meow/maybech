@@ -306,7 +306,7 @@ def run(db_path: str, *, environment: str = "demo") -> dict:
         entry_client_id = f"{prefix}o"
         position_id = f"{environment}-{run_id}"
         limit_price = constraints.normalize_entry_limit(
-            ask * Decimal("1.01"),
+            ask * Decimal("1.002"),
             position_side="long",
         )
         stop_price = constraints.normalize_price(ask * Decimal("0.95"))
