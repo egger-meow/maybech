@@ -196,6 +196,13 @@ It also exposes `client_orders_linked` and
 `missing_client_orders_recovered` for crash-window recovery visibility, plus
 `protection_triggers_linked`, `protections_checked`, `protection_rearmed`, and
 `protection_errors`.
+
+`OKXClient.get_fills` also exposes the current authenticated fills endpoint for
+bounded low-latency verification. The demo lifecycle verifier falls back to a
+deterministic `recovery` allocation only when both fill endpoints lag and an
+authenticated order query proves terminal `filled` state, positive
+`accFillSz`, and positive `avgPx`. Normal runtime allocation still uses private
+order events and durable REST history catch-up.
 It also exposes private-stream connectivity, event/reconnect/drop counts, and
 latest stream message/error details. WebSocket and REST share the same idempotent allocation
 boundary. Live entries require current REST catch-up and a connected stream;

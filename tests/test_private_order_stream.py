@@ -1,4 +1,5 @@
 import base64
+import asyncio
 import hashlib
 import hmac
 import json
@@ -82,8 +83,11 @@ def test_private_order_stream_builds_official_login_signature(monkeypatch):
     assert stream.url == "wss://wspap.okx.com:8443/ws/v5/private"
 
 
-@pytest.mark.asyncio
-async def test_private_order_stream_logs_in_subscribes_and_queues_orders():
+def test_private_order_stream_logs_in_subscribes_and_queues_orders():
+    asyncio.run(_logs_in_subscribes_and_queues_orders())
+
+
+async def _logs_in_subscribes_and_queues_orders():
     stream = _stream()
     socket = FakeSocket(
         [
@@ -117,8 +121,11 @@ async def test_private_order_stream_logs_in_subscribes_and_queues_orders():
     assert stream.status().events_received == 1
 
 
-@pytest.mark.asyncio
-async def test_private_order_stream_reconnects_after_established_connection_drops():
+def test_private_order_stream_reconnects_after_established_connection_drops():
+    asyncio.run(_reconnects_after_established_connection_drops())
+
+
+async def _reconnects_after_established_connection_drops():
     stream = _stream()
     acknowledgement = json.dumps(
         {

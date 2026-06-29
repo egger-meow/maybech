@@ -26,13 +26,8 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Prove the complete demo lifecycle using the dedicated demo credentials:
-   read-only account and position-mode verification, minimum-size open,
-   cancellation, close and partial reduce, protective-stop attach/resize/cancel,
-   cleanup, and restart recovery. Logical-position state must change only from
-   confirmed execution evidence, retries must be idempotent, and every action
-   must retain durable audit evidence.
-2. Stage production-account readiness only after priority 1 passes. Production
+1. Stage production-account readiness after the completed demo lifecycle.
+   Production
    verification must use the dedicated production credentials, minimum exposure,
    explicit process and operator arming, and disabled unattended strategy entries.
    Demo and production credentials must never be selected for the wrong OKX

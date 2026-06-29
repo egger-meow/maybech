@@ -270,6 +270,22 @@ class OKXClient:
         )
         return _extract(resp, label="get_fills_history")
 
+    def get_fills(
+        self,
+        inst_type: str = "SWAP",
+        inst_id: str = "",
+        order_id: str = "",
+        limit: str = "100",
+    ) -> list[dict]:
+        """Fetch recent fills for low-latency execution confirmation."""
+        resp = self.trade_api.get_fills(
+            instType=inst_type,
+            instId=inst_id,
+            ordId=order_id,
+            limit=limit,
+        )
+        return _extract(resp, label="get_fills")
+
     def get_order(
         self,
         inst_id: str,

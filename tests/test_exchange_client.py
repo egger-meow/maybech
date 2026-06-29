@@ -12,6 +12,10 @@ class FakeTradeApi:
         self.kwargs = kwargs
         return {"code": "0", "data": [{"billId": "bill-a"}]}
 
+    def get_fills(self, **kwargs):
+        self.kwargs = kwargs
+        return {"code": "0", "data": [{"tradeId": "fill-a"}]}
+
     def place_order(self, **kwargs):
         self.kwargs = kwargs
         return {"code": "0", "data": [{"ordId": "close-order", "sCode": "0", "sMsg": ""}]}
@@ -90,6 +94,26 @@ def test_okx_client_get_fills_history_paginates_by_bill_id():
         "instType": "SWAP",
         "limit": "100",
         "after": "bill-a",
+    }
+
+
+def test_okx_client_gets_recent_fills_for_one_order():
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+
+    fills = client.get_fills(
+        inst_type="SWAP",
+        inst_id="BTC-USDT-SWAP",
+        order_id="order-a",
+        limit="100",
+    )
+
+    assert fills == [{"tradeId": "fill-a"}]
+    assert client.trade_api.kwargs == {
+        "instType": "SWAP",
+        "instId": "BTC-USDT-SWAP",
+        "ordId": "order-a",
+        "limit": "100",
     }
 
 

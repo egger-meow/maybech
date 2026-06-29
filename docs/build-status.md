@@ -39,10 +39,8 @@ capability moves from planned to partial or complete.
 
 ## Next Build Milestones
 
-1. Prove the complete minimum-size demo lifecycle in `toImprove.md`, including
-   execution-confirmed logical-unit reduce and restart recovery.
-2. Stage minimum-exposure production verification only after the demo lifecycle
-   passes, with unattended strategy entries still disabled.
+1. Stage minimum-exposure production verification with unattended strategy
+   entries still disabled. The demo lifecycle prerequisite is complete.
 
 ## Execution Verification Evidence
 
@@ -63,3 +61,14 @@ capability moves from planned to partial or complete.
   disclosed key was revoked. Demo verification is active again and must use the
   `DEMO_OKX_*` credentials with `OKX_FLAG=1`. The historical failed probes above
   are retained as evidence only; they are not current blockers.
+- 2026-06-29: demo run `e736d19c673e` completed against `BTC-USDT-SWAP` in
+  `net_mode`: read-only preflight, minimum pending-order cancellation, protected
+  `0.02`-contract FOK open, confirmed stop amendment, exact `0.01` reduce,
+  protection restoration at `0.01`, final reduce-only close, fresh-service
+  restart catch-up, and cleanup all passed. Final exchange checks found zero
+  nonzero positions, pending orders, or pending algos. SQLite retained the
+  closed unit, confirmed allocations, protection/close/reduce audits, and
+  verifier events in `data/demo-lifecycle-5.db` (runtime evidence, not source).
+  OKX demo did not expose immediate fills through recent or first-page archive
+  queries, so the verifier used authenticated terminal order state,
+  `accFillSz`, and `avgPx` as deterministic `recovery` allocations.
