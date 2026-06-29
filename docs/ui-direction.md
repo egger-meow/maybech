@@ -43,6 +43,8 @@ Required capabilities:
 - show current price, unrealized PnL estimate, distance to rules, and risk
 - expose source strategy tag when a strategy created the unit
 - support manual position units with no strategy tag
+- show owned protection state, stop level, protected quantity, algo identity,
+  and triggered child-order identity without hiding failed/canceled states
 
 The page should make it obvious that "OKX position" and "Maybech logical
 position unit" are different concepts.

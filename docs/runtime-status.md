@@ -137,6 +137,15 @@ retryable across restarts. Parent-entry and emergency-close order IDs retain
 immutable ownership of the same logical unit, and an early close fill is stored
 without changing quantity until the opening fill arrives and both allocations
 can be applied in order.
+Each active unit's attached or standalone stop is persisted as a unique
+protection owner. Live startup and every subsequent entry approval prove its
+exact active OKX algo, protected quantity, and stop level. Triggered normal
+orders are linked by `algoId`/`algoClOrdId` before their fills are allocated.
+Software and operator closes cancel and prove removal of the owned algo before
+submitting a reduce-only market order. Unknown close acceptance keeps the same
+client order id for bounded retries and restart recovery. A canceled or partial
+close re-arms protection at the remaining quantity; failed re-arm kills future
+entries.
 `ExecutionFillService` polls authenticated three-month SWAP fill history every
 five seconds. It also consumes authenticated private `orders/SWAP` events every
 daemon cycle for low-latency fills and terminal cancellations. Login and
@@ -165,8 +174,10 @@ polls, the unit emits one deduplicated durable
 high-water/next-after bill IDs, history exhaustion, and cursor errors.
 It also exposes `client_orders_linked` and
 `missing_client_orders_recovered` for crash-window recovery visibility, plus
-private-stream connectivity, event/reconnect/drop counts, and latest stream
-message/error details. WebSocket and REST share the same idempotent allocation
+`protection_triggers_linked`, `protections_checked`, `protection_rearmed`, and
+`protection_errors`.
+It also exposes private-stream connectivity, event/reconnect/drop counts, and
+latest stream message/error details. WebSocket and REST share the same idempotent allocation
 boundary. Live entries require current REST catch-up and a connected stream;
 automatic position closes remain independent.
 

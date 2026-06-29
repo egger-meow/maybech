@@ -61,6 +61,8 @@ Minimum logical position fields:
   break-even, trailing, manual review, or generic exit handling
 - current status: planned, pending_open, open, reducing, closing, closed, failed
 - audit events and exchange order references
+- one owned exchange-protection record with the OKX algo id, algo client id,
+  protected quantity, stop level, lifecycle state, and triggered child order
 
 The first persistent implementation lives in `src/trading/logical_position_store.py`.
 It stores logical units in SQLite and can backfill compatibility records from
@@ -143,3 +145,17 @@ execution evidence.
 Allocation writes must be atomic with parent quantity updates. Re-delivery of
 the same fill is idempotent; reusing one fill id with different content is a
 conflict rather than a correction.
+
+## Protective Stop Ownership
+
+Every active logical unit with remaining real exposure owns exactly one active
+OKX protective algo. Attached entry protection and standalone imported/recovery
+stops share the same persisted lifecycle: `active`, `canceling`, `canceled`,
+`triggered`, `exhausted`, or `failed`.
+
+When OKX triggers the algo, its `algoId` or `algoClOrdId` identifies the logical
+unit before the resulting normal order fill is allocated. A software/manual
+close first cancels and proves removal of that unit's exact algo. Unknown close
+acceptance retains the same client order intent for retry/recovery. If the close
+does not exist or terminates with remaining quantity, protection is re-armed at
+the remaining size before the unit returns to normal management.

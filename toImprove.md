@@ -19,18 +19,14 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 1. Uncontrolled trading behavior.
 2. Loss beyond the configured risk or stop settings.
-3. Live-account behavior that differs from the operator’s expectation.
+3. Live-account behavior that differs from the operator's expectation.
 4. Incorrect state after order placement, cancellation, partial fill, close, or restart recovery.
 5. Missing or stale UI/runtime information that prevents fluent operator control.
 6. A hidden or underlying safety threat that could become dangerous during real-money operation.
 
 ## Current Priorities
 
-1. Complete protective-stop lifecycle ownership. A stop-trigger fill
-   must allocate to its logical unit, and software/manual closes must cancel or
-   resize the unit's remaining OKX algo order so it cannot later reduce another
-   unit in the merged net position.
-2. Complete demo-account open, cancellation, automatic close, protective-stop
+1. Complete demo-account open, cancellation, automatic close, protective-stop
    trigger, and restart recovery verification before arming a real account.
 
 ## Non-Blocking / Later

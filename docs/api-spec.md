@@ -222,7 +222,10 @@ The Position Management page has a logical-position contract now:
   SQLite, with compatibility backfill from `TradeStore` records, first-class
   close signal conditions, legacy trade rule groups during migration, current
   position intent, conservative reconciliation state against matching OKX
-  net-position snapshots, and related audit events when available.
+  net-position snapshots, and related audit events when available. Every unit
+  also includes typed `protection` state with kind, status, OKX `algo_id`,
+  `algo_client_order_id`, protected quantity, stop level, optional triggered
+  child order id, timestamps, and lifecycle metadata.
 - `GET /positions/logical/{position_id}`: inspect one logical position unit.
 - `GET /positions/logical/{position_id}/allocations`: list typed confirmed fill
   allocations for one unit.
@@ -248,6 +251,12 @@ Enabled close conditions and legacy rules do not call this manual endpoint and
 do not wait for a person. In armed live mode, `PositionManagerService` submits
 their reduce-only close automatically when the expression matches.
 
+Before a live software/manual close is submitted, the position manager cancels
+and proves absence of that unit's owned protective algo. A missing or ambiguous
+algo blocks the close. Unknown close acceptance retains a retryable intent with
+the same `clOrdId`; terminal or proven-missing closes with remaining quantity
+re-arm protection before the unit returns to `open`.
+
 The editable target surface remains:
 
 - `POST /positions/logical/{position_id}/break-even`: move or arm break-even
@@ -268,7 +277,9 @@ to a logical unit automatically.
 applied, idempotent, unmatched, invalid, conflicts, orders checked, terminal
 recoveries, stale cancellation requests, filled orders awaiting allocation,
 deduplicated missing-fill alerts, order errors, client orders linked to an
-eventual exchange order ID, stale client intents recovered, and update time.
+eventual exchange order ID, stale client intents recovered, protection checks,
+protection triggers linked, protection re-arms, protection errors, and update
+time.
 It also reports durable catch-up state: pages fetched, `caught_up`, whether a
 cursor cycle is in progress, history exhaustion, committed high-water bill ID,
 next `after` bill ID, and cursor errors. A committed high-water mark never moves

@@ -9,6 +9,10 @@ user define market signals, bind those signals to opening and closing actions,
 watch every action with clear evidence, and safely manage each position unit
 even when OKX represents several fills as one merged exchange position.
 
+The completion target is dependable real-money backend operation fully exposed
+through the frontend. A backend capability is not product-complete while its
+state, evidence, and required operator controls are unavailable in the browser.
+
 ## Core Product Areas
 
 ### Strategy Management
