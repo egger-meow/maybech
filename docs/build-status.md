@@ -48,4 +48,5 @@ capability moves from planned to partial or complete.
   code `50110` because the current machine was not in the API key IP whitelist.
   No order endpoint was called. Open, cancellation, automatic close,
   protective-stop trigger, and restart recovery therefore remain unverified on
-  an actual demo account.
+  an actual demo account. Configured private integration checks now fail on
+  authentication errors instead of reporting a skipped, false-green run.
