@@ -117,6 +117,18 @@ def test_okx_client_gets_recent_fills_for_one_order():
     }
 
 
+def test_okx_client_preserves_per_order_error_details():
+    with pytest.raises(RuntimeError, match="sCode=51008: Insufficient balance"):
+        client_module._extract(
+            {
+                "code": "1",
+                "msg": "All operations failed",
+                "data": [{"sCode": "51008", "sMsg": "Insufficient balance"}],
+            },
+            label="place_limit_order",
+        )
+
+
 def test_okx_client_places_guarded_reduce_only_close(monkeypatch):
     client = object.__new__(OKXClient)
     client.trade_api = FakeTradeApi()

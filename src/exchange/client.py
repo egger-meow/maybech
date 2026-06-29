@@ -70,7 +70,18 @@ def _extract(response: dict, *, label: str = "API call") -> list[dict]:
     code = response.get("code")
     if code != "0":
         msg = response.get("msg", "unknown error")
-        raise RuntimeError(f"OKX {label} failed (code={code}): {msg}")
+        item_errors = []
+        for item in response.get("data") or []:
+            if not isinstance(item, dict):
+                continue
+            item_code = str(item.get("sCode") or "")
+            item_message = str(item.get("sMsg") or "")
+            if item_code or item_message:
+                item_errors.append(
+                    f"sCode={item_code or 'missing'}: {item_message or 'unknown error'}"
+                )
+        detail = f" ({'; '.join(item_errors)})" if item_errors else ""
+        raise RuntimeError(f"OKX {label} failed (code={code}): {msg}{detail}")
     return response.get("data", [])
 
 
