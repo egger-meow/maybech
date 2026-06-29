@@ -93,6 +93,10 @@ persists sanitized SQLite audit evidence, disarms entry placement in `finally`,
 and cleans verifier-owned orders, protection, and residual exposure. After the
 demo proof passes, the same bounded path can stage production explicitly with
 `--confirm-production-orders` and `OKX_FLAG=0`.
+Production verification was completed with `0.02` BTC swap contracts, an exact
+`0.01` partial reduce, and a final close. This command remains an explicit
+operator tool; normal startup never invokes it and strategy entries remain
+disabled unless separately enabled after armed runtime preflight.
 
 The dashboard calls FastAPI from a separate local origin in development.
 `MAYBECH_CORS_ORIGINS` defaults to `http://localhost:3000` and

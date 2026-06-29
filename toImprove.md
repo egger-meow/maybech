@@ -26,15 +26,9 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Stage production-account readiness after the completed demo lifecycle.
-   Production
-   verification must use the dedicated production credentials, minimum exposure,
-   explicit process and operator arming, and disabled unattended strategy entries.
-   Demo and production credentials must never be selected for the wrong OKX
-   environment. Current external gate: the production account authenticates and
-   is flat in `net_mode`, but OKX reports Spot account level `acctLv=1`; the
-   operator must switch it to Futures, Multi-currency margin, or Portfolio
-   margin before the existing preflight will permit any SWAP verification.
+No active blocker is currently recorded. Add nothing here until a concrete
+correctness, execution, or operator-control blocker independently meets the
+definition above.
 
 ## Non-Blocking / Later
 

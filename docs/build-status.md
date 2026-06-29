@@ -39,8 +39,9 @@ capability moves from planned to partial or complete.
 
 ## Next Build Milestones
 
-1. Stage minimum-exposure production verification with unattended strategy
-   entries still disabled. The demo lifecycle prerequisite is complete.
+No active backend execution blocker remains in `toImprove.md`. Unattended
+strategy entries remain disabled by default and still require explicit runtime
+and operator arming.
 
 ## Execution Verification Evidence
 
@@ -79,3 +80,13 @@ capability moves from planned to partial or complete.
   derivatives-account-level error. Minimum-exposure production execution is
   therefore externally blocked until the operator changes the OKX account to
   Futures (`acctLv=2`), Multi-currency margin (`3`), or Portfolio margin (`4`).
+- 2026-06-29: after the production sub-account changed to Futures
+  (`acctLv=2`, `net_mode`), production run `e9c538e5a962` completed against
+  `BTC-USDT-SWAP`: minimum pending-order cancellation, protected
+  `0.02`-contract FOK open, confirmed stop amendment, exact `0.01` reduce,
+  protection restoration at `0.01`, final reduce-only close, restart replay,
+  and cleanup all passed. Restart replay recognized one fill idempotently.
+  Independent final checks found zero nonzero positions, pending orders, or
+  pending algos; SQLite retained the closed unit (`remaining=0`) and all
+  production verification/audit events in `data/production-lifecycle-3.db`.
+  Available USDT moved from `10` to `9.98881889` during the bounded proof.
