@@ -2,6 +2,13 @@ import json
 
 import pytest
 
+from src.exchange.client import (
+    arm_order_placement,
+    disarm_order_placement,
+    enable_entry_order_placement,
+    entry_order_placement_enabled,
+)
+from src.trading.account_risk import AccountRiskStore
 from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.position_import import (
     PositionImportConflict,
@@ -16,6 +23,9 @@ class ImportClient:
         self.pending = []
         self.placements = []
         self.amendments = []
+        self.amend_error = None
+        self.apply_amend = True
+        self.drop_on_amend = False
         self.cancellations = []
         self.cancel_error = None
 
@@ -67,8 +77,13 @@ class ImportClient:
     def amend_position_stop(self, **kwargs):
         self.amendments.append(kwargs)
         order = self.pending[0]
-        order["sz"] = kwargs["sz"]
-        order["slTriggerPx"] = kwargs["stop_trigger_px"]
+        if self.apply_amend:
+            order["sz"] = kwargs["sz"]
+            order["slTriggerPx"] = kwargs["stop_trigger_px"]
+        if self.drop_on_amend:
+            self.pending = []
+        if self.amend_error is not None:
+            raise self.amend_error
         return {"algoId": order["algoId"], "sCode": "0"}
 
     def cancel_position_stop(self, **kwargs):
@@ -152,6 +167,117 @@ def test_protection_retry_amends_existing_stop_after_condition_change(tmp_path):
 
     assert client.amendments[0]["stop_trigger_px"] == "2850"
     assert json.loads(updated.metadata_json)["exchange_protection"]["stop_loss"] == "2850"
+
+
+def test_confirmed_stop_amend_updates_exchange_rule_and_owned_protection(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+
+    updated = service.protection.amend_stop_condition(
+        position.id,
+        condition.id,
+        expression={"type": "price_below", "symbol": "self", "value": 2850},
+        reason="tighten operator stop",
+    )
+
+    assert client.amendments == [
+        {
+            "inst_id": "ETH-USDT-SWAP",
+            "algo_id": "protect-1",
+            "sz": "2",
+            "stop_trigger_px": "2850",
+            "confirm": True,
+        }
+    ]
+    assert store.get_close_condition(position.id, condition.id).expression["value"] == 2850
+    protection = store.get_protection(position.id)
+    assert protection.status == "active"
+    assert protection.stop_loss == 2850
+    assert protection.metadata["stop_amend"]["status"] == "completed"
+    assert json.loads(updated.metadata_json)["exchange_protection"]["stop_loss"] == "2850"
+    assert len(
+        service.protection.audit_store.list(
+            event_type="position.protection_stop_amended",
+            position_id=position.id,
+        )
+    ) == 1
+
+
+def test_failed_stop_amend_keeps_original_rule_when_exchange_proves_old_stop(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+    client.apply_amend = False
+    client.amend_error = TimeoutError("response lost")
+
+    with pytest.raises(PositionProtectionError, match="was not applied"):
+        service.protection.amend_stop_condition(
+            position.id,
+            condition.id,
+            expression={"type": "price_below", "symbol": "self", "value": 2850},
+            reason="tighten operator stop",
+        )
+
+    assert store.get_close_condition(position.id, condition.id).expression["value"] == 2900
+    protection = store.get_protection(position.id)
+    assert protection.status == "active"
+    assert protection.stop_loss == 2900
+    assert protection.metadata["stop_amend"]["status"] == "not_applied"
+
+
+def test_unknown_stop_amend_outcome_fails_protection_and_disables_entries(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+    service.protection.store.update_protection(position.id, status="active")
+    risk_store = AccountRiskStore(store.db_path)
+    risk_store.set_entries_enabled(True)
+    arm_order_placement(preflight_passed=True)
+    enable_entry_order_placement()
+    client.amend_error = TimeoutError("response lost")
+    client.drop_on_amend = True
+
+    try:
+        with pytest.raises(PositionProtectionError, match="outcome unknown"):
+            service.protection.amend_stop_condition(
+                position.id,
+                condition.id,
+                expression={"type": "price_below", "symbol": "self", "value": 2850},
+                reason="tighten operator stop",
+            )
+
+        assert store.get_close_condition(position.id, condition.id).expression["value"] == 2900
+        assert store.get_protection(position.id).status == "failed"
+        assert risk_store.entries_enabled() is False
+        assert entry_order_placement_enabled() is False
+    finally:
+        disarm_order_placement()
+
+
+def test_stop_amend_rejects_stale_protection_quantity_before_submission(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+    store.update_protection(position.id, quantity=1)
+
+    with pytest.raises(PositionProtectionError, match="quantity does not match"):
+        service.protection.amend_stop_condition(
+            position.id,
+            condition.id,
+            expression={"type": "price_below", "symbol": "self", "value": 2850},
+            reason="tighten operator stop",
+        )
+
+    assert client.amendments == []
 
 
 def test_protection_can_be_canceled_and_proven_absent_before_close(tmp_path):

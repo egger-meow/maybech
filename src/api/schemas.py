@@ -406,6 +406,7 @@ class LogicalPositionProtectionResponse(BaseModel):
     kind: Literal["attached_stop", "standalone_stop"]
     status: Literal[
         "active",
+        "amending",
         "canceling",
         "canceled",
         "triggered",
@@ -465,6 +466,13 @@ class ExternalPositionImportRequest(BaseModel):
 
 class PositionProtectionCommand(BaseModel):
     confirm: Literal[True]
+
+
+class PositionStopAmendCommand(BaseModel):
+    confirm: Literal[True]
+    condition_id: str = Field(min_length=1, max_length=128)
+    expression: dict[str, Any]
+    reason: str = Field(min_length=1, max_length=256)
 
 
 class AccountExposureReconciliationResponse(BaseModel):

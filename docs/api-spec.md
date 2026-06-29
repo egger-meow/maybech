@@ -217,9 +217,18 @@ The Position Management page has a logical-position contract now:
   places a quantity-scoped reduce-only conditional stop and verifies the exact
   pending OKX algo. Repeating an import after the gap is consumed returns `409`.
 - `POST /positions/logical/{position_id}/protection`: with
-  `{ "confirm": true }`, retry protection for an imported/recovered unit or
-  amend its deterministic existing algo after a close-condition change. The
-  unit remains entry-blocking unless exact pending-algo verification succeeds.
+  `{ "confirm": true }`, retry or reconcile protection for an
+  imported/recovered/failed unit against its persisted stop condition. The unit
+  remains entry-blocking unless exact pending-algo verification succeeds.
+- `POST /positions/logical/{position_id}/protection/stop`: publish a confirmed
+  stop edit. The request identifies the enabled stop-loss condition, supplies
+  its replacement expression and reason, and requires `{ "confirm": true }`.
+  The backend proves the old owned algo, persists and audits an amend intent,
+  submits the exact size/price amendment, proves the resulting pending algo,
+  and only then updates the close condition and protection record. Generic
+  close-condition mutations return `409` when they would alter an owned stop.
+  Verification also requires the protected quantity to equal the logical unit's
+  current remaining quantity; matching a stale persisted size is not accepted.
 
 - `GET /positions/logical`: list current logical position units persisted in
   SQLite, with compatibility backfill from `TradeStore` records, first-class
@@ -259,6 +268,12 @@ and proves absence of that unit's owned protective algo. A missing or ambiguous
 algo blocks the close. Unknown close acceptance retains a retryable intent with
 the same `clOrdId`; terminal or proven-missing closes with remaining quantity
 re-arm protection before the unit returns to `open`.
+
+A stop amendment temporarily enters `amending`. Response-loss recovery queries
+the owned algo: a proved new stop completes normally, a proved old stop leaves
+the old rule unchanged, and an ambiguous result marks protection `failed` and
+disables entries. Background protection checks share the same execution lock so
+they cannot observe a valid amendment halfway through.
 
 The editable target surface remains:
 

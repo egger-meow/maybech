@@ -7,8 +7,12 @@ import json
 import time
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, NoReturn
+from uuid import uuid4
 
+from src.exchange.client import disable_entry_order_placement
+from src.trading.account_risk import AccountRiskStore
+from src.trading.audit_event_store import AuditEventStore
 from src.trading.entry_control import ENTRY_EXECUTION_LOCK
 from src.trading.instrument_constraints import InstrumentConstraints
 from src.trading.logical_position_store import (
@@ -26,10 +30,199 @@ class PositionProtectionError(RuntimeError):
 class PositionProtectionService:
     """Create one independently sized OKX stop for one logical position unit."""
 
-    def __init__(self, client: Any, store: LogicalPositionStore) -> None:
+    def __init__(
+        self,
+        client: Any,
+        store: LogicalPositionStore,
+        audit_store: AuditEventStore | None = None,
+    ) -> None:
         self.client = client
         self.store = store
+        self.audit_store = audit_store or AuditEventStore(store.db_path)
         self.reconciler = PositionReconciler()
+
+    def amend_stop_condition(
+        self,
+        position_id: str,
+        condition_id: str,
+        *,
+        expression: dict[str, Any],
+        reason: str,
+    ) -> LogicalPositionRecord:
+        """Amend one owned exchange stop before publishing its new rule value."""
+        with ENTRY_EXECUTION_LOCK:
+            position = self.store.get(position_id)
+            protection = self.store.get_protection(position_id)
+            condition = self.store.get_close_condition(position_id, condition_id)
+            if position is None:
+                raise PositionProtectionError("logical position not found")
+            if position.status not in {"open", "reducing", "closing"}:
+                raise PositionProtectionError("logical position is not active")
+            if protection is None:
+                raise PositionProtectionError("logical position has no owned protection")
+            if protection.status != "active":
+                raise PositionProtectionError(f"protection is {protection.status}")
+            if condition is None:
+                raise PositionProtectionError("close condition not found")
+            if condition.purpose != "stop_loss" or not condition.enabled:
+                raise PositionProtectionError(
+                    "condition must be the enabled stop_loss owned by protection"
+                )
+            enabled_stops = [
+                item
+                for item in self.store.list_close_conditions(position.id, enabled=True)
+                if item.purpose == "stop_loss"
+            ]
+            if len(enabled_stops) != 1 or enabled_stops[0].id != condition.id:
+                raise PositionProtectionError(
+                    "protection requires exactly one owned enabled stop_loss condition"
+                )
+            remaining = position.remaining_quantity or position.opened_quantity or 0.0
+            if remaining <= 0 or not self._same_decimal(
+                protection.quantity,
+                remaining,
+            ):
+                raise PositionProtectionError(
+                    "owned protection quantity does not match remaining logical quantity"
+                )
+
+            normalized_expression, stop = self._normalize_stop_expression(
+                position,
+                expression,
+            )
+            constraints = self._constraints(position.inst_id)
+            size = constraints.normalize_size(remaining)
+            normalized_stop = constraints.normalize_price(stop)
+            pending = self._pending_orders(position.inst_id)
+            order = self._find_pending(pending, protection.algo_client_order_id)
+            self._verify_for_kind(
+                order,
+                position=position,
+                quantity=size,
+                stop=str(protection.stop_loss),
+                algo_client_id=protection.algo_client_order_id,
+                kind=protection.kind,
+            )
+
+            correlation_id = uuid4().hex
+            requested_at = self._now()
+            amend_intent = {
+                "correlation_id": correlation_id,
+                "condition_id": condition_id,
+                "old_stop_loss": protection.stop_loss,
+                "target_stop_loss": normalized_stop,
+                "reason": reason,
+                "requested_at": requested_at,
+            }
+            self.audit_store.create(
+                type="position.protection_stop_amend_requested",
+                source="position_protection",
+                payload={
+                    "position_id": position.id,
+                    "trade_id": position.trade_id,
+                    "strategy_id": position.strategy_id,
+                    **amend_intent,
+                },
+            )
+            amending = self.store.update_protection(
+                position.id,
+                status="amending",
+                metadata={"stop_amend": amend_intent},
+            )
+            if amending is None:
+                raise PositionProtectionError(
+                    "could not persist protective stop amend intent"
+                )
+
+            try:
+                self.client.amend_position_stop(
+                    inst_id=position.inst_id,
+                    algo_id=protection.algo_id,
+                    sz=size,
+                    stop_trigger_px=normalized_stop,
+                    confirm=True,
+                )
+                proof = self._verify_amended_stop(
+                    position=position,
+                    protection=protection,
+                    quantity=size,
+                    stop=normalized_stop,
+                )
+            except Exception as exc:
+                proof = self._resolve_amend_error(
+                    position=position,
+                    protection=protection,
+                    quantity=size,
+                    target_stop=normalized_stop,
+                    error=exc,
+                    amend_intent=amend_intent,
+                )
+
+            normalized_expression = {
+                **normalized_expression,
+                "value": float(Decimal(normalized_stop)),
+            }
+            updated_condition = self.store.update_close_condition(
+                position.id,
+                condition.id,
+                expression=normalized_expression,
+            )
+            if updated_condition is None:
+                self._fail_amend(
+                    position,
+                    amend_intent,
+                    "close condition disappeared after exchange amend",
+                )
+
+            completed_at = self._now()
+            self.store.update_protection(
+                position.id,
+                status="active",
+                stop_loss=float(Decimal(normalized_stop)),
+                metadata={
+                    "stop_amend": {
+                        **amend_intent,
+                        "status": "completed",
+                        "completed_at": completed_at,
+                    },
+                    "verified_at": proof["verified_at"],
+                },
+            )
+            updated = self.store.merge_metadata(
+                position.id,
+                {
+                    "exchange_protection_verified": True,
+                    "exchange_protection_error": "",
+                    "exchange_protection_checked_at": completed_at,
+                    "exchange_protection": proof,
+                },
+            )
+            if updated is None:
+                self._fail_amend(
+                    position,
+                    amend_intent,
+                    "logical position disappeared after exchange amend",
+                )
+            try:
+                self.audit_store.create(
+                    type="position.protection_stop_amended",
+                    source="position_protection",
+                    payload={
+                        "position_id": position.id,
+                        "trade_id": position.trade_id,
+                        "strategy_id": position.strategy_id,
+                        **amend_intent,
+                        "completed_at": completed_at,
+                        "proof": proof,
+                    },
+                )
+            except Exception as exc:
+                self._fail_amend(
+                    position,
+                    amend_intent,
+                    f"protective stop completion audit failed: {exc}",
+                )
+            return updated
 
     def protect(self, position_id: str) -> LogicalPositionRecord:
         with ENTRY_EXECUTION_LOCK:
@@ -288,6 +481,10 @@ class PositionProtectionService:
 
     def verify_active(self, position_id: str) -> LogicalPositionProtection:
         """Prove the persisted protection still exists exactly on OKX."""
+        with ENTRY_EXECUTION_LOCK:
+            return self._verify_active(position_id)
+
+    def _verify_active(self, position_id: str) -> LogicalPositionProtection:
         position = self.store.get(position_id)
         protection = self.store.get_protection(position_id)
         if position is None:
@@ -296,6 +493,14 @@ class PositionProtectionService:
             raise PositionProtectionError("logical position has no owned protection")
         if protection.status != "active":
             raise PositionProtectionError(f"protection is {protection.status}")
+        remaining = position.remaining_quantity or position.opened_quantity or 0.0
+        if remaining <= 0 or not self._same_decimal(
+            protection.quantity,
+            remaining,
+        ):
+            raise PositionProtectionError(
+                "owned protection quantity does not match remaining logical quantity"
+            )
         pending = self._pending_orders(position.inst_id)
         order = self._find_pending(pending, protection.algo_client_order_id)
         self._verify_for_kind(
@@ -307,6 +512,171 @@ class PositionProtectionService:
             kind=protection.kind,
         )
         return protection
+
+    def _verify_amended_stop(
+        self,
+        *,
+        position: LogicalPositionRecord,
+        protection: LogicalPositionProtection,
+        quantity: str,
+        stop: str,
+    ) -> dict[str, Any]:
+        pending = self._pending_orders(position.inst_id)
+        order = self._find_pending(pending, protection.algo_client_order_id)
+        return self._verify_for_kind(
+            order,
+            position=position,
+            quantity=quantity,
+            stop=stop,
+            algo_client_id=protection.algo_client_order_id,
+            kind=protection.kind,
+        )
+
+    def _resolve_amend_error(
+        self,
+        *,
+        position: LogicalPositionRecord,
+        protection: LogicalPositionProtection,
+        quantity: str,
+        target_stop: str,
+        error: Exception,
+        amend_intent: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            pending = self._pending_orders(position.inst_id)
+            order = self._find_pending(pending, protection.algo_client_order_id)
+        except Exception as query_error:
+            self._fail_amend(
+                position,
+                amend_intent,
+                f"amend outcome unknown: {error}; verification failed: {query_error}",
+            )
+
+        try:
+            return self._verify_for_kind(
+                order,
+                position=position,
+                quantity=quantity,
+                stop=target_stop,
+                algo_client_id=protection.algo_client_order_id,
+                kind=protection.kind,
+            )
+        except PositionProtectionError:
+            try:
+                self._verify_for_kind(
+                    order,
+                    position=position,
+                    quantity=quantity,
+                    stop=str(protection.stop_loss),
+                    algo_client_id=protection.algo_client_order_id,
+                    kind=protection.kind,
+                )
+            except PositionProtectionError as verification_error:
+                self._fail_amend(
+                    position,
+                    amend_intent,
+                    f"amend outcome unknown: {error}; {verification_error}",
+                )
+
+        self.store.update_protection(
+            position.id,
+            status="active",
+            metadata={
+                "stop_amend": {
+                    **amend_intent,
+                    "status": "not_applied",
+                    "error": str(error),
+                    "completed_at": self._now(),
+                }
+            },
+        )
+        self.audit_store.create(
+            type="position.protection_stop_amend_failed",
+            source="position_protection",
+            payload={
+                "position_id": position.id,
+                "trade_id": position.trade_id,
+                "strategy_id": position.strategy_id,
+                **amend_intent,
+                "outcome": "not_applied",
+                "error": str(error),
+            },
+        )
+        raise PositionProtectionError(
+            f"protective stop amend was not applied: {error}"
+        ) from error
+
+    def _fail_amend(
+        self,
+        position: LogicalPositionRecord,
+        amend_intent: dict[str, Any],
+        error: str,
+    ) -> NoReturn:
+        disable_entry_order_placement()
+        persistence_errors: list[str] = []
+        try:
+            self.store.update_protection(
+                position.id,
+                status="failed",
+                metadata={
+                    "stop_amend": {
+                        **amend_intent,
+                        "status": "unknown",
+                        "error": error,
+                        "completed_at": self._now(),
+                    }
+                },
+            )
+        except Exception as exc:
+            persistence_errors.append(f"protection failure state: {exc}")
+        try:
+            AccountRiskStore(self.store.db_path).set_entries_enabled(False)
+        except Exception as exc:
+            persistence_errors.append(f"durable entry disable: {exc}")
+        final_error = error
+        if persistence_errors:
+            final_error += "; " + "; ".join(persistence_errors)
+        try:
+            self.audit_store.create(
+                type="position.protection_stop_amend_failed",
+                source="position_protection",
+                payload={
+                    "position_id": position.id,
+                    "trade_id": position.trade_id,
+                    "strategy_id": position.strategy_id,
+                    **amend_intent,
+                    "outcome": "unknown",
+                    "error": final_error,
+                },
+            )
+        except Exception:
+            pass
+        raise PositionProtectionError(final_error)
+
+    @staticmethod
+    def _normalize_stop_expression(
+        position: LogicalPositionRecord,
+        expression: dict[str, Any],
+    ) -> tuple[dict[str, Any], Decimal]:
+        if position.side not in {"long", "short"}:
+            raise PositionProtectionError("logical position side must be long or short")
+        expected_type = "price_below" if position.side == "long" else "price_above"
+        if expression.get("type") != expected_type:
+            raise PositionProtectionError(
+                f"{position.side} stop_loss must use {expected_type}"
+            )
+        symbol = str(expression.get("symbol") or "")
+        if symbol not in {"self", position.inst_id}:
+            raise PositionProtectionError(
+                "stop_loss symbol must be self or the position instrument"
+            )
+        try:
+            stop = Decimal(str(expression.get("value")))
+        except (InvalidOperation, ValueError) as exc:
+            raise PositionProtectionError("stop_loss value must be numeric") from exc
+        if not stop.is_finite() or stop <= 0:
+            raise PositionProtectionError("stop_loss value must be positive")
+        return {**expression, "symbol": position.inst_id}, stop
 
     def _pending_orders(self, inst_id: str) -> list[dict[str, Any]]:
         try:

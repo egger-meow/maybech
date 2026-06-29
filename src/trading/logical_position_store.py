@@ -47,6 +47,7 @@ CloseConditionPurpose = Literal[
 ProtectionKind = Literal["attached_stop", "standalone_stop"]
 ProtectionStatus = Literal[
     "active",
+    "amending",
     "canceling",
     "canceled",
     "triggered",

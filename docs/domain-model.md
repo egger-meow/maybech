@@ -150,8 +150,8 @@ conflict rather than a correction.
 
 Every active logical unit with remaining real exposure owns exactly one active
 OKX protective algo. Attached entry protection and standalone imported/recovery
-stops share the same persisted lifecycle: `active`, `canceling`, `canceled`,
-`triggered`, `exhausted`, or `failed`.
+stops share the same persisted lifecycle: `active`, `amending`, `canceling`,
+`canceled`, `triggered`, `exhausted`, or `failed`.
 
 When OKX triggers the algo, its `algoId` or `algoClOrdId` identifies the logical
 unit before the resulting normal order fill is allocated. A software/manual
@@ -159,3 +159,14 @@ close first cancels and proves removal of that unit's exact algo. Unknown close
 acceptance retains the same client order intent for retry/recovery. If the close
 does not exist or terminates with remaining quantity, protection is re-armed at
 the remaining size before the unit returns to normal management.
+
+An edit to the enabled protected stop is not an ordinary rule edit. It owns a
+durable amend intent and moves protection through `active -> amending -> active`
+only after the old algo identity and the amended pending algo are both proven.
+The new close-condition value is published only after exchange verification.
+If OKX still proves the old stop, the old rule remains authoritative; an
+ambiguous outcome marks protection failed and disables entries. Generic rule
+mutation cannot alter or delete an owned active stop.
+Protection verification always compares its quantity with the logical unit's
+remaining exposure as well as the exchange algo. A stale persisted size cannot
+prove that a unit is fully protected.

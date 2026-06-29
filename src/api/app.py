@@ -24,7 +24,7 @@ from src.trading.execution_allocation import (
     ConfirmedExecutionFill,
     ExecutionAllocationService,
 )
-from src.trading.entry_control import EntryControlManager
+from src.trading.entry_control import ENTRY_EXECUTION_LOCK, EntryControlManager
 from src.trading.logical_position_store import (
     AllocationConflictError,
     LogicalPositionAllocation,
@@ -72,6 +72,7 @@ from src.api.schemas import (
     LogicalPositionAllocationResponse,
     PositionIntentResponse,
     PositionProtectionCommand,
+    PositionStopAmendCommand,
     PositionRuleResponse,
     RuleGroupResponse,
     RuntimeLeaseResponse,
@@ -123,6 +124,44 @@ def _invalidate_external_position_protection(
                 "exchange_protection_error": "close conditions changed; verification required",
             },
         )
+
+
+def _protected_stop_mutation_blocked(
+    position_store: LogicalPositionStore,
+    position: LogicalPositionRecord,
+    *,
+    condition: LogicalPositionCloseCondition | None = None,
+    purpose: str | None = None,
+    enabled: bool | None = None,
+    definition_changed: bool = True,
+) -> bool:
+    protection = position_store.get_protection(position.id)
+    if protection is None or protection.status in {"canceled", "exhausted"}:
+        return False
+    if not definition_changed:
+        return False
+    old_is_stop = bool(
+        condition is not None
+        and condition.purpose == "stop_loss"
+        and condition.enabled
+    )
+    next_purpose = purpose if purpose is not None else (
+        condition.purpose if condition is not None else "exit"
+    )
+    next_enabled = enabled if enabled is not None else (
+        condition.enabled if condition is not None else True
+    )
+    return old_is_stop or (next_purpose == "stop_loss" and next_enabled)
+
+
+def _raise_protected_stop_edit_conflict() -> None:
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "Owned protective stops must be edited through the confirmed "
+            "protection stop-amend endpoint"
+        ),
+    )
 
 
 def _strategy_decision_response(event: AuditEventRecord) -> StrategyDecisionResponse:
@@ -1132,6 +1171,46 @@ def create_app(runner: DaemonRunner) -> FastAPI:
             audit_events=runner.runtime.events.recent(limit=100),
         )
 
+    @app.post(
+        "/positions/logical/{position_id}/protection/stop",
+        response_model=LogicalPositionUnitResponse,
+    )
+    def amend_logical_position_stop(
+        position_id: str,
+        payload: PositionStopAmendCommand,
+    ) -> LogicalPositionUnitResponse:
+        trade_store = TradeStore()
+        position_store = LogicalPositionStore(trade_store.db_path)
+        _validate_signal_or_400(payload.expression)
+        try:
+            position = PositionProtectionService(
+                OKXClient(),
+                position_store,
+                AuditEventStore(trade_store.db_path),
+            ).amend_stop_condition(
+                position_id,
+                payload.condition_id,
+                expression=payload.expression,
+                reason=payload.reason,
+            )
+        except PositionProtectionError as exc:
+            protection = position_store.get_protection(position_id)
+            if str(exc) in {"logical position not found", "close condition not found"}:
+                status_code = 404
+            elif protection is not None and protection.status == "failed":
+                status_code = 502
+            else:
+                status_code = 409
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        return _logical_position_response(
+            store=trade_store,
+            position_store=position_store,
+            position=position,
+            account_snapshot=runner.runtime.get_value("account.snapshot") or {},
+            intents=runner.runtime.get_value("position.intents") or [],
+            audit_events=runner.runtime.events.recent(limit=100),
+        )
+
     @app.get("/positions/logical/{position_id}", response_model=LogicalPositionUnitResponse)
     def get_logical_position(position_id: str) -> LogicalPositionUnitResponse:
         store = TradeStore()
@@ -1300,16 +1379,25 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         if position is None:
             raise HTTPException(status_code=404, detail="Logical position not found")
         _validate_signal_or_400(payload.expression)
-        condition = position_store.create_close_condition(
-            position_id=position.id,
-            purpose=payload.purpose,
-            expression=payload.expression,
-            enabled=payload.enabled,
-            metadata=payload.metadata,
-        )
-        if condition is None:
-            raise HTTPException(status_code=404, detail="Logical position not found")
-        _invalidate_external_position_protection(position_store, position)
+        with ENTRY_EXECUTION_LOCK:
+            if _protected_stop_mutation_blocked(
+                position_store,
+                position,
+                purpose=payload.purpose,
+                enabled=payload.enabled,
+            ):
+                _raise_protected_stop_edit_conflict()
+            condition = position_store.create_close_condition(
+                position_id=position.id,
+                purpose=payload.purpose,
+                expression=payload.expression,
+                enabled=payload.enabled,
+                metadata=payload.metadata,
+            )
+            if condition is None:
+                raise HTTPException(status_code=404, detail="Logical position not found")
+            if payload.purpose == "stop_loss" and payload.enabled:
+                _invalidate_external_position_protection(position_store, position)
         return _close_condition_response(condition)
 
     @app.patch(
@@ -1332,17 +1420,44 @@ def create_app(runner: DaemonRunner) -> FastAPI:
             raise HTTPException(status_code=404, detail="Logical position not found")
         if payload.expression is not None:
             _validate_signal_or_400(payload.expression)
-        condition = position_store.update_close_condition(
-            position.id,
-            condition_id,
-            purpose=payload.purpose,
-            expression=payload.expression,
-            enabled=payload.enabled,
-            metadata=payload.metadata,
-        )
-        if condition is None:
-            raise HTTPException(status_code=404, detail="Close condition not found")
-        _invalidate_external_position_protection(position_store, position)
+        with ENTRY_EXECUTION_LOCK:
+            existing = position_store.get_close_condition(position.id, condition_id)
+            if existing is None:
+                raise HTTPException(status_code=404, detail="Close condition not found")
+            definition_changed = any(
+                value is not None
+                for value in (payload.purpose, payload.expression, payload.enabled)
+            )
+            if _protected_stop_mutation_blocked(
+                position_store,
+                position,
+                condition=existing,
+                purpose=payload.purpose,
+                enabled=payload.enabled,
+                definition_changed=definition_changed,
+            ):
+                _raise_protected_stop_edit_conflict()
+            condition = position_store.update_close_condition(
+                position.id,
+                condition_id,
+                purpose=payload.purpose,
+                expression=payload.expression,
+                enabled=payload.enabled,
+                metadata=payload.metadata,
+            )
+            if condition is None:
+                raise HTTPException(status_code=404, detail="Close condition not found")
+            next_purpose = (
+                existing.purpose if payload.purpose is None else payload.purpose
+            )
+            next_enabled = (
+                existing.enabled if payload.enabled is None else payload.enabled
+            )
+            if definition_changed and (
+                (existing.purpose == "stop_loss" and existing.enabled)
+                or (next_purpose == "stop_loss" and next_enabled)
+            ):
+                _invalidate_external_position_protection(position_store, position)
         return _close_condition_response(condition)
 
     @app.delete("/positions/logical/{position_id}/close-conditions/{condition_id}")
@@ -1356,9 +1471,20 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         )
         if position is None:
             raise HTTPException(status_code=404, detail="Logical position not found")
-        if not position_store.delete_close_condition(position.id, condition_id):
-            raise HTTPException(status_code=404, detail="Close condition not found")
-        _invalidate_external_position_protection(position_store, position)
+        with ENTRY_EXECUTION_LOCK:
+            existing = position_store.get_close_condition(position.id, condition_id)
+            if existing is None:
+                raise HTTPException(status_code=404, detail="Close condition not found")
+            if _protected_stop_mutation_blocked(
+                position_store,
+                position,
+                condition=existing,
+            ):
+                _raise_protected_stop_edit_conflict()
+            if not position_store.delete_close_condition(position.id, condition_id):
+                raise HTTPException(status_code=404, detail="Close condition not found")
+            if existing.purpose == "stop_loss" and existing.enabled:
+                _invalidate_external_position_protection(position_store, position)
         return {"status": "ok"}
 
     return app

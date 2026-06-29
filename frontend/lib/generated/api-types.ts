@@ -231,7 +231,7 @@ export type LogicalPositionCloseResponse = {
 export type LogicalPositionProtectionResponse = {
   "position_id": string;
   "kind": "attached_stop" | "standalone_stop";
-  "status": "active" | "canceling" | "canceled" | "triggered" | "exhausted" | "failed";
+  "status": "active" | "amending" | "canceling" | "canceled" | "triggered" | "exhausted" | "failed";
   "algo_id": string;
   "algo_client_order_id": string;
   "quantity": number;
@@ -301,6 +301,13 @@ export type PositionRuleResponse = {
   "operator"?: "greater_than" | "less_than";
   "value"?: number;
   "id": string;
+};
+
+export type PositionStopAmendCommand = {
+  "confirm": true;
+  "condition_id": string;
+  "expression": Record<string, unknown>;
+  "reason": string;
 };
 
 export type RuleGroupCreate = {
@@ -553,6 +560,7 @@ export type ApiSchemas = {
   "PositionProtectionCommand": PositionProtectionCommand;
   "PositionRuleCreate": PositionRuleCreate;
   "PositionRuleResponse": PositionRuleResponse;
+  "PositionStopAmendCommand": PositionStopAmendCommand;
   "RuleGroupCreate": RuleGroupCreate;
   "RuleGroupResponse": RuleGroupResponse;
   "RuntimeEventResponse": RuntimeEventResponse;

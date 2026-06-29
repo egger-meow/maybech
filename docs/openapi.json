@@ -1334,6 +1334,7 @@
           "status": {
             "enum": [
               "active",
+              "amending",
               "canceling",
               "canceled",
               "triggered",
@@ -1777,6 +1778,40 @@
           "id"
         ],
         "title": "PositionRuleResponse",
+        "type": "object"
+      },
+      "PositionStopAmendCommand": {
+        "properties": {
+          "condition_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Condition Id",
+            "type": "string"
+          },
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "expression": {
+            "additionalProperties": true,
+            "title": "Expression",
+            "type": "object"
+          },
+          "reason": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "condition_id",
+          "expression",
+          "reason"
+        ],
+        "title": "PositionStopAmendCommand",
         "type": "object"
       },
       "RuleGroupCreate": {
@@ -4038,6 +4073,55 @@
           }
         },
         "summary": "Attach Logical Position Protection"
+      }
+    },
+    "/positions/logical/{position_id}/protection/stop": {
+      "post": {
+        "operationId": "amend_logical_position_stop_positions_logical__position_id__protection_stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PositionStopAmendCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionUnitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Amend Logical Position Stop"
       }
     },
     "/risk/entries": {

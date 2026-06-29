@@ -230,6 +230,44 @@ def test_entry_approval_rechecks_owned_stop_on_okx(tmp_path):
     assert approval.inst_id == "ETH-USDT-SWAP"
 
 
+def test_entry_approval_rejects_protection_quantity_stale_from_logical_unit(tmp_path):
+    client = RiskClient()
+    client.positions = [
+        {
+            "instId": "BTC-USDT-SWAP",
+            "pos": "-1",
+            "notionalUsd": "100",
+        }
+    ]
+    client.pending_algos = [
+        {
+            "algoId": "algo-stop",
+            "algoClOrdId": "stopclient",
+            "instId": "BTC-USDT-SWAP",
+            "side": "buy",
+            "ordType": "conditional",
+            "state": "live",
+            "posSide": "net",
+            "reduceOnly": "true",
+            "sz": "0.5",
+            "slTriggerPx": "110",
+            "slOrdPx": "-1",
+        }
+    ]
+    store = _store(tmp_path)
+    LogicalPositionStore(store.db_path).update_protection(
+        "btc-short",
+        quantity=0.5,
+    )
+
+    with pytest.raises(EntryRiskBlocked, match="quantity does not match"):
+        AccountRiskGuard(client, store).approve_entry(
+            inst_id="ETH-USDT-SWAP",
+            requested_size="1",
+            entry_price="2000",
+        )
+
+
 def test_entry_approval_is_disabled_by_default_and_survives_restart(tmp_path):
     store = AccountRiskStore(str(tmp_path / "trades.db"))
     store.save(

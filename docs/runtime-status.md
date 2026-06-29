@@ -146,6 +146,15 @@ submitting a reduce-only market order. Unknown close acceptance keeps the same
 client order id for bounded retries and restart recovery. A canceled or partial
 close re-arms protection at the remaining quantity; failed re-arm kills future
 entries.
+Confirmed stop edits use the same owned algo and execution lock. The backend
+persists an amend intent, verifies the old stop, submits the amendment, verifies
+the new pending stop, and only then publishes the new close-condition value.
+A proved old stop leaves the old rule unchanged; an ambiguous amend marks the
+protection failed and disables entries. Generic close-condition mutations cannot
+alter or delete an owned active stop.
+Preflight, entry approval, and amendments also require owned protection quantity
+to equal the unit's remaining logical quantity; an exchange order matching a
+stale persisted size is rejected.
 `ExecutionFillService` polls authenticated three-month SWAP fill history every
 five seconds. It also consumes authenticated private `orders/SWAP` events every
 daemon cycle for low-latency fills and terminal cancellations. Login and

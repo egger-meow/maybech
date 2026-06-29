@@ -363,6 +363,17 @@ class AccountRiskGuard:
                 raise EntryRiskBlocked(
                     f"logical position {position.id} protection is {protection.status}"
                 )
+            try:
+                quantity_matches = Decimal(str(protection.quantity)) == Decimal(
+                    str(remaining)
+                )
+            except (InvalidOperation, ValueError):
+                quantity_matches = False
+            if not quantity_matches:
+                raise EntryRiskBlocked(
+                    "logical position "
+                    f"{position.id} protection quantity does not match remaining quantity"
+                )
             pending = pending_by_instrument.get(position.inst_id)
             if pending is None:
                 pending = self._pending_protections(position.inst_id)

@@ -1382,6 +1382,127 @@ def test_api_manages_logical_position_close_conditions(monkeypatch, tmp_path):
     assert client.get("/positions/logical/unit-a/close-conditions").json() == []
 
 
+def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="protected-unit",
+            source="manual",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            opened_quantity=2,
+            remaining_quantity=2,
+            entry_price=3000,
+            status="open",
+        )
+    )
+    condition = position_store.create_close_condition(
+        position_id="protected-unit",
+        purpose="stop_loss",
+        expression={
+            "type": "price_below",
+            "symbol": "ETH-USDT-SWAP",
+            "value": 2900,
+        },
+    )
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id="protected-unit",
+            kind="standalone_stop",
+            algo_id="algo-1",
+            algo_client_order_id="algo-client-1",
+            quantity=2,
+            stop_loss=2900,
+        )
+    )
+
+    class AmendClient:
+        def __init__(self):
+            self.order = {
+                "algoId": "algo-1",
+                "algoClOrdId": "algo-client-1",
+                "instId": "ETH-USDT-SWAP",
+                "side": "sell",
+                "ordType": "conditional",
+                "state": "live",
+                "posSide": "net",
+                "reduceOnly": "true",
+                "sz": "2",
+                "slTriggerPx": "2900",
+                "slOrdPx": "-1",
+            }
+            self.amendments = []
+
+        def get_instruments(self, *, inst_type, inst_id):
+            return [{
+                "instId": inst_id,
+                "state": "live",
+                "minSz": "1",
+                "lotSz": "1",
+                "tickSz": "0.1",
+            }]
+
+        def get_pending_algo_orders(self, *, inst_id, ord_type="conditional"):
+            return [self.order] if ord_type == "conditional" else []
+
+        def amend_position_stop(self, **kwargs):
+            self.amendments.append(kwargs)
+            self.order["sz"] = kwargs["sz"]
+            self.order["slTriggerPx"] = kwargs["stop_trigger_px"]
+            return {"algoId": self.order["algoId"], "sCode": "0"}
+
+    exchange = AmendClient()
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    monkeypatch.setattr("src.api.app.OKXClient", lambda: exchange)
+    client = TestClient(create_app(DaemonRunner()))
+    path = f"/positions/logical/protected-unit/close-conditions/{condition.id}"
+
+    generic = client.patch(
+        path,
+        json={
+            "expression": {
+                "type": "price_below",
+                "symbol": "ETH-USDT-SWAP",
+                "value": 2850,
+            }
+        },
+    )
+    unconfirmed = client.post(
+        "/positions/logical/protected-unit/protection/stop",
+        json={
+            "confirm": False,
+            "condition_id": condition.id,
+            "expression": {"type": "price_below", "symbol": "self", "value": 2850},
+            "reason": "tighten operator stop",
+        },
+    )
+    amended = client.post(
+        "/positions/logical/protected-unit/protection/stop",
+        json={
+            "confirm": True,
+            "condition_id": condition.id,
+            "expression": {"type": "price_below", "symbol": "self", "value": 2850},
+            "reason": "tighten operator stop",
+        },
+    )
+
+    assert generic.status_code == 409
+    assert unconfirmed.status_code == 422
+    assert amended.status_code == 200
+    assert amended.json()["protection"]["status"] == "active"
+    assert amended.json()["protection"]["stop_loss"] == 2850
+    assert amended.json()["close_conditions"][0]["expression"]["value"] == 2850
+    assert exchange.amendments[0]["confirm"] is True
+    assert len(
+        AuditEventStore(db_path).list(
+            event_type="position.protection_stop_amended",
+            position_id="protected-unit",
+        )
+    ) == 1
+
+
 def test_api_rejects_invalid_logical_position_close_condition(monkeypatch, tmp_path):
     db_path = str(tmp_path / "trades.db")
     trade_store = TradeStore(db_path)
