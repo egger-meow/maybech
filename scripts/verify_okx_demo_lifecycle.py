@@ -1,7 +1,7 @@
-"""Run one bounded, minimum-size OKX demo execution lifecycle.
+"""Run one bounded, minimum-size OKX staged execution lifecycle.
 
-This command is intentionally not a pytest test. It places demo orders and
-requires an explicit CLI confirmation plus OKX_FLAG=1 and MAYBECH_ARM_ORDERS=1.
+This command is intentionally not a pytest test. It requires an environment-
+specific CLI confirmation plus matching OKX_FLAG and MAYBECH_ARM_ORDERS=1.
 """
 
 # ruff: noqa: E402 -- direct script execution needs the repository root on sys.path.
@@ -147,11 +147,22 @@ def _ingest_order_fills(
     return statuses
 
 
-def _audit(audit_store: AuditEventStore, run_id: str, stage: str, payload: dict) -> None:
+def _audit(
+    audit_store: AuditEventStore,
+    run_id: str,
+    environment: str,
+    stage: str,
+    payload: dict,
+) -> None:
     audit_store.create(
-        type=f"verification.demo_{stage}",
+        type=f"verification.{environment}_{stage}",
         source="verify_okx_demo_lifecycle",
-        payload={"run_id": run_id, "instrument": INSTRUMENT, **payload},
+        payload={
+            "run_id": run_id,
+            "environment": environment,
+            "instrument": INSTRUMENT,
+            **payload,
+        },
     )
 
 
@@ -206,12 +217,17 @@ def _cleanup(
     return actions
 
 
-def run(db_path: str) -> dict:
-    if settings.OKX_FLAG != "1":
-        raise RuntimeError("demo lifecycle verifier refuses OKX_FLAG other than '1'")
+def run(db_path: str, *, environment: str = "demo") -> dict:
+    if environment not in {"demo", "production"}:
+        raise ValueError("environment must be demo or production")
+    expected_flag = "1" if environment == "demo" else "0"
+    if settings.OKX_FLAG != expected_flag:
+        raise RuntimeError(
+            f"{environment} lifecycle verifier requires OKX_FLAG={expected_flag}"
+        )
     client = OKXClient()
-    if client.flag != "1":
-        raise RuntimeError("OKX client is not connected to demo")
+    if client.flag != expected_flag:
+        raise RuntimeError(f"OKX client is not connected to {environment}")
     if any(
         Decimal(str(position.get("pos") or "0")) != 0
         for position in client.get_positions(inst_id=INSTRUMENT)
@@ -219,7 +235,7 @@ def run(db_path: str) -> dict:
         raise RuntimeError(f"refusing to start with existing {INSTRUMENT} exposure")
 
     run_id = uuid4().hex[:12]
-    prefix = f"mbd{run_id}"
+    prefix = f"mb{'d' if environment == 'demo' else 'p'}{run_id}"
     owned_order_ids: set[str] = set()
     owned_algo_ids: set[str] = set()
     trade_store = TradeStore(db_path)
@@ -276,11 +292,19 @@ def run(db_path: str) -> dict:
         client.cancel_order(INSTRUMENT, cancel_order_id)
         canceled = _wait_for_order(client, cancel_order_id)
         if str(canceled.get("state") or "").lower() != "canceled":
-            raise RuntimeError("demo pending order did not confirm canceled")
-        _audit(audit_store, run_id, "cancel_confirmed", {"order_id": cancel_order_id})
+            raise RuntimeError(
+                f"{environment} pending order did not confirm canceled"
+            )
+        _audit(
+            audit_store,
+            run_id,
+            environment,
+            "cancel_confirmed",
+            {"order_id": cancel_order_id},
+        )
 
         entry_client_id = f"{prefix}o"
-        position_id = f"demo-{run_id}"
+        position_id = f"{environment}-{run_id}"
         limit_price = constraints.normalize_entry_limit(
             ask * Decimal("1.01"),
             position_side="long",
@@ -299,7 +323,7 @@ def run(db_path: str) -> dict:
                 side="long",
                 entry_price=float(limit_price),
                 status="pending_open",
-                signal_reason="bounded demo lifecycle verification",
+                signal_reason=f"bounded {environment} lifecycle verification",
             )
         )
         position_store.save(
@@ -333,7 +357,7 @@ def run(db_path: str) -> dict:
             },
         )
         if condition is None:
-            raise RuntimeError("failed to persist demo stop condition")
+            raise RuntimeError(f"failed to persist {environment} stop condition")
         entry_result = executor.execute(
             inst_id=INSTRUMENT,
             position_side="long",
@@ -345,7 +369,7 @@ def run(db_path: str) -> dict:
         )
         entry_order_id = str(entry_result.get("ordId") or "")
         if not entry_order_id or not entry_result.get("maybechProtectionVerified"):
-            raise RuntimeError(f"protected demo entry failed: {entry_result}")
+            raise RuntimeError(f"protected {environment} entry failed: {entry_result}")
         owned_order_ids.add(entry_order_id)
         position_store.link_exchange_order(
             position_id,
@@ -365,7 +389,13 @@ def run(db_path: str) -> dict:
                 stop_loss=float(active_proof["stop_loss"]),
             )
         )
-        _audit(audit_store, run_id, "protected_open_confirmed", {"order_id": entry_order_id})
+        _audit(
+            audit_store,
+            run_id,
+            environment,
+            "protected_open_confirmed",
+            {"order_id": entry_order_id},
+        )
 
         protection_service.amend_stop_condition(
             position_id,
@@ -375,7 +405,7 @@ def run(db_path: str) -> dict:
                 "symbol": INSTRUMENT,
                 "value": float(amended_stop),
             },
-            reason="demo lifecycle stop amendment",
+            reason=f"{environment} lifecycle stop amendment",
         )
 
         manager = PositionManagerService(
@@ -388,11 +418,11 @@ def run(db_path: str) -> dict:
         reduce_result = manager.request_reduce(
             position_id,
             quantity=float(REDUCE_SIZE),
-            reason="demo lifecycle partial reduce",
+            reason=f"{environment} lifecycle partial reduce",
         )
         reduce_order_id = str(reduce_result.get("exchange_order_id") or "")
         if not reduce_order_id:
-            raise RuntimeError(f"demo reduce was not submitted: {reduce_result}")
+            raise RuntimeError(f"{environment} reduce was not submitted: {reduce_result}")
         owned_order_ids.add(reduce_order_id)
         _wait_for_order(client, reduce_order_id)
         _ingest_order_fills(client, allocator, reduce_order_id)
@@ -406,22 +436,34 @@ def run(db_path: str) -> dict:
         if resized is None or Decimal(str(resized.quantity)) != REDUCE_SIZE:
             raise RuntimeError("protection was not restored at reduced quantity")
         owned_algo_ids.add(resized.algo_id)
-        _audit(audit_store, run_id, "reduce_confirmed", {"order_id": reduce_order_id})
+        _audit(
+            audit_store,
+            run_id,
+            environment,
+            "reduce_confirmed",
+            {"order_id": reduce_order_id},
+        )
 
         close_result = manager.request_close(
             position_id,
-            reason="demo lifecycle cleanup close",
+            reason=f"{environment} lifecycle cleanup close",
         )
         close_order_id = str(close_result.get("exchange_order_id") or "")
         if not close_order_id:
-            raise RuntimeError(f"demo close was not submitted: {close_result}")
+            raise RuntimeError(f"{environment} close was not submitted: {close_result}")
         owned_order_ids.add(close_order_id)
         _wait_for_order(client, close_order_id)
         _ingest_order_fills(client, allocator, close_order_id)
         closed = position_store.get(position_id)
         if closed is None or closed.status != "closed" or closed.remaining_quantity != 0:
             raise RuntimeError("confirmed close did not close logical position")
-        _audit(audit_store, run_id, "close_confirmed", {"order_id": close_order_id})
+        _audit(
+            audit_store,
+            run_id,
+            environment,
+            "close_confirmed",
+            {"order_id": close_order_id},
+        )
 
         restarted = ExecutionFillService(
             client=OKXClient(),
@@ -443,6 +485,7 @@ def run(db_path: str) -> dict:
         _audit(
             audit_store,
             run_id,
+            environment,
             "restart_recovery_confirmed",
             {
                 "idempotent_fills": restart_status.get("idempotent", 0),
@@ -453,10 +496,12 @@ def run(db_path: str) -> dict:
             Decimal(str(position.get("pos") or "0")) != 0
             for position in client.get_positions(inst_id=INSTRUMENT)
         ):
-            raise RuntimeError("demo lifecycle left exchange exposure after close")
+            raise RuntimeError(
+                f"{environment} lifecycle left exchange exposure after close"
+            )
         result = {
             "run_id": run_id,
-            "environment": "demo",
+            "environment": environment,
             "instrument": INSTRUMENT,
             "open_size": float(OPEN_SIZE),
             "reduce_size": float(REDUCE_SIZE),
@@ -464,7 +509,7 @@ def run(db_path: str) -> dict:
             "restart_idempotent_fills": restart_status.get("idempotent", 0),
             "audit_db": db_path,
         }
-        _audit(audit_store, run_id, "completed", result)
+        _audit(audit_store, run_id, environment, "completed", result)
         return result
     finally:
         disable_entry_order_placement()
@@ -476,23 +521,31 @@ def run(db_path: str) -> dict:
                 cleanup_prefix=f"{prefix}x",
             )
         )
-        _audit(audit_store, run_id, "cleanup", {"actions": cleanup_actions})
+        _audit(
+            audit_store,
+            run_id,
+            environment,
+            "cleanup",
+            {"actions": cleanup_actions},
+        )
         disarm_order_placement()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--confirm-demo-orders", action="store_true")
+    confirmation = parser.add_mutually_exclusive_group(required=True)
+    confirmation.add_argument("--confirm-demo-orders", action="store_true")
+    confirmation.add_argument("--confirm-production-orders", action="store_true")
     parser.add_argument(
         "--db-path",
-        default="data/demo-lifecycle.db",
+        default="",
         help="SQLite evidence path",
     )
     args = parser.parse_args()
-    if not args.confirm_demo_orders:
-        raise SystemExit("--confirm-demo-orders is required")
-    Path(args.db_path).parent.mkdir(parents=True, exist_ok=True)
-    result = run(args.db_path)
+    environment = "production" if args.confirm_production_orders else "demo"
+    db_path = args.db_path or f"data/{environment}-lifecycle.db"
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    result = run(db_path, environment=environment)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

@@ -87,11 +87,12 @@ $env:MAYBECH_ARM_ORDERS='1'
 uv run python scripts/verify_okx_demo_lifecycle.py --confirm-demo-orders
 ```
 
-The verifier refuses `OKX_FLAG!=1` and pre-existing nonzero BTC swap exposure.
-It uses minimum contract sizes, persists sanitized SQLite audit evidence,
-disarms entry placement in `finally`, and cleans verifier-owned orders,
-protection, and residual demo exposure. It is not a production verification
-command.
+The verifier requires its confirmation to match `OKX_FLAG` and refuses
+pre-existing nonzero BTC swap exposure. It uses minimum contract sizes,
+persists sanitized SQLite audit evidence, disarms entry placement in `finally`,
+and cleans verifier-owned orders, protection, and residual exposure. After the
+demo proof passes, the same bounded path can stage production explicitly with
+`--confirm-production-orders` and `OKX_FLAG=0`.
 
 The dashboard calls FastAPI from a separate local origin in development.
 `MAYBECH_CORS_ORIGINS` defaults to `http://localhost:3000` and
