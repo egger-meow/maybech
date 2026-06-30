@@ -10,6 +10,8 @@ import type {
   ConfirmedPositionFillResponse,
   ExecutionFillIngestionStatusResponse,
   InstrumentMetadataListResponse,
+  InstrumentSizeQuoteRequest,
+  InstrumentSizeQuoteResponse,
   LogicalPositionCloseConditionCreate,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
   LogicalPositionCloseConditionUpdate,
@@ -61,6 +63,8 @@ export type {
   ExecutionFillIngestionStatusResponse,
   InstrumentMetadataListResponse,
   InstrumentMetadataResponse,
+  InstrumentSizeQuoteRequest,
+  InstrumentSizeQuoteResponse,
   LogicalPositionUnitResponse as LogicalPositionUnit,
   LivePreflightResponse,
   LogicalPositionCloseConditionCreate,
@@ -198,6 +202,15 @@ export const listInstruments = (): Promise<InstrumentMetadataListResponse> =>
 
 export const refreshInstruments = (): Promise<InstrumentMetadataListResponse> =>
   postData<InstrumentMetadataListResponse>("/instruments/refresh");
+
+export const quoteInstrumentSize = (
+  instId: string,
+  payload: InstrumentSizeQuoteRequest,
+): Promise<InstrumentSizeQuoteResponse> =>
+  postData<InstrumentSizeQuoteResponse>(
+    `/instruments/${encodeURIComponent(instId)}/size-quote`,
+    payload,
+  );
 
 export const getExecutionFillStatus = (): Promise<ExecutionFillIngestionStatusResponse> =>
   fetcher<ExecutionFillIngestionStatusResponse>("/execution/fills/status");

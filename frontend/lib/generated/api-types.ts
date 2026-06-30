@@ -191,6 +191,23 @@ export type InstrumentMetadataResponse = {
   "updated_at": string;
 };
 
+export type InstrumentSizeQuoteRequest = {
+  "display_quantity": string;
+  "entry_price": string;
+  "side": "long" | "short";
+  "rule_price"?: string | null;
+};
+
+export type InstrumentSizeQuoteResponse = {
+  "inst_id": string;
+  "display_quantity": string;
+  "display_currency": string;
+  "api_quantity_contracts": string;
+  "estimated_notional_usdt": string;
+  "entry_price": string;
+  "estimated_pnl_usdt"?: string | null;
+};
+
 export type LivePreflightResponse = {
   "passed": boolean;
   "armed": boolean;
@@ -677,6 +694,8 @@ export type ApiSchemas = {
   "HealthResponse": HealthResponse;
   "InstrumentMetadataListResponse": InstrumentMetadataListResponse;
   "InstrumentMetadataResponse": InstrumentMetadataResponse;
+  "InstrumentSizeQuoteRequest": InstrumentSizeQuoteRequest;
+  "InstrumentSizeQuoteResponse": InstrumentSizeQuoteResponse;
   "LivePreflightResponse": LivePreflightResponse;
   "LogicalPositionAllocationResponse": LogicalPositionAllocationResponse;
   "LogicalPositionChartResponse": LogicalPositionChartResponse;

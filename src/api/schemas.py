@@ -104,6 +104,23 @@ class InstrumentMetadataListResponse(BaseModel):
     refreshed_at: str
 
 
+class InstrumentSizeQuoteRequest(BaseModel):
+    display_quantity: str = Field(min_length=1, max_length=64)
+    entry_price: str = Field(min_length=1, max_length=64)
+    side: Literal["long", "short"]
+    rule_price: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class InstrumentSizeQuoteResponse(BaseModel):
+    inst_id: str
+    display_quantity: str
+    display_currency: str
+    api_quantity_contracts: str
+    estimated_notional_usdt: str
+    entry_price: str
+    estimated_pnl_usdt: str | None = None
+
+
 class EntryControlCommand(BaseModel):
     confirm: Literal[True]
 

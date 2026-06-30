@@ -42,6 +42,7 @@ from src.trading.position_import import (
     PositionImportService,
 )
 from src.trading.instrument_metadata import InstrumentMetadataStore
+from src.trading.instrument_sizing import InstrumentSizer
 from src.trading.position_protection import (
     PositionProtectionError,
     PositionProtectionService,
@@ -69,6 +70,8 @@ from src.api.schemas import (
     HealthResponse,
     InstrumentMetadataListResponse,
     InstrumentMetadataResponse,
+    InstrumentSizeQuoteRequest,
+    InstrumentSizeQuoteResponse,
     LivePreflightResponse,
     LogicalPositionUnitResponse,
     LogicalPositionCloseConditionCreate,
@@ -883,6 +886,31 @@ def create_app(
             items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
             refreshed_at=max(record.updated_at for record in records),
         )
+
+    @app.post(
+        "/instruments/{inst_id}/size-quote",
+        response_model=InstrumentSizeQuoteResponse,
+    )
+    def quote_instrument_size(
+        inst_id: str,
+        payload: InstrumentSizeQuoteRequest,
+    ) -> InstrumentSizeQuoteResponse:
+        metadata = InstrumentMetadataStore().get(inst_id)
+        if metadata is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Cached OKX metadata for {inst_id} is unavailable",
+            )
+        try:
+            quote = InstrumentSizer(metadata).quote(
+                display_quantity=payload.display_quantity,
+                entry_price=payload.entry_price,
+                side=payload.side,
+                rule_price=payload.rule_price,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return InstrumentSizeQuoteResponse(**quote.to_dict())
 
     @app.get("/risk/entries", response_model=EntryControlResponse)
     def get_entry_control() -> EntryControlResponse:

@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from src.api.app import create_app
 from src.daemon.service import DaemonRunner
 from src.trading.instrument_metadata import InstrumentMetadataStore
+from src.trading.instrument_sizing import InstrumentSizer
 
 
 def _instrument(inst_id: str = "ETH-USDT-SWAP") -> dict[str, str]:
@@ -80,3 +81,73 @@ def test_instrument_api_exposes_cache_and_refresh_contract(monkeypatch, tmp_path
         "ETH-USDT-SWAP",
     ]
     assert cached.json() == refreshed.json()
+
+
+def test_instrument_sizer_maps_base_quantity_to_contracts_and_pnl(tmp_path):
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    metadata = store.replace_type("SWAP", [_instrument()])[0]
+
+    long_quote = InstrumentSizer(metadata).quote(
+        display_quantity="0.25",
+        entry_price="3000",
+        side="long",
+        rule_price="2900",
+    )
+    short_quote = InstrumentSizer(metadata).quote(
+        display_quantity="0.25",
+        entry_price="3000",
+        side="short",
+        rule_price="2900",
+    )
+
+    assert long_quote.to_dict()["api_quantity_contracts"] == "2.5"
+    assert long_quote.to_dict()["estimated_notional_usdt"] == "750"
+    assert long_quote.to_dict()["estimated_pnl_usdt"] == "-25"
+    assert short_quote.to_dict()["estimated_pnl_usdt"] == "25"
+
+
+def test_instrument_sizer_handles_quote_denominated_contracts(tmp_path):
+    payload = _instrument("BTC-USD-SWAP")
+    payload.update({"settleCcy": "BTC", "ctVal": "100", "ctValCcy": "USD"})
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    metadata = store.replace_type("SWAP", [payload])[0]
+
+    quote = InstrumentSizer(metadata).quote(
+        display_quantity="0.02",
+        entry_price="60000",
+        side="long",
+    )
+
+    assert quote.to_dict()["api_quantity_contracts"] == "12"
+    assert quote.to_dict()["estimated_notional_usdt"] == "1200"
+
+
+def test_size_quote_api_blocks_missing_or_non_aligned_metadata(monkeypatch, tmp_path):
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    store.replace_type("SWAP", [_instrument()])
+    monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    missing = client.post(
+        "/instruments/BTC-USDT-SWAP/size-quote",
+        json={"display_quantity": "0.01", "entry_price": "60000", "side": "long"},
+    )
+    invalid = client.post(
+        "/instruments/ETH-USDT-SWAP/size-quote",
+        json={"display_quantity": "0.0005", "entry_price": "3000", "side": "long"},
+    )
+    valid = client.post(
+        "/instruments/ETH-USDT-SWAP/size-quote",
+        json={
+            "display_quantity": "0.25",
+            "entry_price": "3000",
+            "side": "short",
+            "rule_price": "3100",
+        },
+    )
+
+    assert missing.status_code == 404
+    assert invalid.status_code == 409
+    assert valid.status_code == 200
+    assert valid.json()["api_quantity_contracts"] == "2.5"
+    assert valid.json()["estimated_pnl_usdt"] == "-25"

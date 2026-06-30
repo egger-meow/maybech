@@ -273,6 +273,13 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .decision-card { display: grid; gap: .55rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }
 .decision-card p, .decision-card small { color: var(--text-muted); overflow-wrap: anywhere; }
 .contract-size-grid { display: grid; gap: .45rem; }.contract-size-grid label { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, .6fr); align-items: center; gap: .5rem; }.contract-size-grid small { color: var(--text-muted); overflow-wrap: anywhere; }
+.size-entry-card { display: grid; gap: .55rem; min-width: 0; padding: .8rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }
+.contract-size-grid .size-entry-card label { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, .6fr); align-items: center; gap: .5rem; }
+.size-entry-card small { color: var(--text-muted); }
+.size-quote { display: block; padding: .55rem .65rem; border-radius: 10px; font-weight: 750; line-height: 1.4; }
+.size-quote.ready { background: color-mix(in srgb, var(--accent-success) 12%, var(--bg-secondary)); color: var(--text-primary); }
+.size-quote.pending { background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-secondary)); }
+.size-quote.blocked { background: color-mix(in srgb, var(--accent-danger) 12%, var(--bg-secondary)); color: var(--accent-danger); }
 .error-state { display: flex; align-items: center; gap: .5rem; }
 .position-workspace { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 1rem; align-items: start; }
 .position-list { position: sticky; top: 1rem; }

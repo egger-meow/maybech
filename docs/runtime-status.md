@@ -61,6 +61,9 @@ Frontends must use `active`; there is no `state` field.
   `503` when metadata has not been refreshed; no synthetic instruments or unit
   defaults are returned. `POST /instruments/refresh` replaces that cache from
   the OKX public API.
+- `POST /instruments/{inst_id}/size-quote` maps a base-asset display quantity to
+  an exact OKX API contract count and estimated USDT notional. Ambiguous
+  contract currency and invalid lot/minimum alignment fail closed.
   Confirmed `POST /risk/entries/enable` and `POST /risk/entries/kill` commands
   change that state; kill also requests cancellation of Maybech pending entries.
 - `GET /strategies/{strategy_id}/decisions` returns restart-safe strategy

@@ -94,6 +94,11 @@ visible `503`, never a hardcoded fallback. `POST /instruments/refresh` replaces
 the SWAP cache atomically from the OKX public instruments API and returns the
 same typed list contract. Records include contract value/currency, settlement
 currency, lot/min/tick sizes, precision, state, and refresh time.
+`POST /instruments/{inst_id}/size-quote` converts an operator-facing base-asset
+quantity into an exact OKX contract count from cached `ctVal`, `ctValCcy`,
+`ctMult`, `lotSz`, and `minSz`. It also returns estimated USDT notional and an
+optional side-aware rule-price PnL estimate. Missing, ambiguous, below-minimum,
+or non-lot-aligned metadata returns a visible error and blocks submission.
 
 Entry control is persisted separately from editable risk-limit values, so a
 risk-limit update cannot silently re-enable trading. Entries default to

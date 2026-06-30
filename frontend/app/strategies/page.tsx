@@ -18,6 +18,7 @@ import {
   listPersistedStrategyDecisions,
   listInstruments,
   listStrategies,
+  quoteInstrumentSize,
   refreshInstruments,
   updateStrategy,
   updateStrategySignal,
@@ -32,7 +33,8 @@ type Draft = {
   name: string;
   instruments: string[];
   side: "long" | "short";
-  contractSizes: Record<string, string>;
+  displayQuantities: Record<string, string>;
+  referencePrices: Record<string, string>;
   slippagePercent: string;
   entrySignal: SignalExpression;
   closeRules: CloseRule[];
@@ -42,7 +44,8 @@ const blankDraft = (): Draft => ({
   name: "",
   instruments: [],
   side: "long",
-  contractSizes: {},
+  displayQuantities: {},
+  referencePrices: {},
   slippagePercent: "0.5",
   entrySignal: { type: "price_above", symbol: "self", value: 0 },
   closeRules: [
@@ -70,12 +73,14 @@ function rulesFrom(strategy: StrategySummary): CloseRule[] {
 
 function draftFrom(strategy: StrategySummary): Draft {
   const metadata = object(strategy.metadata);
-  const sizes = object(metadata.order_size_contracts);
+  const displayQuantities = object(metadata.order_display_quantities);
+  const referencePrices = object(metadata.sizing_reference_prices);
   return {
     name: strategy.name,
     instruments: strategy.target_instruments ?? [],
     side: metadata.position_side === "short" ? "short" : "long",
-    contractSizes: Object.fromEntries((strategy.target_instruments ?? []).map((instrument) => [instrument, String(sizes[instrument] ?? "1")])),
+    displayQuantities: Object.fromEntries((strategy.target_instruments ?? []).map((instrument) => [instrument, String(displayQuantities[instrument] ?? "")])),
+    referencePrices: Object.fromEntries((strategy.target_instruments ?? []).map((instrument) => [instrument, String(referencePrices[instrument] ?? "")])),
     slippagePercent: String(Number(metadata.max_entry_slippage_pct ?? .005) * 100),
     entrySignal: object(strategy.entry_signal),
     closeRules: rulesFrom(strategy),
@@ -90,6 +95,17 @@ function errorMessage(error: unknown): string {
     if (typeof message === "string") return message;
   }
   return error instanceof Error ? error.message : "操作失敗，請檢查後端狀態。";
+}
+
+function SizeQuotePreview({ instrument, quantity, price, side }: { instrument: string; quantity: string; price: string; side: "long" | "short" }) {
+  const quote = useSWR(
+    quantity && price ? ["size-quote", instrument, quantity, price, side] : null,
+    () => quoteInstrumentSize(instrument, { display_quantity: quantity, entry_price: price, side, rule_price: null }),
+  );
+  if (!quantity || !price) return <small className="size-quote pending">輸入幣量與參考價格後才會計算 OKX 口數。</small>;
+  if (quote.error) return <small className="size-quote blocked">無法安全換算；此策略目前不能儲存。</small>;
+  if (!quote.data) return <small className="size-quote pending">正在換算…</small>;
+  return <small className="size-quote ready">OKX API：{quote.data.api_quantity_contracts} 口 · 約 {quote.data.estimated_notional_usdt} USDT</small>;
 }
 
 function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
@@ -174,14 +190,20 @@ function StrategyEditor({ strategy, onSaved, catalog }: { strategy?: StrategySum
       const validated = await Promise.all(expressions.map((expression) => validateSignal({ expression })));
       const invalid = validated.find((result) => !result.valid);
       if (invalid) throw new Error(invalid.errors?.join("；") || "規則格式不正確");
-      const sizes = Object.fromEntries(instruments.map((instrument) => [instrument, draft.contractSizes[instrument] ?? "1"]));
+      const quotes = await Promise.all(instruments.map((instrument) => quoteInstrumentSize(instrument, {
+        display_quantity: draft.displayQuantities[instrument] ?? "",
+        entry_price: draft.referencePrices[instrument] ?? "",
+        side: draft.side,
+        rule_price: null,
+      })));
+      const sizes = Object.fromEntries(quotes.map((quote) => [quote.inst_id, quote.api_quantity_contracts]));
       const payload = {
         name: draft.name.trim(),
         kind: "signal",
         target_instruments: instruments,
         entry_signal: validated[0].normalized ?? draft.entrySignal,
         default_rules: { close_conditions: draft.closeRules.map((rule, index) => ({ ...rule, expression: validated[index + 1].normalized ?? rule.expression })) },
-        metadata: { ...object(strategy?.metadata), position_side: draft.side, order_size_contracts: sizes, max_entry_slippage_pct: String(Number(draft.slippagePercent) / 100) },
+        metadata: { ...object(strategy?.metadata), position_side: draft.side, order_size_contracts: sizes, order_display_quantities: draft.displayQuantities, sizing_reference_prices: draft.referencePrices, max_entry_slippage_pct: String(Number(draft.slippagePercent) / 100) },
       };
       const saved = strategy ? await updateStrategy(strategy.id, payload) : await createStrategy({ ...payload, enabled: false });
       setDirty(false); await onSaved(saved.id);
@@ -213,7 +235,7 @@ function StrategyEditor({ strategy, onSaved, catalog }: { strategy?: StrategySum
         <label className="field"><span>方向</span><select value={draft.side} onChange={(event) => set("side", event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
         <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} /></div>
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
-        <div className="field"><span>每個商品委託口數</span><div className="contract-size-grid">{instruments.map((instrument) => <label key={instrument}><small>{instrument}</small><input type="number" min="0" step="any" value={draft.contractSizes[instrument] ?? "1"} onChange={(event) => set("contractSizes", { ...draft.contractSizes, [instrument]: event.target.value })} /></label>)}</div></div>
+        <div className="field full"><span>每個商品的操作者幣量</span><div className="contract-size-grid">{instruments.map((instrument) => <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><label><small>換算參考價格（USDT）</small><input type="number" min="0" step="any" value={draft.referencePrices[instrument] ?? ""} onChange={(event) => set("referencePrices", { ...draft.referencePrices, [instrument]: event.target.value })} /></label><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={draft.referencePrices[instrument] ?? ""} side={draft.side} /></div>)}</div></div>
         <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" /></div>
       </div>
 

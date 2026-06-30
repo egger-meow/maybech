@@ -537,6 +537,12 @@ class StrategyService(DaemonService):
         btc_regime: dict[str, Any] | None,
         decision_id: str,
     ) -> tuple[TradeRecord, LogicalPositionRecord]:
+        display_quantities = strategy.metadata.get("order_display_quantities")
+        display_quantity = (
+            display_quantities.get(pair)
+            if isinstance(display_quantities, dict)
+            else None
+        )
         metadata = {
             "correlation_id": decision_id,
             "client_order_id": decision_id,
@@ -544,6 +550,9 @@ class StrategyService(DaemonService):
             "expected_quantity": float(requested_size),
             "order_action": "open",
             "signal_evidence": evaluation.evidence,
+            "operator_display_quantity": display_quantity,
+            "operator_display_currency": pair.split("-")[0],
+            "api_quantity_contracts": requested_size,
         }
         trade = TradeRecord(
             strategy_id=strategy.id,

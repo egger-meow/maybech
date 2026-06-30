@@ -1004,6 +1004,99 @@
         "title": "InstrumentMetadataResponse",
         "type": "object"
       },
+      "InstrumentSizeQuoteRequest": {
+        "properties": {
+          "display_quantity": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Display Quantity",
+            "type": "string"
+          },
+          "entry_price": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entry Price",
+            "type": "string"
+          },
+          "rule_price": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Price"
+          },
+          "side": {
+            "enum": [
+              "long",
+              "short"
+            ],
+            "title": "Side",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_quantity",
+          "entry_price",
+          "side"
+        ],
+        "title": "InstrumentSizeQuoteRequest",
+        "type": "object"
+      },
+      "InstrumentSizeQuoteResponse": {
+        "properties": {
+          "api_quantity_contracts": {
+            "title": "Api Quantity Contracts",
+            "type": "string"
+          },
+          "display_currency": {
+            "title": "Display Currency",
+            "type": "string"
+          },
+          "display_quantity": {
+            "title": "Display Quantity",
+            "type": "string"
+          },
+          "entry_price": {
+            "title": "Entry Price",
+            "type": "string"
+          },
+          "estimated_notional_usdt": {
+            "title": "Estimated Notional Usdt",
+            "type": "string"
+          },
+          "estimated_pnl_usdt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Pnl Usdt"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inst_id",
+          "display_quantity",
+          "display_currency",
+          "api_quantity_contracts",
+          "estimated_notional_usdt",
+          "entry_price"
+        ],
+        "title": "InstrumentSizeQuoteResponse",
+        "type": "object"
+      },
       "LivePreflightResponse": {
         "properties": {
           "account_level": {
@@ -4230,6 +4323,55 @@
           }
         },
         "summary": "Refresh Instruments"
+      }
+    },
+    "/instruments/{inst_id}/size-quote": {
+      "post": {
+        "operationId": "quote_instrument_size_instruments__inst_id__size_quote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inst_id",
+            "required": true,
+            "schema": {
+              "title": "Inst Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstrumentSizeQuoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentSizeQuoteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quote Instrument Size"
       }
     },
     "/market/btc-regime": {

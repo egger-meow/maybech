@@ -143,3 +143,11 @@ class InstrumentMetadataStore:
                 f"SELECT * FROM instrument_metadata WHERE {' AND '.join(clauses)} ORDER BY inst_id", values
             ).fetchall()
         return [InstrumentMetadata(**dict(row)) for row in rows]
+
+    def get(self, inst_id: str) -> InstrumentMetadata | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM instrument_metadata WHERE inst_id = ?",
+                (inst_id.strip().upper(),),
+            ).fetchone()
+        return InstrumentMetadata(**dict(row)) if row is not None else None
