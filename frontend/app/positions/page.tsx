@@ -202,14 +202,15 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
 export default function PositionsPage() {
   const { data, error, mutate, isLoading } = useSWR("logical-positions", () => listLogicalPositions("all"), { refreshInterval: 5000 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = data?.find((position) => position.id === selectedId) ?? data?.find((position) => activeStatuses.has(position.status)) ?? data?.[0];
+  const managedPositions = (data ?? []).filter((position) => activeStatuses.has(position.status));
+  const selected = managedPositions.find((position) => position.id === selectedId) ?? managedPositions[0];
   return (
     <div className="page-stack">
       <header className="page-header"><div><h1>部位管理</h1><p>逐一管理 Maybech 邏輯部位單位，並與 OKX 合併後的淨部位分開檢視。</p></div></header>
       <RuntimeModeBanner />
       {error && <div className="error-state">邏輯部位 API 無法使用。畫面不會使用假資料，所有交易操作已停用。</div>}
       {isLoading && <div className="loading-state">正在讀取邏輯部位…</div>}
-      {!error && data && <div className="position-workspace"><PositionList positions={data} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={`${selected.id}-${selected.updated_at}`} position={selected} refresh={mutate} /> : <div className="panel empty-state">目前沒有可管理的邏輯部位單位。</div>}</div>}
+      {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={`${selected.id}-${selected.updated_at}`} position={selected} refresh={mutate} /> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}
     </div>
   );
 }
