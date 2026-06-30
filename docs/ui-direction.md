@@ -80,6 +80,10 @@ behind decoration.
 - Any control that can affect live trading needs an explicit confirmation path.
 - Rule edits should show unsaved vs saved state.
 - Dry-run, live-unarmed, and live-armed modes must be visually distinct.
+- The runtime banner must list each live-readiness requirement separately:
+  account risk amounts/enabled state, cached instruments, per-strategy API
+  size, slippage, side-correct protective stop, derivatives account level, and
+  `net_mode`. A missing risk record must name all missing fields.
 - If API data is stale or missing, the UI must say so instead of pretending the
   state is current.
 - Text and numbers should fit on small screens without overlapping.

@@ -33,10 +33,10 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 2. The legacy support/resistance notificator path is still registered and can
    emit standalone price alerts outside strategy/position lifecycle scope. It
    must be removed before notification behavior matches the product contract.
-3. The runtime banner reports whether the risk envelope exists but does not list
-   the exact missing live-preflight requirements (risk amounts, strategy
-   slippage/size/protective stop, instrument validity, and OKX account mode).
-   Operators cannot yet diagnose a blocked real-money path from the UI alone.
+3. Optional strategy execution delay is not implemented. Without persisted
+   pending state, final signal/risk revalidation, cancellation evidence, and
+   restart-safe behavior, exposing a delay control would mislead operators
+   about when an order can actually be submitted.
 
 ## Non-Blocking / Later
 

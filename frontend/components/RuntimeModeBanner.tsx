@@ -3,7 +3,7 @@
 import useSWR from "swr";
 import { AlertTriangle, FlaskConical, ShieldCheck, ShieldOff } from "lucide-react";
 
-import { ApiError, getEntryControl, getLivePreflight, getRiskLimits } from "@/lib/api";
+import { ApiError, getEntryControl, getLivePreflight, getRiskLimits, listInstruments, listStrategies } from "@/lib/api";
 
 type Mode = "dry" | "unarmed" | "armed" | "blocked" | "stale";
 
@@ -46,10 +46,16 @@ function formatTime(value: string | undefined) {
   return new Date(value).toLocaleString("zh-TW");
 }
 
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 export default function RuntimeModeBanner() {
   const preflight = useSWR("runtime-preflight", getLivePreflight, { refreshInterval: 10_000 });
   const risk = useSWR("risk-limits", getRiskLimits, { refreshInterval: 10_000 });
   const entries = useSWR("entry-control", getEntryControl, { refreshInterval: 10_000 });
+  const strategies = useSWR("strategies", listStrategies, { refreshInterval: 10_000 });
+  const instruments = useSWR("instrument-metadata", listInstruments, { refreshInterval: 60_000 });
 
   let mode: Mode = "stale";
   if (!preflight.error && preflight.data) {
@@ -90,6 +96,56 @@ export default function RuntimeModeBanner() {
       detail: entries.data ? `更新 ${formatTime(entries.data.updated_at)}` : "進場閘門與策略武裝狀態。",
     },
   ];
+  const requirements: { label: string; state: "ready" | "missing" | "unchecked"; detail: string }[] = [];
+  if (!risk.data && risk.error instanceof ApiError && risk.error.status === 404) {
+    requirements.push(
+      { label: "單筆名目金額上限", state: "missing", detail: "缺少 max_order_notional_usd" },
+      { label: "帳戶總曝險上限", state: "missing", detail: "缺少 max_total_exposure_usd" },
+      { label: "最大槓桿", state: "missing", detail: "缺少 max_leverage" },
+      { label: "風險上限啟用狀態", state: "missing", detail: "風險 envelope 尚未建立並啟用" },
+    );
+  } else if (risk.data) {
+    requirements.push(
+      { label: "單筆名目金額上限", state: "ready", detail: `${risk.data.max_order_notional_usd} USD` },
+      { label: "帳戶總曝險上限", state: "ready", detail: `${risk.data.max_total_exposure_usd} USD` },
+      { label: "最大槓桿", state: "ready", detail: `${risk.data.max_leverage}×` },
+      { label: "風險上限啟用狀態", state: risk.data.enabled ? "ready" : "missing", detail: risk.data.enabled ? "已啟用" : "已建立但 enabled=false" },
+    );
+  } else {
+    requirements.push(
+      { label: "單筆名目金額上限", state: "unchecked", detail: "風險 API 尚未回應" },
+      { label: "帳戶總曝險上限", state: "unchecked", detail: "風險 API 尚未回應" },
+      { label: "最大槓桿", state: "unchecked", detail: "風險 API 尚未回應" },
+      { label: "風險上限啟用狀態", state: "unchecked", detail: "風險 API 尚未回應" },
+    );
+  }
+  requirements.push({
+    label: "OKX 商品 metadata／允許商品",
+    state: instruments.data?.items.length ? "ready" : "missing",
+    detail: instruments.data?.items.length ? `${instruments.data.items.length} 個可交易 SWAP 已快取` : "商品快取缺失，策略與手動開倉不能選商品",
+  });
+  for (const strategy of strategies.data?.filter((item) => item.enabled) ?? []) {
+    const metadata = object(strategy.metadata);
+    const sizes = object(metadata.order_size_contracts);
+    const slippage = Number(metadata.max_entry_slippage_pct);
+    const closeConditions = object(strategy.default_rules).close_conditions;
+    const side = metadata.position_side === "short" ? "short" : "long";
+    const expectedStop = side === "long" ? "price_below" : "price_above";
+    const hasStop = Array.isArray(closeConditions) && closeConditions.some((item) => {
+      const rule = object(item); const expression = object(rule.expression);
+      return rule.purpose === "stop_loss" && rule.enabled !== false && expression.type === expectedStop;
+    });
+    const missingSizes = (strategy.target_instruments ?? []).filter((item) => !(Number(sizes[item]) > 0));
+    requirements.push(
+      { label: `${strategy.name}／委託口數`, state: Boolean(strategy.target_instruments?.length) && !missingSizes.length ? "ready" : "missing", detail: missingSizes.length ? `缺少：${missingSizes.join("、")}` : strategy.target_instruments?.length ? "每個商品已有 OKX 口數" : "沒有 target instrument" },
+      { label: `${strategy.name}／最大滑價`, state: slippage > 0 && slippage <= .05 ? "ready" : "missing", detail: slippage > 0 && slippage <= .05 ? `${slippage * 100}%` : "max_entry_slippage_pct 必須大於 0 且不超過 5%" },
+      { label: `${strategy.name}／保護停損`, state: hasStop ? "ready" : "missing", detail: hasStop ? `已有方向正確的 ${expectedStop}` : `缺少已啟用的 ${expectedStop} stop_loss` },
+    );
+  }
+  requirements.push(
+    { label: "OKX 衍生品帳戶模式", state: preflight.data?.account_level ? "ready" : "unchecked", detail: preflight.data?.account_level ? `acctLv=${preflight.data.account_level}` : "Dry-run 未驗證；實盤要求 acctLv 2、3 或 4" },
+    { label: "OKX 部位模式", state: preflight.data?.position_mode === "net_mode" ? "ready" : "unchecked", detail: preflight.data?.position_mode || "Dry-run 未驗證；實盤必須是 net_mode" },
+  );
 
   return (
     <section className={`mode-banner mode-${mode}`} aria-live="polite">
@@ -105,7 +161,13 @@ export default function RuntimeModeBanner() {
         <span>委託：{preflight.data ? preflight.data.armed ? "已武裝" : "已解除" : "未知"}</span>
         <span>進場：{entries.data ? entryState : "未知"}</span>
       </div>
-      {mode === "dry" && risk.error instanceof ApiError && risk.error.status === 404 && <div className="mode-notice">風險上限尚未建立；Dry-run 可繼續使用，但實盤啟動會被安全檢查封鎖。</div>}
+      {mode === "dry" && risk.error instanceof ApiError && risk.error.status === 404 && <div className="mode-notice">風險上限尚未建立；明確缺少：單筆名目金額上限、帳戶總曝險上限、最大槓桿及啟用狀態。Dry-run 可繼續使用，實盤啟動會被封鎖。</div>}
+      <details className="mode-requirements">
+        <summary>實盤啟動條件逐項檢查</summary>
+        <div className="mode-requirements-grid">
+          {requirements.map((item) => <article key={item.label} className={`requirement-${item.state}`}><span>{item.state === "ready" ? "已具備" : item.state === "missing" ? "缺少" : "尚未驗證"}</span><strong>{item.label}</strong><small>{item.detail}</small></article>)}
+        </div>
+      </details>
       <details className="mode-diagnostics">
         <summary>
           <span>安全端點診斷</span>

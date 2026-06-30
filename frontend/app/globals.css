@@ -191,6 +191,16 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .mode-facts { display: flex; gap: .45rem; flex-wrap: wrap; }
 .mode-facts span { background: rgba(255,255,255,.55); color: #1e293b; border-radius: 999px; padding: .35rem .65rem; font-size: .76rem; font-weight: 800; white-space: nowrap; }
 .mode-notice { width: 100%; border-top: 1px solid currentColor; padding-top: .7rem; font-size: .84rem; font-weight: 700; }
+.mode-requirements { width: 100%; border-top: 1px solid color-mix(in srgb, currentColor 35%, transparent); padding-top: .65rem; }
+.mode-requirements summary { cursor: pointer; font-size: .82rem; font-weight: 850; }
+.mode-requirements-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .55rem; margin-top: .7rem; }
+.mode-requirements-grid article { display: grid; gap: .25rem; min-width: 0; padding: .7rem; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: var(--radius-md); background: rgba(255,255,255,.32); }
+.mode-requirements-grid article > span { width: fit-content; padding: .18rem .42rem; border-radius: 999px; font-size: .68rem; font-weight: 900; }
+.mode-requirements-grid article strong { font-size: .8rem; overflow-wrap: anywhere; }
+.mode-requirements-grid article small { color: var(--text-muted); line-height: 1.35; overflow-wrap: anywhere; }
+.requirement-ready > span { background: rgba(16,185,129,.15); color: #047857; }
+.requirement-missing > span { background: rgba(239,68,68,.14); color: #b91c1c; }
+.requirement-unchecked > span { background: rgba(245,158,11,.16); color: #92400e; }
 .mode-diagnostics { width: 100%; border-top: 1px solid color-mix(in srgb, currentColor 35%, transparent); padding-top: .65rem; font-size: .8rem; }
 .mode-diagnostics summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem .7rem; width: 100%; cursor: pointer; font-weight: 800; }
 .mode-diagnostics summary::-webkit-details-marker { display: none; }
