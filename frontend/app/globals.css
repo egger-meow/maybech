@@ -183,18 +183,23 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .status-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
 .muted { color: var(--text-muted); }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
-.mode-banner { display: flex; align-items: center; gap: .9rem; border: 2px solid; border-radius: var(--radius-lg); padding: 1rem 1.2rem; }
-.mode-copy { display: flex; flex-direction: column; gap: .2rem; flex: 1; min-width: 200px; }
+.mode-banner { display: flex; flex-direction: column; gap: .85rem; border: 2px solid; border-radius: var(--radius-lg); padding: 1rem 1.2rem; }
+.mode-banner-head { display: flex; align-items: flex-start; gap: .9rem; }
+.mode-copy { display: flex; flex-direction: column; gap: .2rem; flex: 1; min-width: 0; }
 .mode-copy strong { font-size: 1.05rem; }
 .mode-copy span { font-size: .86rem; opacity: .85; }
-.mode-facts { display: flex; gap: .45rem; flex-wrap: wrap; justify-content: flex-end; }
-.mode-facts span { background: rgba(255,255,255,.55); color: #1e293b; border-radius: 999px; padding: .35rem .65rem; font-size: .76rem; font-weight: 800; text-transform: uppercase; white-space: nowrap; }
+.mode-facts { display: flex; gap: .45rem; flex-wrap: wrap; }
+.mode-facts span { background: rgba(255,255,255,.55); color: #1e293b; border-radius: 999px; padding: .35rem .65rem; font-size: .76rem; font-weight: 800; white-space: nowrap; }
 .mode-notice { width: 100%; border-top: 1px solid currentColor; padding-top: .7rem; font-size: .84rem; font-weight: 700; }
-.mode-diagnostics { width: 100%; border-top: 1px solid color-mix(in srgb, currentColor 35%, transparent); padding-top: .6rem; font-size: .8rem; }
-.mode-diagnostics summary { width: max-content; cursor: pointer; font-weight: 800; }
-.mode-diagnostics dl { display: grid; gap: .4rem; margin-top: .6rem; }
-.mode-diagnostics dl div { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); gap: .6rem; }
-.mode-diagnostics dd { overflow-wrap: anywhere; }
+.mode-diagnostics { width: 100%; border-top: 1px solid color-mix(in srgb, currentColor 35%, transparent); padding-top: .65rem; font-size: .8rem; }
+.mode-diagnostics summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem .7rem; width: 100%; cursor: pointer; font-weight: 800; }
+.mode-diagnostics summary::-webkit-details-marker { display: none; }
+.mode-diagnostics-hint { color: var(--text-muted); font-size: .76rem; font-weight: 700; }
+.mode-diagnostics-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
+.mode-diagnostic-card { display: flex; flex-direction: column; gap: .3rem; min-width: 0; padding: .85rem .9rem; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: var(--radius-md); background: rgba(255,255,255,.32); }
+.mode-diagnostic-card code { font-size: .76rem; color: inherit; opacity: .9; overflow-wrap: anywhere; }
+.mode-diagnostic-card strong { font-size: .92rem; }
+.mode-diagnostic-card span { color: var(--text-muted); font-size: .78rem; line-height: 1.35; overflow-wrap: anywhere; }
 .mode-dry { color: #075985; border-color: #38bdf8; background: #e0f2fe; }
 .mode-unarmed { color: #713f12; border-color: #fbbf24; background: #fef3c7; }
 .mode-armed { color: #14532d; border-color: #22c55e; background: #dcfce7; }
@@ -306,9 +311,9 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
   .nav-link svg { width: 17px; }
   .app-main { height: auto; min-height: calc(100vh - 118px); overflow: visible; padding: 1rem; }
   .events-page { height: calc(100vh - 140px); min-height: 520px; }
-  .mode-banner { align-items: flex-start; flex-wrap: wrap; }
-  .mode-facts { justify-content: flex-start; width: 100%; }
-  .mode-diagnostics dl div { grid-template-columns: 1fr; gap: .15rem; }
+  .mode-banner-head { width: 100%; }
+  .mode-facts { width: 100%; }
+  .mode-diagnostics-grid { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .full { grid-column: auto; }
   .expression-heading { align-items: flex-start; flex-direction: column; }

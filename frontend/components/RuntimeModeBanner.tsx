@@ -7,6 +7,12 @@ import { ApiError, getEntryControl, getLivePreflight, getRiskLimits } from "@/li
 
 type Mode = "dry" | "unarmed" | "armed" | "blocked" | "stale";
 
+type DiagnosticCard = {
+  endpoint: string;
+  status: string;
+  detail: string;
+};
+
 const modeCopy: Record<Mode, { title: string; detail: string }> = {
   dry: {
     title: "模擬執行（Dry-run）",
@@ -33,6 +39,11 @@ const modeCopy: Record<Mode, { title: string; detail: string }> = {
 function failure(error: unknown, missingLabel = "無法讀取"): string {
   if (error instanceof ApiError) return `${missingLabel}（HTTP ${error.status}）`;
   return error ? `${missingLabel}（無回應）` : "讀取中";
+}
+
+function formatTime(value: string | undefined) {
+  if (!value) return "未提供時間";
+  return new Date(value).toLocaleString("zh-TW");
 }
 
 export default function RuntimeModeBanner() {
@@ -62,12 +73,32 @@ export default function RuntimeModeBanner() {
     ? entries.data.entries_enabled && entries.data.process_entry_enabled ? "已啟用" : "已停用"
     : failure(entries.error);
 
+  const diagnostics: DiagnosticCard[] = [
+    {
+      endpoint: "/runtime/preflight",
+      status: preflight.data ? "正常" : failure(preflight.error),
+      detail: preflight.data ? `啟動檢查 ${formatTime(preflight.data.checked_at)}` : "這是執行模式的主來源。",
+    },
+    {
+      endpoint: "/risk/limits",
+      status: riskState,
+      detail: risk.data ? `更新 ${formatTime(risk.data.updated_at)}` : "風險上限與實盤解鎖條件。",
+    },
+    {
+      endpoint: "/risk/entries",
+      status: entries.data ? entryState : failure(entries.error),
+      detail: entries.data ? `更新 ${formatTime(entries.data.updated_at)}` : "進場閘門與策略武裝狀態。",
+    },
+  ];
+
   return (
     <section className={`mode-banner mode-${mode}`} aria-live="polite">
-      <Icon size={24} aria-hidden="true" />
-      <div className="mode-copy">
-        <strong>{copy.title}</strong>
-        <span>{copy.detail}</span>
+      <div className="mode-banner-head">
+        <Icon size={24} aria-hidden="true" />
+        <div className="mode-copy">
+          <strong>{copy.title}</strong>
+          <span>{copy.detail}</span>
+        </div>
       </div>
       <div className="mode-facts">
         <span>模式：{preflight.data?.execution_mode?.replace("_", " ") ?? "未知"}</span>
@@ -76,12 +107,19 @@ export default function RuntimeModeBanner() {
       </div>
       {mode === "dry" && risk.error instanceof ApiError && risk.error.status === 404 && <div className="mode-notice">風險上限尚未建立；Dry-run 可繼續使用，但實盤啟動會被安全檢查封鎖。</div>}
       <details className="mode-diagnostics">
-        <summary>安全端點診斷</summary>
-        <dl>
-          <div><dt><code>/runtime/preflight</code></dt><dd>{preflight.data ? `正常 · 啟動檢查 ${new Date(preflight.data.checked_at).toLocaleString("zh-TW")}` : failure(preflight.error)}</dd></div>
-          <div><dt><code>/risk/limits</code></dt><dd>{riskState}</dd></div>
-          <div><dt><code>/risk/entries</code></dt><dd>{entries.data ? `${entryState} · 更新 ${new Date(entries.data.updated_at).toLocaleString("zh-TW")}` : failure(entries.error)}</dd></div>
-        </dl>
+        <summary>
+          <span>安全端點診斷</span>
+          <span className="mode-diagnostics-hint">查看 API 狀態與最近更新時間</span>
+        </summary>
+        <div className="mode-diagnostics-grid">
+          {diagnostics.map((item) => (
+            <article className="mode-diagnostic-card" key={item.endpoint}>
+              <code>{item.endpoint}</code>
+              <strong>{item.status}</strong>
+              <span>{item.detail}</span>
+            </article>
+          ))}
+        </div>
       </details>
     </section>
   );
