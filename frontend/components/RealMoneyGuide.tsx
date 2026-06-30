@@ -30,16 +30,18 @@ const steps = [
 
 export default function RealMoneyGuide() {
   return (
-    <section className="panel real-money-guide">
-      <div className="panel-heading">
-        <div><h2><TriangleAlert size={21} /> 從模擬走向真實資金</h2><p>這是一條刻意設計得不方便的安全路徑；畫面不提供一鍵武裝。</p></div>
+    <details className="panel real-money-guide">
+      <summary className="guide-summary">
+        <div><h2><TriangleAlert size={21} /> 從模擬走向真實資金</h2><p>需要設定實盤時再展開；畫面不提供一鍵武裝。</p></div>
         <span className="badge danger">高風險操作</span>
+      </summary>
+      <div className="guide-content">
+        <div className="arm-zero"><LockKeyhole size={22} /><div><strong><code>MAYBECH_ARM_ORDERS=0</code> 代表不會放置任何真實委託</strong><p>這是預設值。匯入模組、開啟前端或只啟動一般 API 都不會自行武裝。</p></div></div>
+        <ol className="guide-steps">
+          {steps.map(({ icon: Icon, title, detail }) => <li key={title}><Icon size={21} /><div><strong>{title}</strong><p>{detail}</p></div></li>)}
+        </ol>
+        <div className="guide-footer">完整命令、環境變數與驗證工具請依照 <code>docs/deployment.md</code>。不要把 API 金鑰貼進瀏覽器、文件、提交紀錄或聊天內容。</div>
       </div>
-      <div className="arm-zero"><LockKeyhole size={22} /><div><strong><code>MAYBECH_ARM_ORDERS=0</code> 代表不會放置任何真實委託</strong><p>這是預設值。匯入模組、開啟前端或只啟動一般 API 都不會自行武裝。</p></div></div>
-      <ol className="guide-steps">
-        {steps.map(({ icon: Icon, title, detail }) => <li key={title}><Icon size={21} /><div><strong>{title}</strong><p>{detail}</p></div></li>)}
-      </ol>
-      <div className="guide-footer">完整命令、環境變數與驗證工具請依照 <code>docs/deployment.md</code>。不要把 API 金鑰貼進瀏覽器、文件、提交紀錄或聊天內容。</div>
-    </section>
+    </details>
   );
 }

@@ -189,6 +189,12 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .mode-copy span { font-size: .86rem; opacity: .85; }
 .mode-facts { display: flex; gap: .45rem; flex-wrap: wrap; justify-content: flex-end; }
 .mode-facts span { background: rgba(255,255,255,.55); color: #1e293b; border-radius: 999px; padding: .35rem .65rem; font-size: .76rem; font-weight: 800; text-transform: uppercase; white-space: nowrap; }
+.mode-notice { width: 100%; border-top: 1px solid currentColor; padding-top: .7rem; font-size: .84rem; font-weight: 700; }
+.mode-diagnostics { width: 100%; border-top: 1px solid color-mix(in srgb, currentColor 35%, transparent); padding-top: .6rem; font-size: .8rem; }
+.mode-diagnostics summary { width: max-content; cursor: pointer; font-weight: 800; }
+.mode-diagnostics dl { display: grid; gap: .4rem; margin-top: .6rem; }
+.mode-diagnostics dl div { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); gap: .6rem; }
+.mode-diagnostics dd { overflow-wrap: anywhere; }
 .mode-dry { color: #075985; border-color: #38bdf8; background: #e0f2fe; }
 .mode-unarmed { color: #713f12; border-color: #fbbf24; background: #fef3c7; }
 .mode-armed { color: #14532d; border-color: #22c55e; background: #dcfce7; }
@@ -282,6 +288,10 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .dashboard-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .dashboard-metric { display: grid; gap: .5rem; }.dashboard-metric svg { color: var(--accent-primary); }.dashboard-metric small { color: var(--text-muted); }.dashboard-metric strong { font-size: clamp(1.25rem, 2.5vw, 2rem); overflow-wrap: anywhere; }
 .real-money-guide { border: 2px solid color-mix(in srgb, var(--accent-danger) 45%, var(--border-color)); }
+.guide-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer; list-style: none; }
+.guide-summary::-webkit-details-marker { display: none; }.guide-summary h2 { display: flex; align-items: center; gap: .45rem; }.guide-summary p { color: var(--text-muted); font-size: .88rem; margin-top: .25rem; }
+.guide-summary::after { content: "展開"; color: var(--accent-primary); font-size: .8rem; font-weight: 800; margin-left: auto; }.real-money-guide[open] .guide-summary::after { content: "收合"; }
+.guide-content { margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem; }
 .arm-zero { display: flex; align-items: flex-start; gap: .8rem; border-radius: var(--radius-md); padding: 1rem; color: #7f1d1d; background: #fee2e2; border: 1px solid #f87171; }.arm-zero p { margin-top: .25rem; font-size: .86rem; }.arm-zero code { font-size: 1rem; }
 .guide-steps { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .75rem; margin-top: 1rem; }
 .guide-steps li { display: flex; align-items: flex-start; gap: .7rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }.guide-steps svg { flex: 0 0 auto; color: var(--accent-primary); }.guide-steps p { color: var(--text-muted); font-size: .84rem; margin-top: .3rem; line-height: 1.55; }
@@ -298,6 +308,7 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
   .events-page { height: calc(100vh - 140px); min-height: 520px; }
   .mode-banner { align-items: flex-start; flex-wrap: wrap; }
   .mode-facts { justify-content: flex-start; width: 100%; }
+  .mode-diagnostics dl div { grid-template-columns: 1fr; gap: .15rem; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .full { grid-column: auto; }
   .expression-heading { align-items: flex-start; flex-direction: column; }
@@ -315,4 +326,5 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
   .distinction-grid { grid-template-columns: 1fr; }
   .reduce-control { align-items: stretch; flex-direction: column; }.reduce-control .btn { justify-content: center; }
   .dashboard-metrics { grid-template-columns: 1fr; }
+  .guide-summary { align-items: flex-start; flex-wrap: wrap; }.guide-summary .badge { order: 2; }.guide-summary::after { order: 3; }
 }
