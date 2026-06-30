@@ -5,6 +5,8 @@ from __future__ import annotations
 from src.daemon.service import DaemonService
 from src.exchange.client import OKXClient
 from src.monitor.dashboard import Dashboard
+from src.trading.logical_position_store import LogicalPositionStore
+from src.trading.position_import import PositionRecoveryService
 from src.utils.logger import setup_logger
 
 
@@ -17,10 +19,12 @@ class AccountSnapshotService(DaemonService):
     name = "account"
     interval = 15.0
 
-    def __init__(self) -> None:
+    def __init__(self, *, position_store: LogicalPositionStore | None = None) -> None:
         super().__init__()
         self.client = None
         self.dashboard = None
+        self.position_store = position_store or LogicalPositionStore()
+        self.recovery = PositionRecoveryService(self.position_store)
 
     def setup(self) -> None:
         self.client = OKXClient()
@@ -36,6 +40,7 @@ class AccountSnapshotService(DaemonService):
             "positions": self.dashboard.get_open_positions(),
             "orders": self.dashboard.get_recent_trades(limit=20),
         }
+        recovered = self.recovery.reconcile(snapshot["positions"])
 
         if self.runtime is not None:
             self.runtime.set_value("account.snapshot", snapshot)
@@ -45,6 +50,7 @@ class AccountSnapshotService(DaemonService):
                 "position_count": len(snapshot["positions"]),
                 "order_count": len(snapshot["orders"]),
                 "summary": snapshot["summary"],
+                "recovered_position_ids": [position.id for position in recovered],
             },
         )
 

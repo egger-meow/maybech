@@ -183,3 +183,7 @@ mutation cannot alter or delete an owned active stop.
 Protection verification always compares its quantity with the logical unit's
 remaining exposure as well as the exchange algo. A stale persisted size cannot
 prove that a unit is fully protected.
+A unit's `source` is one of `strategy`, `manual`, `import`, `recovery`, or
+`unknown`. `recovery` means Maybech observed a clear positive OKX net-size gap;
+it does not claim which external action created that exposure. A negative gap
+never rewrites unit quantities automatically and instead requires manual review.

@@ -32,6 +32,11 @@ Frontends must use `active`; there is no `state` field.
 
 - `GET /account/snapshot` returns `{ "summary": {}, "positions": [], "orders": [] }`
   when no account data is available.
+  Each successful account snapshot conservatively reconciles OKX net exposure:
+  a clear unexplained size increase creates a separate `source=recovery`
+  logical unit; an external decrease only marks affected units for manual
+  review and never guesses allocation. Pending Maybech opens suppress automatic
+  recovery for the same instrument/side.
 - Account summary equity fields are strings from OKX-style payloads:
   `total_equity`, `available_equity`, and optional `unrealized_pnl`.
 - `GET /market/btc-regime` returns the latest BTC regime. `direction`,

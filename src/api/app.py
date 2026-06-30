@@ -1719,6 +1719,7 @@ def create_app(
                     "api_quantity_contracts": quote.to_dict()["api_quantity_contracts"],
                     "estimated_notional_usdt": quote.to_dict()["estimated_notional_usdt"],
                     "order_action": "open",
+                    "dry_run": True,
                 },
                 separators=(",", ":"),
                 sort_keys=True,

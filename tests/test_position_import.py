@@ -10,11 +10,12 @@ from src.exchange.client import (
     entry_order_placement_enabled,
 )
 from src.trading.account_risk import AccountRiskStore
-from src.trading.logical_position_store import LogicalPositionStore
+from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
 from src.trading.position_import import (
     PositionImportConflict,
     PositionImportRequest,
     PositionImportService,
+    PositionRecoveryService,
 )
 from src.trading.position_protection import PositionProtectionError
 
@@ -362,3 +363,109 @@ def test_unknown_cancel_outcome_is_persisted_as_failed(tmp_path):
     protection = store.get_protection(position.id)
     assert protection.status == "failed"
     assert protection.metadata["cancel_outcome"] == "unknown"
+
+
+def _exchange_position(size: str) -> list[dict[str, str]]:
+    return [{
+        "instId": "ETH-USDT-SWAP",
+        "posSide": "net",
+        "pos": size,
+        "avgPx": "3000",
+        "markPx": "3100",
+    }]
+
+
+def test_startup_recovery_represents_existing_exchange_position(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    recovery = PositionRecoveryService(store)
+
+    created = recovery.reconcile(_exchange_position("2"))
+
+    assert len(created) == 1
+    assert created[0].source == "recovery"
+    assert created[0].remaining_quantity == 2
+    metadata = json.loads(created[0].metadata_json)
+    assert metadata["requires_manual_review"] is True
+    assert metadata["exchange_protection_verified"] is False
+    assert recovery.reconcile(_exchange_position("2")) == []
+    assert len(
+        recovery.audit_store.list(event_type="position.recovered_from_exchange")
+    ) == 1
+
+
+def test_external_size_increase_creates_only_clear_delta(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    recovery = PositionRecoveryService(store)
+    first = recovery.reconcile(_exchange_position("2"))[0]
+
+    increased = recovery.reconcile(_exchange_position("3.5"))
+
+    assert first.remaining_quantity == 2
+    assert len(increased) == 1
+    assert increased[0].source == "recovery"
+    assert increased[0].remaining_quantity == 1.5
+    assert len(store.list_active()) == 2
+
+
+def test_external_size_decrease_marks_review_without_guessing_unit(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    recovery = PositionRecoveryService(store)
+    recovery.reconcile(_exchange_position("2"))
+    recovery.reconcile(_exchange_position("3"))
+
+    created = recovery.reconcile(_exchange_position("1"))
+
+    assert created == []
+    positions = store.list_active()
+    assert [position.remaining_quantity for position in positions] == [2, 1]
+    assert all(
+        json.loads(position.metadata_json)["requires_manual_review"] is True
+        for position in positions
+    )
+    events = recovery.audit_store.list(
+        event_type="position.reconciliation_manual_review"
+    )
+    assert len(events) == 1
+    assert events[0].payload["position_ids"] == [position.id for position in positions]
+    recovery.reconcile(_exchange_position("1"))
+    assert len(
+        recovery.audit_store.list(event_type="position.reconciliation_manual_review")
+    ) == 1
+
+
+def test_recovery_does_not_duplicate_pending_maybech_open(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    store.save(
+        LogicalPositionRecord(
+            source="strategy",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            opened_quantity=0,
+            remaining_quantity=0,
+            status="pending_open",
+        )
+    )
+    recovery = PositionRecoveryService(store)
+
+    assert recovery.reconcile(_exchange_position("2")) == []
+    assert len(store.list_active()) == 1
+
+
+def test_recovery_does_not_treat_dry_run_quantity_as_exchange_backed(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    store.save(
+        LogicalPositionRecord(
+            source="manual",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            opened_quantity=5,
+            remaining_quantity=5,
+            status="open",
+            metadata_json=json.dumps({"dry_run": True}),
+        )
+    )
+
+    created = PositionRecoveryService(store).reconcile(_exchange_position("2"))
+
+    assert len(created) == 1
+    assert created[0].remaining_quantity == 2

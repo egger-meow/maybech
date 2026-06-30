@@ -145,7 +145,7 @@ function PositionList({ positions, selectedId, onSelect }: { positions: LogicalP
           <button type="button" className={`position-list-item ${selectedId === position.id ? "selected" : ""}`} key={position.id} onClick={() => onSelect(position.id)}>
             <span className={`side-mark ${position.side === "long" ? "long" : "short"}`} />
             <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · {displayRemaining == null ? `API 剩餘 ${number(position.remaining_quantity)} 口` : `剩餘 ${number(displayRemaining)} ${String(metadata.operator_display_currency ?? "")} · API ${number(position.remaining_quantity)} 口`}</small><small className="mono">{position.id}</small></span>
-            <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span><span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{position.status}</span></span>
+            <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span>{metadata.requires_manual_review === true && <span className="badge danger">需人工對帳</span>}<span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{position.status}</span></span>
           </button>
           );
         })}
@@ -250,6 +250,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
         <div className="position-title"><div><div className="status-row"><h2>{position.inst_id}</h2><span className={`badge ${position.side === "long" ? "success" : "danger"}`}>{position.side === "long" ? "做多 LONG" : "做空 SHORT"}</span><span className="badge info">{position.status}</span></div><p className="mono">Maybech 單位：{position.id}</p></div><div className="position-metric"><small>未實現損益估算</small><strong className={pnlPct != null && pnlPct >= 0 ? "positive" : "negative"}>{pnlPct == null ? "資料不足" : `${pnlPct >= 0 ? "+" : ""}${number(pnlPct, 2)}%`}</strong></div></div>
         <div className="metric-grid"><div><small>進場價</small><strong>{number(position.entry_price)}</strong></div><div><small>目前價</small><strong>{number(currentPrice)}</strong></div><div><small>操作者幣量</small><strong>{String(metadata.operator_display_quantity ?? "資料不足")} {String(metadata.operator_display_currency ?? "")}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
       </section>
+      {metadata.requires_manual_review === true && <div className="error-state"><AlertTriangle size={17} /> 此單位需要人工對帳：{String(metadata.reconciliation_review_reason ?? metadata.recovery_reason ?? "來源或數量尚未確認")}。系統不會猜測外部減倉應分配到哪一個邏輯單位。</div>}
 
       <section className="distinction-grid">
         <article className="panel unit-card"><h3>Maybech 邏輯單位</h3><p>規則、數量、稽核與委託識別都屬於這一個進場單位。</p><dl><div><dt>Client Order ID</dt><dd className="mono">{position.client_order_id || "尚無"}</dd></div><div><dt>Exchange Order ID</dt><dd className="mono">{position.exchange_order_id || "尚無"}</dd></div></dl></article>

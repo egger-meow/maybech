@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from src.trading.entry_control import ENTRY_EXECUTION_LOCK
+from src.trading.audit_event_store import AuditEventStore
 from src.trading.logical_position_store import (
     LogicalPositionCloseCondition,
     LogicalPositionRecord,
@@ -126,3 +128,152 @@ class PositionImportService:
         if not has_stop:
             raise ValueError("an enabled side-consistent stop_loss is required")
         return conditions
+
+
+class PositionRecoveryService:
+    """Represent clear exchange deltas without guessing external reductions."""
+
+    def __init__(self, store: LogicalPositionStore) -> None:
+        self.store = store
+        self.reconciler = PositionReconciler()
+        self.audit_store = AuditEventStore(store.db_path)
+
+    def reconcile(self, exchange_positions: list[dict[str, Any]]) -> list[LogicalPositionRecord]:
+        created: list[LogicalPositionRecord] = []
+        with ENTRY_EXECUTION_LOCK:
+            active = self.store.list_active()
+            exchange_backed = [
+                position for position in active if not self._is_dry_run(position)
+            ]
+            report = self.reconciler.reconcile_account(
+                logical_positions=exchange_backed,
+                exchange_positions=exchange_positions,
+            )
+            pending_keys = {
+                self.reconciler.position_key(position.inst_id, position.side)
+                for position in exchange_backed
+                if position.status == "pending_open"
+            }
+            for group in report.groups:
+                if group.state == "under_allocated" and group.unexplained_quantity > 0:
+                    if group.key in pending_keys:
+                        self._mark_manual_review(
+                            group,
+                            exchange_backed,
+                            reason="unexplained increase overlaps a pending Maybech open",
+                        )
+                        continue
+                    created.append(self._create_recovery(group))
+                elif group.state in {"over_allocated", "no_exchange_position"}:
+                    self._mark_manual_review(
+                        group,
+                        exchange_backed,
+                        reason="OKX exposure decreased; logical-unit allocation is ambiguous",
+                    )
+        return created
+
+    @staticmethod
+    def _is_dry_run(position: LogicalPositionRecord) -> bool:
+        try:
+            metadata = json.loads(position.metadata_json or "{}")
+        except json.JSONDecodeError:
+            return False
+        return isinstance(metadata, dict) and metadata.get("dry_run") is True
+
+    def _create_recovery(self, group: Any) -> LogicalPositionRecord:
+        entry_price = group.exchange_average_price or group.exchange_mark_price or 0.0
+        position = LogicalPositionRecord(
+            source="recovery",
+            inst_id=group.inst_id,
+            side=group.side,
+            opened_quantity=group.unexplained_quantity,
+            remaining_quantity=group.unexplained_quantity,
+            entry_price=entry_price,
+            status="open",
+            exchange_position_key=group.key,
+            metadata_json=json.dumps(
+                {
+                    "exchange_protection_verified": False,
+                    "requires_manual_review": True,
+                    "recovery_reason": "clear unexplained OKX size increase",
+                    "reconciliation_at_recovery": group.to_dict(),
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        )
+        with self.store.transaction() as connection:
+            self.store.save(position)
+            self.audit_store.create(
+                type="position.recovered_from_exchange",
+                source="account_reconciliation",
+                payload={
+                    "position_id": position.id,
+                    "instrument": group.inst_id,
+                    "side": group.side,
+                    "quantity": group.unexplained_quantity,
+                    "source": "recovery",
+                    "requires_manual_review": True,
+                },
+                connection=connection,
+            )
+        return self.store.get(position.id) or position
+
+    def _mark_manual_review(
+        self,
+        group: Any,
+        active: list[LogicalPositionRecord],
+        *,
+        reason: str,
+    ) -> None:
+        members = [
+            position
+            for position in active
+            if self.reconciler.position_key(position.inst_id, position.side) == group.key
+        ]
+        if not members:
+            return
+        signature = (
+            f"{group.state}:{group.exchange_position_size}:"
+            f"{group.logical_remaining}:{group.quantity_gap}"
+        )
+        changed: list[str] = []
+        with self.store.transaction() as connection:
+            for position in members:
+                try:
+                    metadata = json.loads(position.metadata_json or "{}")
+                except json.JSONDecodeError:
+                    metadata = {}
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                if metadata.get("reconciliation_review_signature") == signature:
+                    continue
+                metadata.update(
+                    {
+                        "requires_manual_review": True,
+                        "reconciliation_review_signature": signature,
+                        "reconciliation_review_reason": reason,
+                        "reconciliation_reviewed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                position.metadata_json = json.dumps(
+                    metadata,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                self.store.save(position)
+                changed.append(position.id)
+            if changed:
+                self.audit_store.create(
+                    type="position.reconciliation_manual_review",
+                    source="account_reconciliation",
+                    payload={
+                        "position_id": changed[0],
+                        "position_ids": changed,
+                        "instrument": group.inst_id,
+                        "side": group.side,
+                        "reason": reason,
+                        "reconciliation": group.to_dict(),
+                    },
+                    connection=connection,
+                )

@@ -26,8 +26,16 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-No active real-money correctness or operator-control blocker is currently
-recorded.
+1. Live preflight must reject fresh OKX exposure that has not yet been represented
+   by exchange-backed logical units. Snapshot recovery now makes the mismatch
+   visible, but arming must not briefly precede that first reconciliation.
+2. Position Management still uses OKX contract counts for reduce/close inputs and
+   does not yet show per-rule USDT PnL impact for every editable rule. This can
+   cause operator quantity mistakes even though strategy/manual-open sizing is
+   now mapped.
+3. The legacy support/resistance notificator path is still registered and can
+   emit standalone price alerts outside strategy/position lifecycle scope. It
+   must be removed before notification behavior matches the product contract.
 
 ## Non-Blocking / Later
 

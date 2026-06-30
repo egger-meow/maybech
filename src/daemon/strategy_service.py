@@ -553,6 +553,7 @@ class StrategyService(DaemonService):
             "operator_display_quantity": display_quantity,
             "operator_display_currency": pair.split("-")[0],
             "api_quantity_contracts": requested_size,
+            "dry_run": self.dry_run,
         }
         trade = TradeRecord(
             strategy_id=strategy.id,

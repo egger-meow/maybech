@@ -55,7 +55,7 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
             before_release=disarm_order_placement,
         )
         runner.register(lease_service)
-        runner.register(AccountSnapshotService())
+        runner.register(AccountSnapshotService(position_store=LogicalPositionStore(store.db_path)))
         runner.register(BTCRegimeService())
         runner.register(PositionIntentService())
         runner.register(PositionManagerService(store=store, dry_run=dry_run))
