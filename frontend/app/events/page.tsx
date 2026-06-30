@@ -9,7 +9,7 @@ export default function Events() {
   const [isConnected, setIsConnected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
-  const eventsEndRef = useRef<HTMLDivElement>(null);
+  const eventLogRef = useRef<HTMLDivElement>(null);
   const isPausedRef = useRef(isPaused);
 
   useEffect(() => {
@@ -44,8 +44,8 @@ export default function Events() {
   }, []);
 
   useEffect(() => {
-    if (!isPaused && isAutoScroll && eventsEndRef.current) {
-      eventsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (!isPaused && isAutoScroll && eventLogRef.current) {
+      eventLogRef.current.scrollTop = eventLogRef.current.scrollHeight;
     }
   }, [events, isPaused, isAutoScroll]);
 
@@ -56,7 +56,7 @@ export default function Events() {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1rem", height: "100%" }}>
+    <div className="events-page">
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "1rem" }}>
         <div>
           <h1 style={{ fontSize: "2rem", fontWeight: 700, marginBottom: "0.5rem" }}>即時事件</h1>
@@ -92,7 +92,8 @@ export default function Events() {
       </header>
 
       <div
-        className="glass-panel"
+        ref={eventLogRef}
+        className="glass-panel event-log"
         onScroll={handleScroll}
         style={{
           flex: 1,
@@ -102,7 +103,6 @@ export default function Events() {
           padding: "1.5rem",
           overflowY: "auto",
           borderRadius: "var(--radius-md)",
-          minHeight: "60vh",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem", color: "#888" }}>
@@ -118,7 +118,6 @@ export default function Events() {
               <span style={{ color: "#f8f8f2" }}>{JSON.stringify(event.payload)}</span>
             </div>
           ))}
-          <div ref={eventsEndRef} />
         </div>
       </div>
     </div>

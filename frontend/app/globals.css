@@ -162,9 +162,9 @@ input:focus, select:focus {
 
 textarea { padding: .7rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font: inherit; resize: vertical; }
 button:disabled { cursor: not-allowed; opacity: .55; transform: none !important; }
-.app-shell { display: flex; min-height: 100vh; }
-.app-main { flex: 1; min-width: 0; padding: 2rem 3rem; background: var(--bg-primary); }
-.sidebar { width: 250px; height: 100vh; border-right: 1px solid var(--border-color); padding: 2rem 1rem; display: flex; flex-direction: column; gap: 2rem; position: sticky; top: 0; background: var(--bg-primary); z-index: 5; }
+.app-shell { display: flex; height: 100vh; overflow: hidden; }
+.app-main { flex: 1; min-width: 0; height: 100vh; overflow-y: auto; padding: 2rem 3rem; background: var(--bg-primary); }
+.sidebar { width: 250px; flex: 0 0 250px; height: 100vh; border-right: 1px solid var(--border-color); padding: 2rem 1rem; display: flex; flex-direction: column; gap: 2rem; position: relative; background: var(--bg-primary); z-index: 5; }
 .brand-block h1 { font-size: 1.5rem; font-weight: 800; color: var(--accent-primary); margin-bottom: .4rem; }
 .brand-block p { color: var(--text-muted); font-size: .875rem; }
 .sidebar-nav { display: flex; flex-direction: column; gap: .5rem; flex: 1; }
@@ -276,6 +276,9 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .badge { display: inline-flex; align-items: center; gap: .25rem; width: max-content; }
 .action-zone { display: grid; gap: 1rem; }.reduce-control { display: flex; align-items: flex-end; gap: .7rem; flex-wrap: wrap; }.reduce-control .field { flex: 1 1 190px; }
 .evidence-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .65rem; }.evidence-grid article { display: grid; gap: .4rem; padding: .8rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }.evidence-grid small { color: var(--text-muted); }
+.events-page { display: flex; flex-direction: column; gap: 1rem; height: calc(100vh - 4rem); min-height: 0; }
+.events-page > header { flex: 0 0 auto; }
+.event-log { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; }
 .dashboard-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .dashboard-metric { display: grid; gap: .5rem; }.dashboard-metric svg { color: var(--accent-primary); }.dashboard-metric small { color: var(--text-muted); }.dashboard-metric strong { font-size: clamp(1.25rem, 2.5vw, 2rem); overflow-wrap: anywhere; }
 .real-money-guide { border: 2px solid color-mix(in srgb, var(--accent-danger) 45%, var(--border-color)); }
@@ -284,14 +287,15 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .guide-steps li { display: flex; align-items: flex-start; gap: .7rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }.guide-steps svg { flex: 0 0 auto; color: var(--accent-primary); }.guide-steps p { color: var(--text-muted); font-size: .84rem; margin-top: .3rem; line-height: 1.55; }
 .guide-footer { color: var(--text-muted); border-top: 1px solid var(--border-color); margin-top: 1rem; padding-top: 1rem; line-height: 1.55; }
 @media (max-width: 800px) {
-  .app-shell { display: block; }
+  .app-shell { display: block; height: auto; min-height: 100vh; overflow: visible; }
   .sidebar { width: 100%; height: auto; position: sticky; padding: .65rem .8rem; border-right: 0; border-bottom: 1px solid var(--border-color); gap: .5rem; }
   .brand-block p, .theme-slot { display: none; }
   .brand-block h1 { font-size: 1.1rem; margin: 0; }
   .sidebar-nav { flex-direction: row; overflow-x: auto; padding-bottom: .15rem; }
   .nav-link { padding: .55rem .7rem; font-size: .78rem; gap: .35rem; }
   .nav-link svg { width: 17px; }
-  .app-main { padding: 1rem; }
+  .app-main { height: auto; min-height: calc(100vh - 118px); overflow: visible; padding: 1rem; }
+  .events-page { height: calc(100vh - 140px); min-height: 520px; }
   .mode-banner { align-items: flex-start; flex-wrap: wrap; }
   .mode-facts { justify-content: flex-start; width: 100%; }
   .form-grid { grid-template-columns: 1fr; }
