@@ -21,6 +21,10 @@ Purpose: manage pre-position plans.
 
 Required capabilities:
 
+- select one or more cached, currently tradable OKX instruments through a
+  searchable combobox; typed search filters options but cannot submit an
+  arbitrary instrument id
+
 - list strategies with enabled state, target instrument, side, readiness, and
   latest decision
 - create and edit strategy entry signal expressions
@@ -35,6 +39,10 @@ Required capabilities:
 Purpose: manage post-entry logical position units.
 
 Required capabilities:
+
+- use the same cached searchable instrument selector for manual opens and rule
+  targets, with `self` first and BTC immediately available for cross-market
+  conditions
 
 - list each logical position unit independently
 - show linked OKX net position when several logical units are merged by OKX

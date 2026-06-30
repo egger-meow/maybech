@@ -1,6 +1,10 @@
 "use client";
 
 import { Brackets, Plus, Trash2 } from "lucide-react";
+import useSWR from "swr";
+
+import InstrumentSelector from "@/components/InstrumentSelector";
+import { listInstruments, type InstrumentMetadataResponse } from "@/lib/api";
 
 export type SignalExpression = Record<string, unknown>;
 
@@ -51,11 +55,12 @@ function NumberField({ label, value, onChange, suffix }: { label: string; value:
   );
 }
 
-function Node({ expression, onChange, onRemove, depth }: {
+function Node({ expression, onChange, onRemove, depth, instruments }: {
   expression: SignalExpression;
   onChange: (next: SignalExpression) => void;
   onRemove?: () => void;
   depth: number;
+  instruments: InstrumentMetadataResponse[];
 }) {
   if (isComposite(expression)) {
     const items = conditions(expression);
@@ -83,7 +88,7 @@ function Node({ expression, onChange, onRemove, depth }: {
           {items.map((item, index) => (
             <div className="expression-child" key={index}>
               {index > 0 && <span className="operator-chip">{op.toUpperCase()}</span>}
-              <Node expression={item} onChange={(next) => updateItem(index, next)} onRemove={() => removeItem(index)} depth={depth + 1} />
+              <Node expression={item} onChange={(next) => updateItem(index, next)} onRemove={() => removeItem(index)} depth={depth + 1} instruments={instruments} />
             </div>
           ))}
         </div>
@@ -107,7 +112,12 @@ function Node({ expression, onChange, onRemove, depth }: {
       </label>
       <label className="field compact-field grow-field">
         <span>市場</span>
-        <input value={asText(expression.symbol, "self")} onChange={(event) => set("symbol", event.target.value)} placeholder="self 或 BTC-USDT-SWAP" />
+        <InstrumentSelector
+          instruments={instruments}
+          includeSelf
+          value={[asText(expression.symbol, "self")]}
+          onChange={(next) => set("symbol", next[0] ?? "self")}
+        />
       </label>
       {(type === "price_above" || type === "price_below") && <NumberField label="價格" value={expression.value} onChange={(value) => set("value", value)} />}
       {(type === "rapid_rise" || type === "rapid_drop") && <>
@@ -140,13 +150,15 @@ export function describeExpression(expression: SignalExpression): string {
 
 export default function ExpressionEditor({ value, onChange, label = "規則運算式" }: { value: SignalExpression; onChange: (value: SignalExpression) => void; label?: string }) {
   const safeValue = Object.keys(value).length ? value : defaultPrimitive();
+  const catalog = useSWR("instrument-metadata", listInstruments);
   return (
     <div className="expression-editor">
       <div className="expression-heading">
         <div><strong>{label}</strong><p>{describeExpression(safeValue)}</p></div>
         {!isComposite(safeValue) && <button type="button" className="btn btn-outline" onClick={() => onChange({ op: "and", conditions: [safeValue, defaultPrimitive()] })}><Brackets size={15} /> 加入 AND／OR</button>}
       </div>
-      <Node expression={safeValue} onChange={onChange} depth={0} />
+      {catalog.error && <div className="inline-warning">商品資料尚未快取；請先更新 OKX 商品資料，規則目標目前只能使用 self。</div>}
+      <Node expression={safeValue} onChange={onChange} depth={0} instruments={catalog.data?.items ?? []} />
     </div>
   );
 }

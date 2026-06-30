@@ -9,6 +9,7 @@ import type {
   ConfirmedPositionFillCreate,
   ConfirmedPositionFillResponse,
   ExecutionFillIngestionStatusResponse,
+  InstrumentMetadataListResponse,
   LogicalPositionCloseConditionCreate,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
   LogicalPositionCloseConditionUpdate,
@@ -58,6 +59,8 @@ export type {
   ConfirmedPositionFillCreate,
   ConfirmedPositionFillResponse,
   ExecutionFillIngestionStatusResponse,
+  InstrumentMetadataListResponse,
+  InstrumentMetadataResponse,
   LogicalPositionUnitResponse as LogicalPositionUnit,
   LivePreflightResponse,
   LogicalPositionCloseConditionCreate,
@@ -189,6 +192,12 @@ export const getRiskLimits = (): Promise<AccountRiskLimitsResponse> =>
 
 export const getEntryControl = (): Promise<EntryControlResponse> =>
   fetcher<EntryControlResponse>("/risk/entries");
+
+export const listInstruments = (): Promise<InstrumentMetadataListResponse> =>
+  fetcher<InstrumentMetadataListResponse>("/instruments");
+
+export const refreshInstruments = (): Promise<InstrumentMetadataListResponse> =>
+  postData<InstrumentMetadataListResponse>("/instruments/refresh");
 
 export const getExecutionFillStatus = (): Promise<ExecutionFillIngestionStatusResponse> =>
   fetcher<ExecutionFillIngestionStatusResponse>("/execution/fills/status");

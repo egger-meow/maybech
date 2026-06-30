@@ -232,6 +232,20 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .input-with-suffix { position: relative; display: block; }
 .input-with-suffix small { position: absolute; right: .55rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
 .input-with-suffix input { padding-right: 2.8rem; }
+.instrument-selector { display: grid; gap: .45rem; min-width: 0; }
+.instrument-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.instrument-chip { display: inline-flex; align-items: center; gap: .35rem; width: fit-content; padding: .38rem .55rem; border-radius: 999px; background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary)); color: var(--text-primary); font-size: .78rem; font-weight: 800; overflow-wrap: anywhere; }
+.instrument-chip button, .selector-clear { display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.instrument-combobox { position: relative; display: flex; align-items: center; min-width: 0; }
+.instrument-combobox > svg { position: absolute; left: .75rem; z-index: 1; color: var(--text-muted); pointer-events: none; }
+.instrument-combobox > input { padding-left: 2.2rem; padding-right: 2rem; }
+.selector-clear { position: absolute; right: .7rem; }
+.instrument-options { position: absolute; z-index: 30; top: calc(100% + .35rem); left: 0; right: 0; max-height: 260px; overflow-y: auto; padding: .4rem; border: 1px solid var(--border-color); border-radius: 14px; background: var(--bg-secondary); box-shadow: 0 16px 40px rgba(0, 0, 0, .16); }
+.instrument-options > button { display: grid; width: 100%; gap: .15rem; padding: .7rem .75rem; border: 0; border-radius: 10px; background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
+.instrument-options > button:hover, .instrument-options > button:focus-visible { background: color-mix(in srgb, var(--accent-primary) 11%, transparent); outline: none; }
+.instrument-options small { color: var(--text-muted); font-size: .72rem; }
+.instrument-no-result { padding: .8rem; color: var(--text-muted); font-size: .82rem; text-align: center; }
+.inline-warning { margin-bottom: .6rem; padding: .65rem .75rem; border-radius: 10px; background: color-mix(in srgb, var(--accent-warning) 12%, var(--bg-secondary)); color: var(--text-primary); font-size: .8rem; }
 .expression-actions { display: flex; gap: .5rem; margin-top: .7rem; flex-wrap: wrap; }
 .icon-button { width: 38px; height: 38px; display: inline-grid; place-items: center; border: 1px solid var(--border-color); border-radius: 50%; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; flex: 0 0 auto; }
 .danger-ghost { color: var(--accent-danger); }

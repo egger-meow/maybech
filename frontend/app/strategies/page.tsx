@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { AlertTriangle, Check, ChevronRight, CirclePlus, Power, Save, Trash2 } from "lucide-react";
 
 import ExpressionEditor, { type SignalExpression } from "@/components/ExpressionEditor";
+import InstrumentSelector from "@/components/InstrumentSelector";
 import RuntimeModeBanner from "@/components/RuntimeModeBanner";
 import {
   ApiError,
@@ -15,18 +16,21 @@ import {
   disableStrategy,
   enableStrategy,
   listPersistedStrategyDecisions,
+  listInstruments,
   listStrategies,
+  refreshInstruments,
   updateStrategy,
   updateStrategySignal,
   validateSignal,
   type SignalExpression as PersistedSignalExpression,
+  type InstrumentMetadataResponse,
   type StrategySummary,
 } from "@/lib/api";
 
 type CloseRule = { purpose: string; enabled: boolean; expression: SignalExpression; metadata?: Record<string, unknown> };
 type Draft = {
   name: string;
-  instruments: string;
+  instruments: string[];
   side: "long" | "short";
   contractSizes: Record<string, string>;
   slippagePercent: string;
@@ -36,9 +40,9 @@ type Draft = {
 
 const blankDraft = (): Draft => ({
   name: "",
-  instruments: "ETH-USDT-SWAP",
+  instruments: [],
   side: "long",
-  contractSizes: { "ETH-USDT-SWAP": "1" },
+  contractSizes: {},
   slippagePercent: "0.5",
   entrySignal: { type: "price_above", symbol: "self", value: 0 },
   closeRules: [
@@ -69,7 +73,7 @@ function draftFrom(strategy: StrategySummary): Draft {
   const sizes = object(metadata.order_size_contracts);
   return {
     name: strategy.name,
-    instruments: (strategy.target_instruments ?? []).join(", "),
+    instruments: strategy.target_instruments ?? [],
     side: metadata.position_side === "short" ? "short" : "long",
     contractSizes: Object.fromEntries((strategy.target_instruments ?? []).map((instrument) => [instrument, String(sizes[instrument] ?? "1")])),
     slippagePercent: String(Number(metadata.max_entry_slippage_pct ?? .005) * 100),
@@ -152,14 +156,14 @@ function ChildSignal({ strategyId, signal, onSaved }: { strategyId: string; sign
   );
 }
 
-function StrategyEditor({ strategy, onSaved }: { strategy?: StrategySummary; onSaved: (selectedId?: string) => Promise<unknown> }) {
+function StrategyEditor({ strategy, onSaved, catalog }: { strategy?: StrategySummary; onSaved: (selectedId?: string) => Promise<unknown>; catalog: InstrumentMetadataResponse[] }) {
   const [draft, setDraft] = useState<Draft>(() => strategy ? draftFrom(strategy) : blankDraft());
   const [dirty, setDirty] = useState(!strategy);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [newSignal, setNewSignal] = useState(false);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => { setDraft((current) => ({ ...current, [key]: value })); setDirty(true); };
-  const instruments = draft.instruments.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean);
+  const instruments = draft.instruments;
 
   const save = async () => {
     setBusy(true); setError("");
@@ -207,7 +211,7 @@ function StrategyEditor({ strategy, onSaved }: { strategy?: StrategySummary; onS
       <div className="form-grid">
         <label className="field"><span>策略名稱</span><input value={draft.name} onChange={(event) => set("name", event.target.value)} /></label>
         <label className="field"><span>方向</span><select value={draft.side} onChange={(event) => set("side", event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
-        <label className="field full"><span>交易商品（逗號分隔）</span><input value={draft.instruments} onChange={(event) => set("instruments", event.target.value)} placeholder="ETH-USDT-SWAP, SOL-USDT-SWAP" /></label>
+        <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} /></div>
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
         <div className="field"><span>每個商品委託口數</span><div className="contract-size-grid">{instruments.map((instrument) => <label key={instrument}><small>{instrument}</small><input type="number" min="0" step="any" value={draft.contractSizes[instrument] ?? "1"} onChange={(event) => set("contractSizes", { ...draft.contractSizes, [instrument]: event.target.value })} /></label>)}</div></div>
         <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" /></div>
@@ -253,17 +257,20 @@ function Decisions({ strategyId }: { strategyId: string }) {
 
 export default function StrategiesPage() {
   const { data: strategies, error, mutate, isLoading } = useSWR("strategies", listStrategies, { refreshInterval: 10_000 });
+  const catalog = useSWR("instrument-metadata", listInstruments);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const selected = strategies?.find((strategy) => strategy.id === selectedId) ?? strategies?.[0];
   const refresh = async (id?: string) => { await mutate(); if (id) setSelectedId(id); else if (id === undefined) setSelectedId(null); setCreating(false); };
+  const refreshCatalog = async () => { await refreshInstruments(); await catalog.mutate(); };
   return (
     <div className="page-stack">
       <header className="page-header"><div><h1>策略管理</h1><p>建立進場計畫、組合市場訊號，並定義每個新部位收到的初始風險規則。</p></div><button type="button" className="btn btn-primary" onClick={() => setCreating(true)}><CirclePlus size={17} /> 建立策略</button></header>
       <RuntimeModeBanner />
+      {catalog.error && <div className="error-state"><AlertTriangle size={17} /> OKX 商品快取尚未建立，無法選擇交易商品。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>立即更新商品資料</button></div>}
       {error && <div className="error-state">策略 API 無法使用。畫面不會用假資料替代，所有操作已停用。</div>}
       {isLoading && <div className="loading-state">正在讀取策略…</div>}
-      {!error && strategies && <div className="strategy-workspace"><StrategyList strategies={strategies} selectedId={creating ? null : selected?.id ?? null} onSelect={(id) => { setSelectedId(id); setCreating(false); }} onCreate={() => setCreating(true)} /><div className="strategy-main">{creating ? <StrategyEditor key="new" onSaved={refresh} /> : selected ? <><StrategyEditor key={`${selected.id}-${selected.updated_at}`} strategy={selected} onSaved={refresh} /><Decisions strategyId={selected.id} /></> : <div className="panel empty-state">建立第一個策略，開始定義進場訊號與預設部位規則。</div>}</div></div>}
+      {!error && strategies && <div className="strategy-workspace"><StrategyList strategies={strategies} selectedId={creating ? null : selected?.id ?? null} onSelect={(id) => { setSelectedId(id); setCreating(false); }} onCreate={() => setCreating(true)} /><div className="strategy-main">{creating ? <StrategyEditor key="new" onSaved={refresh} catalog={catalog.data?.items ?? []} /> : selected ? <><StrategyEditor key={`${selected.id}-${selected.updated_at}`} strategy={selected} onSaved={refresh} catalog={catalog.data?.items ?? []} /><Decisions strategyId={selected.id} /></> : <div className="panel empty-state">建立第一個策略，開始定義進場訊號與預設部位規則。</div>}</div></div>}
     </div>
   );
 }
