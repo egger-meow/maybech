@@ -10,6 +10,7 @@ import json
 import secrets
 import sqlite3
 from typing import Literal, Optional
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +20,7 @@ from src.config.settings import settings
 from src.data.candles import CandleManager
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
-from src.exchange.client import OKXClient
+from src.exchange.client import OKXClient, entry_order_placement_enabled
 
 from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
 from src.trading.audit_event_store import AuditEventRecord, AuditEventStore
@@ -74,6 +75,7 @@ from src.api.schemas import (
     InstrumentSizeQuoteResponse,
     LivePreflightResponse,
     LogicalPositionUnitResponse,
+    ManualPositionOpenRequest,
     LogicalPositionCloseConditionCreate,
     LogicalPositionCloseConditionResponse,
     LogicalPositionCloseConditionUpdate,
@@ -1639,6 +1641,147 @@ def create_app(
                 )
             )
         return sorted(responses, key=lambda item: item.key)[:limit]
+
+    @app.post(
+        "/positions/manual-open",
+        response_model=LogicalPositionUnitResponse,
+        status_code=201,
+    )
+    def manual_open_position(
+        payload: ManualPositionOpenRequest,
+    ) -> LogicalPositionUnitResponse:
+        preflight = runner.runtime.get_value("runtime.live_preflight")
+        if not isinstance(preflight, dict):
+            raise HTTPException(
+                status_code=503,
+                detail="Runtime execution mode is unavailable; manual open is blocked",
+            )
+        if preflight.get("execution_mode") != "dry_run":
+            detail = (
+                "Manual live open requires an armed runtime and enabled entry gate"
+                if not preflight.get("armed") or not entry_order_placement_enabled()
+                else "Manual live open remains disabled in this build; use dry-run"
+            )
+            raise HTTPException(status_code=409, detail=detail)
+
+        metadata_store = InstrumentMetadataStore()
+        metadata = metadata_store.get(payload.inst_id)
+        if metadata is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Cached OKX metadata for {payload.inst_id} is unavailable",
+            )
+        try:
+            quote = InstrumentSizer(metadata).quote(
+                display_quantity=payload.display_quantity,
+                entry_price=payload.entry_price,
+                side=payload.side,
+            )
+            entry_price = Decimal(payload.entry_price)
+            stop_loss = Decimal(payload.stop_loss_price)
+            take_profit = (
+                Decimal(payload.take_profit_price)
+                if payload.take_profit_price is not None
+                else None
+            )
+            if payload.side == "long" and stop_loss >= entry_price:
+                raise ValueError("Long stop loss must be below entry price")
+            if payload.side == "short" and stop_loss <= entry_price:
+                raise ValueError("Short stop loss must be above entry price")
+            if take_profit is not None and (
+                (payload.side == "long" and take_profit <= entry_price)
+                or (payload.side == "short" and take_profit >= entry_price)
+            ):
+                raise ValueError("Take profit must be on the profitable side of entry")
+        except (ValueError, ArithmeticError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        trade_store = TradeStore()
+        position_store = LogicalPositionStore(trade_store.db_path)
+        audit_store = AuditEventStore(trade_store.db_path)
+        position_id = uuid4().hex[:12]
+        position = LogicalPositionRecord(
+            id=position_id,
+            source="manual",
+            inst_id=metadata.inst_id,
+            side=payload.side,
+            opened_quantity=0,
+            remaining_quantity=0,
+            entry_price=float(entry_price),
+            status="pending_open",
+            client_order_id=f"dry{position_id}",
+            metadata_json=json.dumps(
+                {
+                    "execution_status": "simulated",
+                    "confirmation_source": "dry_run",
+                    "operator_display_quantity": quote.to_dict()["display_quantity"],
+                    "operator_display_currency": quote.display_currency,
+                    "api_quantity_contracts": quote.to_dict()["api_quantity_contracts"],
+                    "estimated_notional_usdt": quote.to_dict()["estimated_notional_usdt"],
+                    "order_action": "open",
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        )
+        with ENTRY_EXECUTION_LOCK:
+            with position_store.transaction() as connection:
+                position_store.save(position)
+                position_store.create_close_condition(
+                    position_id=position.id,
+                    purpose="stop_loss",
+                    expression={
+                        "type": "price_below" if payload.side == "long" else "price_above",
+                        "symbol": metadata.inst_id,
+                        "value": float(stop_loss),
+                    },
+                    enabled=True,
+                    metadata={"source": "manual_open"},
+                )
+                if take_profit is not None:
+                    position_store.create_close_condition(
+                        position_id=position.id,
+                        purpose="take_profit",
+                        expression={
+                            "type": "price_above" if payload.side == "long" else "price_below",
+                            "symbol": metadata.inst_id,
+                            "value": float(take_profit),
+                        },
+                        enabled=True,
+                        metadata={"source": "manual_open"},
+                    )
+                position = position_store.record_allocation(
+                    LogicalPositionAllocation(
+                        id=f"dry-open-{position.id}",
+                        position_id=position.id,
+                        action="open",
+                        quantity=float(quote.api_quantity_contracts),
+                        price=float(entry_price),
+                        exchange_order_id=f"dry-open-{position.id}",
+                        reason="confirmed manual dry-run open",
+                        metadata_json=json.dumps({"source": "manual", "dry_run": True}),
+                    )
+                ) or position
+                _record_definition_audit(
+                    audit_store,
+                    event_type="position.manual_open_simulated",
+                    payload={
+                        "position_id": position.id,
+                        "source": "manual",
+                        "instrument": metadata.inst_id,
+                        "side": payload.side,
+                        "size_quote": quote.to_dict(),
+                    },
+                    connection=connection,
+                )
+        return _logical_position_response(
+            store=trade_store,
+            position_store=position_store,
+            position=position_store.get(position.id) or position,
+            account_snapshot={},
+            intents=[],
+            audit_events=[],
+        )
 
     @app.get("/positions/logical", response_model=list[LogicalPositionUnitResponse])
     def list_logical_positions(

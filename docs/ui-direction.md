@@ -51,6 +51,9 @@ Required capabilities:
 - show current price, unrealized PnL estimate, distance to rules, and risk
 - expose source strategy tag when a strategy created the unit
 - support manual position units with no strategy tag
+- create a Dry-run manual unit from a searchable cached instrument selector,
+  prefill the entry limit only from a fresh market price, and show display
+  quantity, derived OKX contracts, notional, and stop PnL before confirmation
 - show owned protection state, stop level, protected quantity, algo identity,
   and triggered child-order identity without hiding failed/canceled states
 

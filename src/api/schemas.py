@@ -675,6 +675,16 @@ class LogicalPositionUnitResponse(BaseModel):
     audit_events: list[RuntimeEventResponse] = Field(default_factory=list)
 
 
+class ManualPositionOpenRequest(BaseModel):
+    confirm: Literal[True]
+    inst_id: str = Field(min_length=1, max_length=64)
+    side: Literal["long", "short"]
+    display_quantity: str = Field(min_length=1, max_length=64)
+    entry_price: str = Field(min_length=1, max_length=64)
+    stop_loss_price: str = Field(min_length=1, max_length=64)
+    take_profit_price: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class PositionGroupResponse(BaseModel):
     key: str
     group_by: Literal["instrument_side", "strategy", "exchange_position"]

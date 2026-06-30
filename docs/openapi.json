@@ -2021,6 +2021,70 @@
         "title": "LogicalPositionUnitResponse",
         "type": "object"
       },
+      "ManualPositionOpenRequest": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "display_quantity": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Display Quantity",
+            "type": "string"
+          },
+          "entry_price": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entry Price",
+            "type": "string"
+          },
+          "inst_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "side": {
+            "enum": [
+              "long",
+              "short"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "stop_loss_price": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Stop Loss Price",
+            "type": "string"
+          },
+          "take_profit_price": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Take Profit Price"
+          }
+        },
+        "required": [
+          "confirm",
+          "inst_id",
+          "side",
+          "display_quantity",
+          "entry_price",
+          "stop_loss_price"
+        ],
+        "title": "ManualPositionOpenRequest",
+        "type": "object"
+      },
       "MarketCandlesResponse": {
         "properties": {
           "bar": {
@@ -5315,6 +5379,44 @@
           }
         },
         "summary": "Reduce Logical Position"
+      }
+    },
+    "/positions/manual-open": {
+      "post": {
+        "operationId": "manual_open_position_positions_manual_open_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualPositionOpenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionUnitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Manual Open Position"
       }
     },
     "/risk/entries": {

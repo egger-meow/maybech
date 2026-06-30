@@ -78,6 +78,10 @@ Frontends must use `active`; there is no `state` field.
   current position intent, matching OKX net-position snapshot data when present,
   conservative reconciliation state, and related audit events when event
   payloads reference the trade/position id.
+- `POST /positions/manual-open` creates a simulated `source=manual` unit in
+  Dry-run after cached-instrument sizing and stop-direction validation. It
+  records a confirmed simulated allocation and durable audit event. Demo/real
+  calls are rejected before persistence in this build.
 - `GET /positions/logical/{position_id}/chart` returns recent candles plus
   entry, current, enabled rule, break-even, and confirmed execution overlays.
 - `GET/POST/PATCH/DELETE /positions/logical/{position_id}/close-conditions`

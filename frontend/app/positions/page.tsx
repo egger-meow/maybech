@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { AlertTriangle, CandlestickChart, CirclePlus, RotateCcw, Save, ShieldAlert, ShieldCheck, Trash2, TrendingDown, XCircle } from "lucide-react";
 
 import ExpressionEditor, { type SignalExpression } from "@/components/ExpressionEditor";
+import InstrumentSelector from "@/components/InstrumentSelector";
 import RuntimeModeBanner from "@/components/RuntimeModeBanner";
 import {
   ApiError,
@@ -14,14 +15,20 @@ import {
   createLogicalPositionCloseCondition,
   deleteLogicalPositionCloseCondition,
   getLogicalPositionChart,
+  getLivePreflight,
+  getMarketCandles,
+  listInstruments,
   listLogicalPositions,
+  manualOpenPosition,
   moveLogicalPositionToBreakEven,
   reduceLogicalPosition,
+  quoteInstrumentSize,
   updateLogicalPositionCloseCondition,
   validateSignal,
   type LogicalPositionChartResponse,
   type LogicalPositionCloseCondition,
   type LogicalPositionUnit,
+  type InstrumentMetadataResponse,
 } from "@/lib/api";
 
 const activeStatuses = new Set(["pending_open", "open", "reducing", "closing"]);
@@ -54,18 +61,94 @@ function stale(timestamp?: string): boolean {
   return !Number.isFinite(age) || age > 120_000;
 }
 
+function ManualOpenForm({ catalog, onCreated }: { catalog: InstrumentMetadataResponse[]; onCreated: (positionId: string) => Promise<unknown> }) {
+  const preflight = useSWR("runtime-preflight", getLivePreflight);
+  const [instrument, setInstrument] = useState("");
+  const [side, setSide] = useState<"long" | "short">("long");
+  const [quantity, setQuantity] = useState("");
+  const [entryPrice, setEntryPrice] = useState("");
+  const [stopLoss, setStopLoss] = useState("");
+  const [takeProfit, setTakeProfit] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const quote = useSWR(
+    instrument && quantity && entryPrice ? ["manual-size-quote", instrument, quantity, entryPrice, side] : null,
+    () => quoteInstrumentSize(instrument, { display_quantity: quantity, entry_price: entryPrice, side, rule_price: stopLoss || null }),
+  );
+  const selectInstrument = async (next: string[]) => {
+    const selected = next[0] ?? "";
+    setInstrument(selected);
+    setEntryPrice("");
+    setError("");
+    if (!selected) return;
+    try {
+      const market = await getMarketCandles(selected, { bar: "1m", limit: 2 });
+      const latest = market.candles?.[market.candles.length - 1];
+      if (stale(market.fetched_at)) setError("市場價格資料已過期，不會自動填入進場價。");
+      else if (latest?.close) setEntryPrice(String(latest.close));
+      else setError("市場 API 沒有提供目前價格，請勿把空值當成零。 ");
+    } catch (caught) {
+      setError(`無法取得目前價格：${errorMessage(caught)}`);
+    }
+  };
+  const submit = async () => {
+    if (!quote.data) { setError("商品數量尚未通過 OKX 單位換算，不能建立部位。"); return; }
+    if (!stopLoss) { setError("必須設定保護性停損底線。"); return; }
+    if (!confirm(`建立 ${instrument} ${side === "long" ? "做多" : "做空"} dry-run 邏輯單位？\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`)) return;
+    setBusy(true); setError("");
+    try {
+      const created = await manualOpenPosition({
+        confirm: true,
+        inst_id: instrument,
+        side,
+        display_quantity: quantity,
+        entry_price: entryPrice,
+        stop_loss_price: stopLoss,
+        take_profit_price: takeProfit || null,
+      });
+      await onCreated(created.id);
+      setQuantity(""); setStopLoss(""); setTakeProfit("");
+    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+  };
+  const dryRun = preflight.data?.execution_mode === "dry_run";
+  return (
+    <section className="panel manual-open-panel">
+      <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以目前價格預填限價；你仍可修改。此版本只允許 Dry-run 建立，不會送出真實委託。</p></div><span className={`badge ${dryRun ? "success" : "danger"}`}>{dryRun ? "Dry-run 可用" : "非 Dry-run 已封鎖"}</span></div>
+      <div className="form-grid">
+        <div className="field full"><span>OKX 交易商品</span><InstrumentSelector instruments={catalog} value={instrument ? [instrument] : []} onChange={selectInstrument} /></div>
+        <label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
+        <label className="field"><span>操作者幣量（{instrument.split("-")[0] || "基礎幣"}）</span><input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>
+        <label className="field"><span>進場限價（預填目前價）</span><input type="number" min="0" step="any" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} /></label>
+        <label className="field"><span>保護停損價（必填）</span><input type="number" min="0" step="any" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /></label>
+        <label className="field"><span>停利價（選填）</span><input type="number" min="0" step="any" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} /></label>
+      </div>
+      {quote.data && <div className="manual-open-quote"><span><small>顯示幣量</small><strong>{quote.data.display_quantity} {quote.data.display_currency}</strong></span><span><small>OKX API 數量</small><strong>{quote.data.api_quantity_contracts} 口</strong></span><span><small>估算名目</small><strong>{quote.data.estimated_notional_usdt} USDT</strong></span><span><small>停損估算</small><strong className={Number(quote.data.estimated_pnl_usdt) < 0 ? "negative" : ""}>{quote.data.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${quote.data.estimated_pnl_usdt} USDT`}</strong></span></div>}
+      {quote.error && <div className="error-state">目前數量無法安全換算成 OKX 合約口數。</div>}
+      {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
+      <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || !dryRun || !quote.data || !stopLoss} onClick={submit}>{busy ? "建立中…" : "確認建立 Dry-run 單位"}</button></div>
+    </section>
+  );
+}
+
 function PositionList({ positions, selectedId, onSelect }: { positions: LogicalPositionUnit[]; selectedId?: string; onSelect: (id: string) => void }) {
   return (
     <aside className="position-list panel">
       <div className="panel-heading"><div><h2>邏輯部位單位</h2><p>{positions.length} 個獨立管理單位</p></div></div>
       <div className="position-list-items">
-        {positions.map((position) => (
+        {positions.map((position) => {
+          const metadata = object(position.metadata);
+          const display = Number(metadata.operator_display_quantity);
+          const opened = position.opened_quantity ?? 0;
+          const remaining = position.remaining_quantity ?? 0;
+          const displayRemaining = display > 0 && opened > 0 ? display * remaining / opened : null;
+          return (
           <button type="button" className={`position-list-item ${selectedId === position.id ? "selected" : ""}`} key={position.id} onClick={() => onSelect(position.id)}>
             <span className={`side-mark ${position.side === "long" ? "long" : "short"}`} />
-            <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · 剩餘 {number(position.remaining_quantity)}</small><small className="mono">{position.id}</small></span>
-            <span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{position.status}</span>
+            <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · {displayRemaining == null ? `API 剩餘 ${number(position.remaining_quantity)} 口` : `剩餘 ${number(displayRemaining)} ${String(metadata.operator_display_currency ?? "")} · API ${number(position.remaining_quantity)} 口`}</small><small className="mono">{position.id}</small></span>
+            <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span><span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{position.status}</span></span>
           </button>
-        ))}
+          );
+        })}
         {!positions.length && <div className="empty-state">目前沒有邏輯部位單位。</div>}
       </div>
     </aside>
@@ -155,6 +238,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
   const direction = position.side === "short" ? -1 : 1;
   const pnlPct = currentPrice && position.entry_price ? direction * (currentPrice - position.entry_price) / position.entry_price * 100 : null;
   const okx = object(position.okx_net_position);
+  const metadata = object(position.metadata);
   const command = async (name: string, action: () => Promise<unknown>) => { setBusyAction(name); setError(""); try { await action(); await refresh(); await chart.mutate(); } catch (caught) { setError(errorMessage(caught)); } finally { setBusyAction(""); } };
   const close = () => { if (!confirm(`平倉邏輯單位 ${position.id} 的全部剩餘數量 ${number(remaining)}？\n\n真實部位只會在 OKX 成交確認後標記為已平倉。`)) return; return command("close", () => closeLogicalPosition(position.id, { confirm: true, reason: "operator dashboard close" })); };
   const reduce = () => { const quantity = Number(reduceQuantity); if (!(quantity > 0 && quantity < remaining)) { setError("減倉數量必須大於 0 且小於目前剩餘數量。"); return; } if (!confirm(`送出 ${number(quantity)} 的部分減倉請求？\n\n數量只會依 OKX 確認成交更新。`)) return; return command("reduce", () => reduceLogicalPosition(position.id, { confirm: true, quantity, reason: "operator dashboard reduce" })); };
@@ -164,7 +248,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
     <div className="position-detail">
       <section className="panel position-hero">
         <div className="position-title"><div><div className="status-row"><h2>{position.inst_id}</h2><span className={`badge ${position.side === "long" ? "success" : "danger"}`}>{position.side === "long" ? "做多 LONG" : "做空 SHORT"}</span><span className="badge info">{position.status}</span></div><p className="mono">Maybech 單位：{position.id}</p></div><div className="position-metric"><small>未實現損益估算</small><strong className={pnlPct != null && pnlPct >= 0 ? "positive" : "negative"}>{pnlPct == null ? "資料不足" : `${pnlPct >= 0 ? "+" : ""}${number(pnlPct, 2)}%`}</strong></div></div>
-        <div className="metric-grid"><div><small>進場價</small><strong>{number(position.entry_price)}</strong></div><div><small>目前價</small><strong>{number(currentPrice)}</strong></div><div><small>原始數量</small><strong>{number(position.opened_quantity)}</strong></div><div><small>剩餘數量</small><strong>{number(position.remaining_quantity)}</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
+        <div className="metric-grid"><div><small>進場價</small><strong>{number(position.entry_price)}</strong></div><div><small>目前價</small><strong>{number(currentPrice)}</strong></div><div><small>操作者幣量</small><strong>{String(metadata.operator_display_quantity ?? "資料不足")} {String(metadata.operator_display_currency ?? "")}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
       </section>
 
       <section className="distinction-grid">
@@ -201,13 +285,17 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
 
 export default function PositionsPage() {
   const { data, error, mutate, isLoading } = useSWR("logical-positions", () => listLogicalPositions("all"), { refreshInterval: 5000 });
+  const catalog = useSWR("instrument-metadata", listInstruments);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const managedPositions = (data ?? []).filter((position) => activeStatuses.has(position.status));
   const selected = managedPositions.find((position) => position.id === selectedId) ?? managedPositions[0];
+  const created = async (positionId: string) => { await mutate(); setSelectedId(positionId); };
   return (
     <div className="page-stack">
       <header className="page-header"><div><h1>部位管理</h1><p>逐一管理 Maybech 邏輯部位單位，並與 OKX 合併後的淨部位分開檢視。</p></div></header>
       <RuntimeModeBanner />
+      <ManualOpenForm catalog={catalog.data?.items ?? []} onCreated={created} />
+      {catalog.error && <div className="error-state">OKX 商品快取無法使用，手動建立已停用；畫面不會提供硬編碼商品。</div>}
       {error && <div className="error-state">邏輯部位 API 無法使用。畫面不會使用假資料，所有交易操作已停用。</div>}
       {isLoading && <div className="loading-state">正在讀取邏輯部位…</div>}
       {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={`${selected.id}-${selected.updated_at}`} position={selected} refresh={mutate} /> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}

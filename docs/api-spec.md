@@ -247,6 +247,11 @@ overrides generated values.
 
 The Position Management page has a logical-position contract now:
 
+- `POST /positions/manual-open`: create one `source=manual` logical unit from a
+  cached instrument and operator-facing base quantity. The request requires an
+  explicit confirmation and side-correct protective stop. In the current
+  guarded implementation this endpoint accepts Dry-run only; demo/real modes
+  return `409` and no new live-order path is enabled.
 - `GET /account/exposure-reconciliation`: fetch fresh authenticated OKX SWAP
   positions and compare every instrument/side group with active SQLite logical
   units. Any exchange-only, missing, over-allocated, malformed, or unknown

@@ -22,6 +22,7 @@ import type {
   LogicalPositionAllocationResponse,
   LogicalPositionChartResponse,
   LogicalPositionUnitResponse,
+  ManualPositionOpenRequest,
   LivePreflightResponse,
   MutationStatusResponse,
   MarketCandlesResponse,
@@ -66,6 +67,7 @@ export type {
   InstrumentSizeQuoteRequest,
   InstrumentSizeQuoteResponse,
   LogicalPositionUnitResponse as LogicalPositionUnit,
+  ManualPositionOpenRequest,
   LivePreflightResponse,
   LogicalPositionCloseConditionCreate,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
@@ -370,6 +372,11 @@ export const importLogicalPosition = (
   payload: ExternalPositionImportRequest,
 ): Promise<LogicalPositionUnitResponse> =>
   postData<LogicalPositionUnitResponse>("/positions/import", payload);
+
+export const manualOpenPosition = (
+  payload: ManualPositionOpenRequest,
+): Promise<LogicalPositionUnitResponse> =>
+  postData<LogicalPositionUnitResponse>("/positions/manual-open", payload);
 
 export const attachLogicalPositionProtection = (
   positionId: string,

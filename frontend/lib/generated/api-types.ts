@@ -354,6 +354,16 @@ export type LogicalPositionUnitResponse = {
   "audit_events"?: RuntimeEventResponse[];
 };
 
+export type ManualPositionOpenRequest = {
+  "confirm": true;
+  "inst_id": string;
+  "side": "long" | "short";
+  "display_quantity": string;
+  "entry_price": string;
+  "stop_loss_price": string;
+  "take_profit_price"?: string | null;
+};
+
 export type MarketCandlesResponse = {
   "inst_id": string;
   "bar": string;
@@ -708,6 +718,7 @@ export type ApiSchemas = {
   "LogicalPositionReduceRequest": LogicalPositionReduceRequest;
   "LogicalPositionReduceResponse": LogicalPositionReduceResponse;
   "LogicalPositionUnitResponse": LogicalPositionUnitResponse;
+  "ManualPositionOpenRequest": ManualPositionOpenRequest;
   "MarketCandlesResponse": MarketCandlesResponse;
   "MutationStatusResponse": MutationStatusResponse;
   "PositionBreakEvenCommand": PositionBreakEvenCommand;
