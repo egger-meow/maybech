@@ -292,11 +292,32 @@ export type LogicalPositionUnitResponse = {
   "audit_events"?: RuntimeEventResponse[];
 };
 
+export type MutationStatusResponse = {
+  "status": "deleted" | "ok";
+  "id": string;
+};
+
 export type PositionBreakEvenCommand = {
   "confirm": true;
   "condition_id": string;
   "lock_in_pct"?: number;
   "reason"?: string;
+};
+
+export type PositionGroupResponse = {
+  "key": string;
+  "group_by": "instrument_side" | "strategy" | "exchange_position";
+  "inst_id"?: string | null;
+  "side"?: string | null;
+  "strategy_id"?: string | null;
+  "exchange_position_key"?: string | null;
+  "position_ids"?: string[];
+  "position_count": number;
+  "active_count": number;
+  "opened_quantity": number;
+  "remaining_quantity": number;
+  "weighted_entry_price"?: number | null;
+  "statuses"?: Record<string, number>;
 };
 
 export type PositionIntentResponse = {
@@ -411,6 +432,11 @@ export type SignalExpressionResponse = {
   "strategy_id": string;
   "created_at": string;
   "updated_at": string;
+};
+
+export type SignalExpressionUpdate = {
+  "purpose"?: "entry" | "exit" | "filter" | string | null;
+  "expression"?: Record<string, unknown> | null;
 };
 
 export type SignalRuntimeContextResponse = {
@@ -587,7 +613,9 @@ export type ApiSchemas = {
   "LogicalPositionReduceRequest": LogicalPositionReduceRequest;
   "LogicalPositionReduceResponse": LogicalPositionReduceResponse;
   "LogicalPositionUnitResponse": LogicalPositionUnitResponse;
+  "MutationStatusResponse": MutationStatusResponse;
   "PositionBreakEvenCommand": PositionBreakEvenCommand;
+  "PositionGroupResponse": PositionGroupResponse;
   "PositionIntentResponse": PositionIntentResponse;
   "PositionProtectionCommand": PositionProtectionCommand;
   "PositionRuleCreate": PositionRuleCreate;
@@ -602,6 +630,7 @@ export type ApiSchemas = {
   "SignalEvaluationResponse": SignalEvaluationResponse;
   "SignalExpressionCreate": SignalExpressionCreate;
   "SignalExpressionResponse": SignalExpressionResponse;
+  "SignalExpressionUpdate": SignalExpressionUpdate;
   "SignalRuntimeContextResponse": SignalRuntimeContextResponse;
   "SignalTemplateResponse": SignalTemplateResponse;
   "SignalValidationRequest": SignalValidationRequest;

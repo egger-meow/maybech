@@ -1180,6 +1180,54 @@ def test_api_rejects_invalid_strategy_signal_expression(monkeypatch, tmp_path):
     assert "Signal expression validation failed" in response.json()["detail"]["message"]
 
 
+def test_api_edits_and_deletes_strategy_signal_with_audit(monkeypatch, tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(id="breakout", name="Breakout")
+    expression = store.create_signal_expression(
+        strategy_id="breakout",
+        purpose="entry",
+        expression={"type": "price_above", "symbol": "self", "value": 100},
+    )
+    assert expression is not None
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    fetched = client.get(f"/strategies/breakout/signals/{expression.id}")
+    updated = client.patch(
+        f"/strategies/breakout/signals/{expression.id}",
+        json={
+            "purpose": "filter",
+            "expression": {"type": "price_below", "symbol": "self", "value": 200},
+        },
+    )
+    deleted = client.delete(f"/strategies/breakout/signals/{expression.id}")
+
+    assert fetched.status_code == 200
+    assert updated.status_code == 200
+    assert updated.json()["purpose"] == "filter"
+    assert deleted.json() == {"status": "deleted", "id": expression.id}
+    event_types = {event.type for event in AuditEventStore(store.db_path).list(limit=10)}
+    assert "signal_expression.updated" in event_types
+    assert "signal_expression.deleted" in event_types
+
+
+def test_api_deletes_only_disabled_unreferenced_strategy(monkeypatch, tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(id="unused", name="Unused")
+    store.create(id="enabled", name="Enabled", enabled=True)
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    blocked = client.delete("/strategies/enabled")
+    deleted = client.delete("/strategies/unused")
+
+    assert blocked.status_code == 409
+    assert deleted.json() == {"status": "deleted", "id": "unused"}
+    assert store.get("unused") is None
+    events = AuditEventStore(store.db_path).list(event_type="strategy.deleted")
+    assert events[0].strategy_id == "unused"
+
+
 def test_api_projects_open_trades_as_logical_positions(monkeypatch, tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     trade = TradeRecord(
@@ -1373,6 +1421,38 @@ def test_api_returns_one_logical_position_by_id(monkeypatch, tmp_path):
     assert response.json()["source"] == "manual"
 
 
+def test_api_groups_persisted_logical_positions(monkeypatch, tmp_path):
+    position_store = LogicalPositionStore(str(tmp_path / "positions.db"))
+    for position_id, quantity, entry_price in (("unit-a", 1.0, 100.0), ("unit-b", 2.0, 110.0)):
+        position_store.save(
+            LogicalPositionRecord(
+                id=position_id,
+                source="strategy",
+                strategy_id="strategy-a",
+                inst_id="BTC-USDT-SWAP",
+                side="long",
+                opened_quantity=quantity,
+                remaining_quantity=quantity,
+                entry_price=entry_price,
+                status="open",
+            )
+        )
+    monkeypatch.setattr(
+        "src.api.app.LogicalPositionStore",
+        lambda db_path=None: position_store,
+    )
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.get("/positions/groups?group_by=instrument_side")
+
+    assert response.status_code == 200
+    group = response.json()[0]
+    assert group["position_ids"] == ["unit-a", "unit-b"]
+    assert group["position_count"] == 2
+    assert group["remaining_quantity"] == 3.0
+    assert group["weighted_entry_price"] == 106.66666666666667
+
+
 def test_api_returns_404_for_missing_logical_position(monkeypatch, tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     monkeypatch.setattr("src.api.app.TradeStore", lambda: store)
@@ -1434,6 +1514,12 @@ def test_api_manages_logical_position_close_conditions(monkeypatch, tmp_path):
     deleted = client.delete(f"/positions/logical/unit-a/close-conditions/{condition_id}")
     assert deleted.status_code == 200
     assert client.get("/positions/logical/unit-a/close-conditions").json() == []
+    event_types = {event.type for event in AuditEventStore(db_path).list(limit=10)}
+    assert event_types >= {
+        "position_close_condition.created",
+        "position_close_condition.updated",
+        "position_close_condition.deleted",
+    }
 
 
 def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch, tmp_path):

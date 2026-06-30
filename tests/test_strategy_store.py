@@ -117,3 +117,41 @@ def test_strategy_store_rejects_signal_expression_for_missing_strategy(tmp_path)
     )
 
     assert created is None
+
+
+def test_strategy_store_updates_and_deletes_signal_expressions(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(id="strategy-a", name="Strategy A")
+    created = store.create_signal_expression(
+        strategy_id="strategy-a",
+        purpose="entry",
+        expression={"type": "price_above", "symbol": "self", "value": 100},
+    )
+    assert created is not None
+
+    updated = store.update_signal_expression(
+        "strategy-a",
+        created.id,
+        purpose="filter",
+        expression={"type": "price_below", "symbol": "self", "value": 200},
+    )
+
+    assert updated is not None
+    assert updated.purpose == "filter"
+    assert updated.expression["value"] == 200
+    assert store.delete_signal_expression("strategy-a", created.id) is True
+    assert store.get_signal_expression("strategy-a", created.id) is None
+
+
+def test_strategy_store_delete_cascades_signal_expressions(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(id="strategy-a", name="Strategy A")
+    created = store.create_signal_expression(
+        strategy_id="strategy-a",
+        expression={"type": "price_above", "symbol": "self", "value": 100},
+    )
+    assert created is not None
+
+    assert store.delete("strategy-a") is True
+    assert store.get("strategy-a") is None
+    assert store.get_signal_expression("strategy-a", created.id) is None

@@ -300,6 +300,11 @@ class SignalExpressionCreate(BaseModel):
     expression: dict[str, Any] = Field(default_factory=dict)
 
 
+class SignalExpressionUpdate(BaseModel):
+    purpose: Literal["entry", "exit", "filter"] | str | None = None
+    expression: dict[str, Any] | None = None
+
+
 class SignalTemplateResponse(BaseModel):
     type: str
     description: str
@@ -345,6 +350,11 @@ class SignalExpressionResponse(SignalExpressionCreate):
     strategy_id: str
     created_at: str
     updated_at: str
+
+
+class MutationStatusResponse(BaseModel):
+    status: Literal["deleted", "ok"]
+    id: str
 
 
 class LogicalPositionCloseConditionCreate(BaseModel):
@@ -571,6 +581,22 @@ class LogicalPositionUnitResponse(BaseModel):
     reconciliation: dict[str, Any] | None = None
     okx_net_position: dict[str, Any] | None = None
     audit_events: list[RuntimeEventResponse] = Field(default_factory=list)
+
+
+class PositionGroupResponse(BaseModel):
+    key: str
+    group_by: Literal["instrument_side", "strategy", "exchange_position"]
+    inst_id: str | None = None
+    side: str | None = None
+    strategy_id: str | None = None
+    exchange_position_key: str | None = None
+    position_ids: list[str] = Field(default_factory=list)
+    position_count: int
+    active_count: int
+    opened_quantity: float
+    remaining_quantity: float
+    weighted_entry_price: float | None = None
+    statuses: dict[str, int] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

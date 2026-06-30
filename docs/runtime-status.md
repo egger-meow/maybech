@@ -121,6 +121,13 @@ stop is restored at the exact confirmed remainder before normal management.
 Those evaluations and close outcomes are persisted in `audit_events`, including
 invalid expressions and candle-context failures.
 
+The product-definition API provides complete persisted strategy and child
+signal-expression CRUD. Deleting a strategy requires it to be disabled and
+unreferenced by logical-position history. Strategy, signal-expression, and
+logical-position close-condition mutations produce durable `product_api` audit
+events with before/after evidence. `GET /positions/groups` provides typed
+persisted summaries for the final position-management frontend.
+
 `StrategyService` writes an action-decision record before an allowed execution
 and updates that record with the result. Live actions fail closed when this
 pre-execution audit write fails. Dry-run orders are marked `simulated`; live

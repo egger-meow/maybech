@@ -16,12 +16,19 @@ import type {
   LogicalPositionReduceResponse,
   LogicalPositionAllocationResponse,
   LogicalPositionUnitResponse,
+  MutationStatusResponse,
+  PositionBreakEvenCommand,
+  PositionGroupResponse,
+  PositionProtectionCommand,
+  PositionStopAmendCommand,
+  ExternalPositionImportRequest,
   RuntimeEventResponse,
   ServiceStatusResponse,
   SignalEvaluationRequest,
   SignalEvaluationResponse,
   SignalExpressionCreate,
   SignalExpressionResponse,
+  SignalExpressionUpdate,
   SignalRuntimeContextResponse,
   SignalTemplateResponse,
   SignalValidationRequest,
@@ -52,6 +59,12 @@ export type {
   LogicalPositionReduceRequest,
   LogicalPositionReduceResponse,
   LogicalPositionAllocationResponse,
+  MutationStatusResponse,
+  PositionBreakEvenCommand,
+  PositionGroupResponse,
+  PositionProtectionCommand,
+  PositionStopAmendCommand,
+  ExternalPositionImportRequest,
   PositionIntentResponse as PositionIntent,
   PositionRuleResponse as PositionRule,
   RuntimeEventResponse as RuntimeEvent,
@@ -60,6 +73,7 @@ export type {
   SignalEvaluationResponse,
   SignalExpressionCreate,
   SignalExpressionResponse as SignalExpression,
+  SignalExpressionUpdate,
   SignalRuntimeContextResponse,
   SignalTemplateResponse,
   SignalValidationRequest,
@@ -216,6 +230,9 @@ export const enableStrategy = (strategyId: string): Promise<StrategySummaryRespo
 export const disableStrategy = (strategyId: string): Promise<StrategySummaryResponse> =>
   postData<StrategySummaryResponse>(`/strategies/${encodeURIComponent(strategyId)}/disable`);
 
+export const deleteStrategy = (strategyId: string): Promise<MutationStatusResponse> =>
+  deleteData<MutationStatusResponse>(`/strategies/${encodeURIComponent(strategyId)}`);
+
 export const listStrategySignals = (strategyId: string): Promise<SignalExpressionResponse[]> =>
   fetcher<SignalExpressionResponse[]>(`/strategies/${encodeURIComponent(strategyId)}/signals`);
 
@@ -224,6 +241,81 @@ export const createStrategySignal = (
   payload: SignalExpressionCreate,
 ): Promise<SignalExpressionResponse> =>
   postData<SignalExpressionResponse>(`/strategies/${encodeURIComponent(strategyId)}/signals`, payload);
+
+export const getStrategySignal = (
+  strategyId: string,
+  expressionId: string,
+): Promise<SignalExpressionResponse> =>
+  fetcher<SignalExpressionResponse>(
+    `/strategies/${encodeURIComponent(strategyId)}/signals/${encodeURIComponent(expressionId)}`,
+  );
+
+export const updateStrategySignal = (
+  strategyId: string,
+  expressionId: string,
+  payload: SignalExpressionUpdate,
+): Promise<SignalExpressionResponse> =>
+  patchData<SignalExpressionResponse>(
+    `/strategies/${encodeURIComponent(strategyId)}/signals/${encodeURIComponent(expressionId)}`,
+    payload,
+  );
+
+export const deleteStrategySignal = (
+  strategyId: string,
+  expressionId: string,
+): Promise<MutationStatusResponse> =>
+  deleteData<MutationStatusResponse>(
+    `/strategies/${encodeURIComponent(strategyId)}/signals/${encodeURIComponent(expressionId)}`,
+  );
+
+export type PositionGroupQuery = {
+  groupBy?: "instrument_side" | "strategy" | "exchange_position";
+  status?: string;
+  limit?: number;
+};
+
+export const listPositionGroups = (
+  query: PositionGroupQuery = {},
+): Promise<PositionGroupResponse[]> => {
+  const params = new URLSearchParams();
+  if (query.groupBy) params.set("group_by", query.groupBy);
+  if (query.status) params.set("status", query.status);
+  if (query.limit) params.set("limit", String(query.limit));
+  const suffix = params.toString();
+  return fetcher<PositionGroupResponse[]>(`/positions/groups${suffix ? `?${suffix}` : ""}`);
+};
+
+export const importLogicalPosition = (
+  payload: ExternalPositionImportRequest,
+): Promise<LogicalPositionUnitResponse> =>
+  postData<LogicalPositionUnitResponse>("/positions/import", payload);
+
+export const attachLogicalPositionProtection = (
+  positionId: string,
+  payload: PositionProtectionCommand,
+): Promise<LogicalPositionUnitResponse> =>
+  postData<LogicalPositionUnitResponse>(
+    `/positions/logical/${encodeURIComponent(positionId)}/protection`,
+    payload,
+  );
+
+export const amendLogicalPositionStop = (
+  positionId: string,
+  payload: PositionStopAmendCommand,
+): Promise<LogicalPositionUnitResponse> =>
+  postData<LogicalPositionUnitResponse>(
+    `/positions/logical/${encodeURIComponent(positionId)}/protection/stop`,
+    payload,
+  );
+
+export const moveLogicalPositionToBreakEven = (
+  positionId: string,
+  payload: PositionBreakEvenCommand,
+): Promise<LogicalPositionUnitResponse> =>
+  postData<LogicalPositionUnitResponse>(
+    `/positions/logical/${encodeURIComponent(positionId)}/break-even`,
+    payload,
+  );
 
 export const listLogicalPositionCloseConditions = (
   positionId: string,

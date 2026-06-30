@@ -7,7 +7,7 @@ from asyncio import QueueEmpty
 from datetime import datetime
 from decimal import Decimal
 import json
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -72,6 +72,8 @@ from src.api.schemas import (
     LogicalPositionReduceRequest,
     LogicalPositionReduceResponse,
     LogicalPositionAllocationResponse,
+    MutationStatusResponse,
+    PositionGroupResponse,
     PositionIntentResponse,
     PositionBreakEvenCommand,
     PositionProtectionCommand,
@@ -85,6 +87,7 @@ from src.api.schemas import (
     SignalEvaluationResponse,
     SignalExpressionCreate,
     SignalExpressionResponse,
+    SignalExpressionUpdate,
     SignalRuntimeContextResponse,
     SignalTemplateResponse,
     SignalValidationRequest,
@@ -429,6 +432,38 @@ def _strategy_summary(
             dry_run=getattr(strategy_service, "dry_run", None),
             latest_decisions=[StrategyDecisionResponse(**decision) for decision in latest_decisions],
         ),
+    )
+
+
+def _signal_expression_payload(expression: SignalExpressionRecord) -> dict:
+    return _signal_expression_response(expression).model_dump()
+
+
+def _strategy_definition_payload(strategy: StrategyRecord) -> dict:
+    return {
+        "id": strategy.id,
+        "name": strategy.name,
+        "kind": strategy.kind,
+        "enabled": strategy.enabled,
+        "target_instruments": strategy.target_instruments,
+        "entry_signal": strategy.entry_signal,
+        "default_rules": strategy.default_rules,
+        "metadata": strategy.metadata,
+        "created_at": strategy.created_at,
+        "updated_at": strategy.updated_at,
+    }
+
+
+def _record_definition_audit(
+    db_path: str,
+    *,
+    event_type: str,
+    payload: dict,
+) -> None:
+    AuditEventStore(db_path).create(
+        type=event_type,
+        source="product_api",
+        payload=payload,
     )
 
 
@@ -916,6 +951,8 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     @app.post("/strategies", response_model=StrategySummaryResponse, status_code=201)
     def create_strategy(payload: StrategyCreate) -> StrategySummaryResponse:
         store = StrategyStore()
+        if payload.id and store.get(payload.id) is not None:
+            raise HTTPException(status_code=409, detail="Strategy id already exists")
         strategy = store.create(
             id=payload.id,
             name=payload.name,
@@ -934,6 +971,14 @@ def create_app(runner: DaemonRunner) -> FastAPI:
                     detail={"message": "Strategy is not executable", "errors": validation_errors},
                 )
             strategy = store.update(strategy.id, enabled=True) or strategy
+        _record_definition_audit(
+            store.db_path,
+            event_type="strategy.created",
+            payload={
+                "strategy_id": strategy.id,
+                "after": _strategy_definition_payload(strategy),
+            },
+        )
         return _strategy_summary(runner, strategy, store)
 
     @app.get(
@@ -970,6 +1015,9 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     @app.patch("/strategies/{strategy_id}", response_model=StrategySummaryResponse)
     def update_strategy(strategy_id: str, payload: StrategyUpdate) -> StrategySummaryResponse:
         store = StrategyStore()
+        previous = store.get(strategy_id)
+        if previous is None:
+            raise HTTPException(status_code=404, detail="Strategy not found")
         strategy = store.update(
             strategy_id,
             name=payload.name,
@@ -985,13 +1033,32 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         if strategy.enabled or payload.enabled is True:
             validation_errors = _strategy_validation_errors(strategy, store)
             if validation_errors:
-                store.update(strategy_id, enabled=False)
+                strategy = store.update(strategy_id, enabled=False) or strategy
+                _record_definition_audit(
+                    store.db_path,
+                    event_type="strategy.updated",
+                    payload={
+                        "strategy_id": strategy.id,
+                        "before": _strategy_definition_payload(previous),
+                        "after": _strategy_definition_payload(strategy),
+                        "validation_errors": validation_errors,
+                    },
+                )
                 raise HTTPException(
                     status_code=400,
                     detail={"message": "Strategy is not executable", "errors": validation_errors},
                 )
             if payload.enabled is True:
                 strategy = store.update(strategy_id, enabled=True) or strategy
+        _record_definition_audit(
+            store.db_path,
+            event_type="strategy.updated",
+            payload={
+                "strategy_id": strategy.id,
+                "before": _strategy_definition_payload(previous),
+                "after": _strategy_definition_payload(strategy),
+            },
+        )
         return _strategy_summary(runner, strategy, store)
 
     @app.post("/strategies/{strategy_id}/enable", response_model=StrategySummaryResponse)
@@ -1009,15 +1076,60 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         strategy = store.update(strategy_id, enabled=True)
         if strategy is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
+        _record_definition_audit(
+            store.db_path,
+            event_type="strategy.enabled",
+            payload={"strategy_id": strategy.id, "enabled": True},
+        )
         return _strategy_summary(runner, strategy, store)
 
     @app.post("/strategies/{strategy_id}/disable", response_model=StrategySummaryResponse)
     def disable_strategy(strategy_id: str) -> StrategySummaryResponse:
         store = StrategyStore()
+        previous = store.get(strategy_id)
         strategy = store.update(strategy_id, enabled=False)
         if strategy is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
+        _record_definition_audit(
+            store.db_path,
+            event_type="strategy.disabled",
+            payload={
+                "strategy_id": strategy.id,
+                "was_enabled": bool(previous and previous.enabled),
+                "enabled": False,
+            },
+        )
         return _strategy_summary(runner, strategy, store)
+
+    @app.delete(
+        "/strategies/{strategy_id}",
+        response_model=MutationStatusResponse,
+    )
+    def delete_strategy(strategy_id: str) -> MutationStatusResponse:
+        store = StrategyStore()
+        strategy = store.get(strategy_id)
+        if strategy is None:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        if strategy.enabled:
+            raise HTTPException(status_code=409, detail="Disable the strategy before deleting it")
+        if LogicalPositionStore(store.db_path).list(
+            status="all",
+            strategy_id=strategy_id,
+            limit=1,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Strategy is referenced by logical position history",
+            )
+        before = _strategy_definition_payload(strategy)
+        if not store.delete(strategy_id):
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        _record_definition_audit(
+            store.db_path,
+            event_type="strategy.deleted",
+            payload={"strategy_id": strategy_id, "before": before},
+        )
+        return MutationStatusResponse(status="deleted", id=strategy_id)
 
     @app.get(
         "/strategies/{strategy_id}/signals",
@@ -1055,7 +1167,183 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         )
         if expression is None:
             raise HTTPException(status_code=404, detail="Strategy not found")
+        _record_definition_audit(
+            store.db_path,
+            event_type="signal_expression.created",
+            payload={
+                "strategy_id": strategy_id,
+                "signal_expression_id": expression.id,
+                "after": _signal_expression_payload(expression),
+            },
+        )
         return _signal_expression_response(expression)
+
+    @app.get(
+        "/strategies/{strategy_id}/signals/{expression_id}",
+        response_model=SignalExpressionResponse,
+    )
+    def get_strategy_signal(
+        strategy_id: str,
+        expression_id: str,
+    ) -> SignalExpressionResponse:
+        expression = StrategyStore().get_signal_expression(strategy_id, expression_id)
+        if expression is None:
+            raise HTTPException(status_code=404, detail="Signal expression not found")
+        return _signal_expression_response(expression)
+
+    @app.patch(
+        "/strategies/{strategy_id}/signals/{expression_id}",
+        response_model=SignalExpressionResponse,
+    )
+    def update_strategy_signal(
+        strategy_id: str,
+        expression_id: str,
+        payload: SignalExpressionUpdate,
+    ) -> SignalExpressionResponse:
+        store = StrategyStore()
+        previous = store.get_signal_expression(strategy_id, expression_id)
+        if previous is None:
+            raise HTTPException(status_code=404, detail="Signal expression not found")
+        if payload.expression is not None:
+            _validate_signal_or_400(payload.expression)
+        expression = store.update_signal_expression(
+            strategy_id,
+            expression_id,
+            purpose=payload.purpose,
+            expression=payload.expression,
+        )
+        if expression is None:
+            raise HTTPException(status_code=404, detail="Signal expression not found")
+        strategy = store.get(strategy_id)
+        auto_disabled = False
+        if strategy is not None and strategy.enabled:
+            errors = _strategy_validation_errors(strategy, store)
+            if errors:
+                store.update(strategy_id, enabled=False)
+                auto_disabled = True
+        _record_definition_audit(
+            store.db_path,
+            event_type="signal_expression.updated",
+            payload={
+                "strategy_id": strategy_id,
+                "signal_expression_id": expression_id,
+                "before": _signal_expression_payload(previous),
+                "after": _signal_expression_payload(expression),
+                "strategy_auto_disabled": auto_disabled,
+            },
+        )
+        return _signal_expression_response(expression)
+
+    @app.delete(
+        "/strategies/{strategy_id}/signals/{expression_id}",
+        response_model=MutationStatusResponse,
+    )
+    def delete_strategy_signal(
+        strategy_id: str,
+        expression_id: str,
+    ) -> MutationStatusResponse:
+        store = StrategyStore()
+        expression = store.get_signal_expression(strategy_id, expression_id)
+        if expression is None:
+            raise HTTPException(status_code=404, detail="Signal expression not found")
+        if not store.delete_signal_expression(strategy_id, expression_id):
+            raise HTTPException(status_code=404, detail="Signal expression not found")
+        strategy = store.get(strategy_id)
+        auto_disabled = False
+        if strategy is not None and strategy.enabled:
+            errors = _strategy_validation_errors(strategy, store)
+            if errors:
+                store.update(strategy_id, enabled=False)
+                auto_disabled = True
+        _record_definition_audit(
+            store.db_path,
+            event_type="signal_expression.deleted",
+            payload={
+                "strategy_id": strategy_id,
+                "signal_expression_id": expression_id,
+                "before": _signal_expression_payload(expression),
+                "strategy_auto_disabled": auto_disabled,
+            },
+        )
+        return MutationStatusResponse(status="deleted", id=expression_id)
+
+    @app.get("/positions/groups", response_model=list[PositionGroupResponse])
+    def list_position_groups(
+        group_by: Literal["instrument_side", "strategy", "exchange_position"] = Query(
+            default="instrument_side",
+        ),
+        status: Literal[
+            "active",
+            "all",
+            "pending_open",
+            "open",
+            "reducing",
+            "closing",
+            "closed",
+            "failed",
+        ] = Query(default="active"),
+        limit: int = Query(default=500, ge=1, le=2000),
+    ) -> list[PositionGroupResponse]:
+        store = LogicalPositionStore()
+        positions = (
+            store.list_active()
+            if status == "active"
+            else store.list(status=status, limit=limit)
+        )[:limit]
+        grouped: dict[str, list[LogicalPositionRecord]] = {}
+        for position in positions:
+            if group_by == "strategy":
+                key = f"strategy:{position.strategy_id or 'unassigned'}"
+            elif group_by == "exchange_position":
+                exchange_key = position.exchange_position_key or f"{position.inst_id}:{position.side}"
+                key = f"exchange:{exchange_key}"
+            else:
+                key = f"instrument:{position.inst_id}:{position.side}"
+            grouped.setdefault(key, []).append(position)
+
+        responses: list[PositionGroupResponse] = []
+        active_statuses = {"pending_open", "open", "reducing", "closing"}
+        for key, members in grouped.items():
+            statuses: dict[str, int] = {}
+            opened_quantity = 0.0
+            remaining_quantity = 0.0
+            weighted_entry_total = 0.0
+            weighted_entry_quantity = 0.0
+            for member in members:
+                statuses[member.status] = statuses.get(member.status, 0) + 1
+                opened_quantity += member.opened_quantity or 0.0
+                remaining = member.remaining_quantity or 0.0
+                remaining_quantity += remaining
+                if remaining > 0 and member.entry_price > 0:
+                    weighted_entry_total += member.entry_price * remaining
+                    weighted_entry_quantity += remaining
+            first = members[0]
+            responses.append(
+                PositionGroupResponse(
+                    key=key,
+                    group_by=group_by,
+                    inst_id=first.inst_id if group_by != "strategy" else None,
+                    side=first.side if group_by != "strategy" else None,
+                    strategy_id=first.strategy_id or None if group_by == "strategy" else None,
+                    exchange_position_key=(
+                        first.exchange_position_key or f"{first.inst_id}:{first.side}"
+                        if group_by == "exchange_position"
+                        else None
+                    ),
+                    position_ids=[member.id for member in members],
+                    position_count=len(members),
+                    active_count=sum(member.status in active_statuses for member in members),
+                    opened_quantity=opened_quantity,
+                    remaining_quantity=remaining_quantity,
+                    weighted_entry_price=(
+                        weighted_entry_total / weighted_entry_quantity
+                        if weighted_entry_quantity
+                        else None
+                    ),
+                    statuses=statuses,
+                )
+            )
+        return sorted(responses, key=lambda item: item.key)
 
     @app.get("/positions/logical", response_model=list[LogicalPositionUnitResponse])
     def list_logical_positions(
@@ -1466,6 +1754,16 @@ def create_app(runner: DaemonRunner) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Logical position not found")
             if payload.purpose == "stop_loss" and payload.enabled:
                 _invalidate_external_position_protection(position_store, position)
+        _record_definition_audit(
+            store.db_path,
+            event_type="position_close_condition.created",
+            payload={
+                "position_id": position.id,
+                "strategy_id": position.strategy_id,
+                "condition_id": condition.id,
+                "after": _close_condition_response(condition).model_dump(),
+            },
+        )
         return _close_condition_response(condition)
 
     @app.patch(
@@ -1526,6 +1824,17 @@ def create_app(runner: DaemonRunner) -> FastAPI:
                 or (next_purpose == "stop_loss" and next_enabled)
             ):
                 _invalidate_external_position_protection(position_store, position)
+        _record_definition_audit(
+            store.db_path,
+            event_type="position_close_condition.updated",
+            payload={
+                "position_id": position.id,
+                "strategy_id": position.strategy_id,
+                "condition_id": condition.id,
+                "before": _close_condition_response(existing).model_dump(),
+                "after": _close_condition_response(condition).model_dump(),
+            },
+        )
         return _close_condition_response(condition)
 
     @app.delete("/positions/logical/{position_id}/close-conditions/{condition_id}")
@@ -1553,6 +1862,16 @@ def create_app(runner: DaemonRunner) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Close condition not found")
             if existing.purpose == "stop_loss" and existing.enabled:
                 _invalidate_external_position_protection(position_store, position)
+        _record_definition_audit(
+            store.db_path,
+            event_type="position_close_condition.deleted",
+            payload={
+                "position_id": position.id,
+                "strategy_id": position.strategy_id,
+                "condition_id": condition_id,
+                "before": _close_condition_response(existing).model_dump(),
+            },
+        )
         return {"status": "ok"}
 
     return app

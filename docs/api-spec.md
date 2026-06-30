@@ -91,8 +91,9 @@ position closes.
 - `GET /audit/events` returns newest-first durable audit records from SQLite.
   It accepts `limit`, `event_type`, `source`, `strategy_id`, `correlation_id`,
   `position_id`, `trade_id`, and `before` filters. Position-manager
-  close-condition evaluations and strategy execution lifecycles are currently
-  persisted.
+  close-condition evaluations, strategy execution lifecycles, and product API
+  mutations are persisted. Definition mutations use `source=product_api` and
+  include before/after snapshots where applicable.
 
 The durable endpoint is the restart-safe source for operator history. It does
 not yet persist every runtime event and has no retention/compaction contract.
@@ -130,9 +131,20 @@ The Strategy Management page has a persisted strategy definition contract now:
   risk filters, and default position rules.
 - `POST /strategies/{strategy_id}/enable`: mark a persisted strategy enabled.
 - `POST /strategies/{strategy_id}/disable`: mark a persisted strategy disabled.
+- `DELETE /strategies/{strategy_id}`: delete only a disabled strategy with no
+  logical-position history; signal-expression children cascade with it.
 - `GET /strategies/{strategy_id}/signals`: list persisted signal expressions.
 - `POST /strategies/{strategy_id}/signals`: create a persisted signal
   expression.
+- `GET /strategies/{strategy_id}/signals/{expression_id}`: inspect one child
+  expression.
+- `PATCH /strategies/{strategy_id}/signals/{expression_id}`: edit its purpose
+  or validated JSON expression.
+- `DELETE /strategies/{strategy_id}/signals/{expression_id}`: delete it.
+
+Signal-expression edits and deletes automatically disable an enabled parent
+strategy if the resulting execution contract is incomplete. Strategy and
+signal mutations write durable audit evidence.
 
 An executable strategy uses this persisted shape:
 
@@ -289,10 +301,13 @@ the old rule unchanged, and an ambiguous result marks protection `failed` and
 disables entries. Background protection checks share the same execution lock so
 they cannot observe a valid amendment halfway through.
 
-The editable target surface still includes:
+`GET /positions/groups` returns typed persisted summaries grouped by
+instrument/side, strategy, or exchange-position key. Each summary includes its
+logical-unit ids, status counts, active count, total opened/remaining quantity,
+and remaining-quantity-weighted entry price.
 
-- `GET /positions/groups`: list grouped summaries by instrument, side, strategy,
-  or OKX net position.
+Create, edit, and delete operations for logical-position close conditions also
+write durable `product_api` audit events with condition snapshots.
 
 The allocation POST does not place an order and must not be exposed as an
 unauthenticated public mutation. Production callers should be the authenticated

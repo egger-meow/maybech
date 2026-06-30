@@ -452,3 +452,48 @@ class StrategyStore:
                 (strategy_id,),
             ).fetchall()
         return [SignalExpressionRecord.from_row(row) for row in rows]
+
+    def get_signal_expression(
+        self,
+        strategy_id: str,
+        expression_id: str,
+    ) -> SignalExpressionRecord | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM signal_expressions
+                   WHERE strategy_id = ? AND id = ?""",
+                (strategy_id, expression_id),
+            ).fetchone()
+        return None if row is None else SignalExpressionRecord.from_row(row)
+
+    def update_signal_expression(
+        self,
+        strategy_id: str,
+        expression_id: str,
+        *,
+        purpose: str | None = None,
+        expression: dict[str, Any] | None = None,
+    ) -> SignalExpressionRecord | None:
+        record = self.get_signal_expression(strategy_id, expression_id)
+        if record is None:
+            return None
+        if purpose is not None:
+            record.purpose = purpose
+        if expression is not None:
+            record.expression_json = _json_dumps(expression)
+        self.save_signal_expression(record)
+        return self.get_signal_expression(strategy_id, expression_id)
+
+    def delete_signal_expression(self, strategy_id: str, expression_id: str) -> bool:
+        with self._conn() as conn:
+            result = conn.execute(
+                """DELETE FROM signal_expressions
+                   WHERE strategy_id = ? AND id = ?""",
+                (strategy_id, expression_id),
+            )
+        return result.rowcount > 0
+
+    def delete(self, strategy_id: str) -> bool:
+        with self._conn() as conn:
+            result = conn.execute("DELETE FROM strategies WHERE id = ?", (strategy_id,))
+        return result.rowcount > 0

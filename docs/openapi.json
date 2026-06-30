@@ -1724,6 +1724,28 @@
         "title": "LogicalPositionUnitResponse",
         "type": "object"
       },
+      "MutationStatusResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "deleted",
+              "ok"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "id"
+        ],
+        "title": "MutationStatusResponse",
+        "type": "object"
+      },
       "PositionBreakEvenCommand": {
         "properties": {
           "condition_id": {
@@ -1757,6 +1779,118 @@
           "condition_id"
         ],
         "title": "PositionBreakEvenCommand",
+        "type": "object"
+      },
+      "PositionGroupResponse": {
+        "properties": {
+          "active_count": {
+            "title": "Active Count",
+            "type": "integer"
+          },
+          "exchange_position_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Position Key"
+          },
+          "group_by": {
+            "enum": [
+              "instrument_side",
+              "strategy",
+              "exchange_position"
+            ],
+            "title": "Group By",
+            "type": "string"
+          },
+          "inst_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inst Id"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "opened_quantity": {
+            "title": "Opened Quantity",
+            "type": "number"
+          },
+          "position_count": {
+            "title": "Position Count",
+            "type": "integer"
+          },
+          "position_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Position Ids",
+            "type": "array"
+          },
+          "remaining_quantity": {
+            "title": "Remaining Quantity",
+            "type": "number"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "statuses": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Statuses",
+            "type": "object"
+          },
+          "strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Id"
+          },
+          "weighted_entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weighted Entry Price"
+          }
+        },
+        "required": [
+          "key",
+          "group_by",
+          "position_count",
+          "active_count",
+          "opened_quantity",
+          "remaining_quantity"
+        ],
+        "title": "PositionGroupResponse",
         "type": "object"
       },
       "PositionIntentResponse": {
@@ -2360,6 +2494,43 @@
           "updated_at"
         ],
         "title": "SignalExpressionResponse",
+        "type": "object"
+      },
+      "SignalExpressionUpdate": {
+        "properties": {
+          "expression": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expression"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "enum": [
+                  "entry",
+                  "exit",
+                  "filter"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          }
+        },
+        "title": "SignalExpressionUpdate",
         "type": "object"
       },
       "SignalRuntimeContextResponse": {
@@ -3718,6 +3889,87 @@
         "summary": "Get Position Intents"
       }
     },
+    "/positions/groups": {
+      "get": {
+        "operationId": "list_position_groups_positions_groups_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "group_by",
+            "required": false,
+            "schema": {
+              "default": "instrument_side",
+              "enum": [
+                "instrument_side",
+                "strategy",
+                "exchange_position"
+              ],
+              "title": "Group By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "active",
+              "enum": [
+                "active",
+                "all",
+                "pending_open",
+                "open",
+                "reducing",
+                "closing",
+                "closed",
+                "failed"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PositionGroupResponse"
+                  },
+                  "title": "Response List Position Groups Positions Groups Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Position Groups"
+      }
+    },
     "/positions/import": {
       "post": {
         "operationId": "import_external_position_positions_import_post",
@@ -4978,6 +5230,43 @@
       }
     },
     "/strategies/{strategy_id}": {
+      "delete": {
+        "operationId": "delete_strategy_strategies__strategy_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "title": "Strategy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Strategy"
+      },
       "get": {
         "operationId": "get_strategy_strategies__strategy_id__get",
         "parameters": [
@@ -5332,6 +5621,156 @@
           }
         },
         "summary": "Create Strategy Signal"
+      }
+    },
+    "/strategies/{strategy_id}/signals/{expression_id}": {
+      "delete": {
+        "operationId": "delete_strategy_signal_strategies__strategy_id__signals__expression_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "title": "Strategy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "expression_id",
+            "required": true,
+            "schema": {
+              "title": "Expression Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Strategy Signal"
+      },
+      "get": {
+        "operationId": "get_strategy_signal_strategies__strategy_id__signals__expression_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "title": "Strategy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "expression_id",
+            "required": true,
+            "schema": {
+              "title": "Expression Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalExpressionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Strategy Signal"
+      },
+      "patch": {
+        "operationId": "update_strategy_signal_strategies__strategy_id__signals__expression_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "title": "Strategy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "expression_id",
+            "required": true,
+            "schema": {
+              "title": "Expression Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalExpressionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalExpressionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Strategy Signal"
       }
     },
     "/strategy/decisions": {
