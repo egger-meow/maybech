@@ -28,6 +28,7 @@ class FakePreflightClient:
         account_uid="account-123",
         instruments=None,
         pending_algos=None,
+        positions=None,
     ):
         self.flag = "1"
         self.position_mode = position_mode
@@ -36,6 +37,7 @@ class FakePreflightClient:
         self.instruments = instruments or {}
         self.instrument_calls = []
         self.pending_algos = pending_algos or []
+        self.positions = positions or []
 
     def get_account_config(self):
         return [
@@ -57,6 +59,10 @@ class FakePreflightClient:
             for item in self.pending_algos
             if item["instId"] == inst_id and item["ordType"] == ord_type
         ]
+
+    def get_positions(self, *, inst_type):
+        assert inst_type == "SWAP"
+        return self.positions
 
 
 def _set_live_environment(monkeypatch):
@@ -132,10 +138,36 @@ def test_live_preflight_rejects_missing_local_safety_configuration(monkeypatch, 
             strategy_store=store,
             position_store=LogicalPositionStore(store.db_path),
         )
-
     assert "DEMO_OKX_API_KEY is required" in exc_info.value.errors
     assert "MAYBECH_ARM_ORDERS must be exactly '1'" in str(exc_info.value)
 
+
+def test_live_preflight_rejects_unrepresented_exchange_exposure(monkeypatch, tmp_path):
+    _set_live_environment(monkeypatch)
+    db_path = str(tmp_path / "trades.db")
+    strategy_store = StrategyStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    _valid_risk(db_path)
+    client = FakePreflightClient(
+        positions=[
+            {
+                "instId": "ETH-USDT-SWAP",
+                "posSide": "net",
+                "pos": "2",
+                "avgPx": "3000",
+                "markPx": "3100",
+            }
+        ]
+    )
+
+    with pytest.raises(LivePreflightError, match="does not reconcile"):
+        run_live_preflight(
+            client=client,
+            strategy_store=strategy_store,
+            position_store=position_store,
+            risk_store=AccountRiskStore(db_path),
+            include_strategy=False,
+        )
 
 def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypatch, tmp_path):
     _set_live_environment(monkeypatch)
@@ -181,6 +213,15 @@ def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypa
                 "sz": "1",
                 "slTriggerPx": "90",
                 "slOrdPx": "-1",
+            }
+        ],
+        positions=[
+            {
+                "instId": "BTC-USDT-SWAP",
+                "posSide": "net",
+                "pos": "1",
+                "avgPx": "100",
+                "markPx": "101",
             }
         ],
     )

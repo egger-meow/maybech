@@ -17,6 +17,7 @@ from src.trading.position_protection import (
     PositionProtectionError,
     PositionProtectionService,
 )
+from src.trading.position_reconciliation import PositionReconciler
 from src.trading.strategy_runtime import order_size, validate_strategy_for_execution
 from src.trading.strategy_store import StrategyStore
 
@@ -144,6 +145,21 @@ def run_live_preflight(
             errors.append(f"active logical position {position.id} has no instrument")
         else:
             instruments.add(position.inst_id)
+
+    try:
+        exchange_positions = client.get_positions(inst_type="SWAP")
+        reconciliation = PositionReconciler().reconcile_account(
+            logical_positions=active_positions,
+            exchange_positions=exchange_positions,
+        )
+        if not reconciliation.safe_for_entries:
+            errors.append(
+                "OKX exposure does not reconcile to protected logical positions "
+                f"before startup (state={reconciliation.state}); run Dry-run "
+                "recovery and resolve manual review first"
+            )
+    except Exception as exc:
+        errors.append(f"OKX exposure reconciliation failed: {exc}")
 
     for inst_id in sorted(instruments):
         try:

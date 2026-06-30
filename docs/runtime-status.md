@@ -52,6 +52,9 @@ Frontends must use `active`; there is no `state` field.
   including dry-run/demo/real mode, armed state, OKX account and position mode,
   hashed account scope, enabled strategy count, account-risk enabled state,
   validated instruments, and check time.
+  Live preflight fetches current OKX SWAP exposure before arming and requires it
+  to reconcile exactly with protected exchange-backed logical units. Operators
+  must run Dry-run recovery and resolve every manual-review gap first.
 - `GET /runtime/lease` reports exclusive live ownership of the resolved SQLite
   path and, in live mode, the hashed OKX account scope. Dry-run also holds the
   database lock so it cannot consume signal state beside another runtime.
