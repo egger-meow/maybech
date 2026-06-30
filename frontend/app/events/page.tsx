@@ -59,8 +59,8 @@ export default function Events() {
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem", height: "100%" }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "1rem" }}>
         <div>
-          <h1 style={{ fontSize: "2rem", fontWeight: 700, marginBottom: "0.5rem" }}>Events Trace</h1>
-          <p style={{ color: "var(--text-muted)" }}>Live daemon events from the runtime API.</p>
+          <h1 style={{ fontSize: "2rem", fontWeight: 700, marginBottom: "0.5rem" }}>即時事件</h1>
+          <p style={{ color: "var(--text-muted)" }}>來自執行環境 API 的即時 daemon 事件；重新啟動後的稽核請以持久事件為準。</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.9rem" }}>
@@ -72,7 +72,7 @@ export default function Events() {
                 backgroundColor: isConnected ? "var(--accent-success)" : "var(--accent-danger)",
               }}
             />
-            {isConnected ? "Connected" : "Disconnected"}
+            {isConnected ? "已連線" : "已斷線"}
           </div>
           <button
             className={`btn ${isPaused ? "btn-primary" : "btn-outline"}`}
@@ -86,7 +86,7 @@ export default function Events() {
             style={{ padding: "0.5rem 1rem" }}
           >
             {isPaused ? <Play size={16} /> : <Square size={16} />}
-            {isPaused ? "Resume" : "Pause"}
+            {isPaused ? "繼續" : "暫停"}
           </button>
         </div>
       </header>
@@ -106,7 +106,7 @@ export default function Events() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem", color: "#888" }}>
-          <Terminal size={16} /> <span>Waiting for events...</span>
+          <Terminal size={16} /> <span>等待事件…</span>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>

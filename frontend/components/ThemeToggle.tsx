@@ -23,9 +23,9 @@ export default function ThemeToggle() {
   };
 
   return (
-    <button onClick={toggleTheme} className="btn btn-outline" aria-label="Toggle Theme">
+    <button onClick={toggleTheme} className="btn btn-outline" aria-label="切換顯示主題">
       {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
-      <span style={{ marginLeft: "8px" }}>{theme === "dark" ? "Light" : "Dark"}</span>
+      <span style={{ marginLeft: "8px" }}>{theme === "dark" ? "亮色" : "暗色"}</span>
     </button>
   );
 }
