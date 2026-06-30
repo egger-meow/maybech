@@ -50,6 +50,10 @@ Frontends must use `active`; there is no `state` field.
 - `GET /runtime/lease` reports exclusive live ownership of the resolved SQLite
   path and, in live mode, the hashed OKX account scope. Dry-run also holds the
   database lock so it cannot consume signal state beside another runtime.
+- `GET /runtime/capabilities` reports whether the process is the combined
+  execution leader or a read-only API replica and exposes routing/storage
+  constraints plus authentication state without claiming distributed SQLite
+  write support.
 - `GET/PUT /risk/limits` reads or replaces the singleton SQLite account risk
   envelope used for live order-notional, gross-exposure, and leverage checks.
 - `GET /risk/entries` reports persisted and process-local entry state.

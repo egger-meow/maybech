@@ -1,10 +1,15 @@
 import sqlite3
 
+import pytest
+
 from src.trading.sqlite_schema import (
     applied_schema_versions,
     configure_connection,
     initialize_schema,
+    reset_sqlite_read_only,
+    set_sqlite_read_only,
 )
+from src.trading.strategy_store import StrategyStore
 
 
 def test_configure_connection_enables_foreign_keys(tmp_path):
@@ -40,3 +45,20 @@ def test_initialize_schema_records_component_version_idempotently(tmp_path):
         assert applied_schema_versions(conn, component="example_store") == [1]
     finally:
         conn.close()
+
+
+def test_read_only_connection_policy_skips_migrations_and_rejects_writes(tmp_path):
+    db_path = str(tmp_path / "readonly.db")
+    writable = StrategyStore(db_path)
+    writable.create(id="existing", name="Existing")
+    token = set_sqlite_read_only(True)
+    try:
+        replica = StrategyStore(db_path)
+
+        assert replica.get("existing").name == "Existing"
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            replica.create(id="forbidden", name="Forbidden")
+    finally:
+        reset_sqlite_read_only(token)
+
+    assert writable.get("forbidden") is None

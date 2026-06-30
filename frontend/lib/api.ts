@@ -25,6 +25,7 @@ import type {
   PositionStopAmendCommand,
   ExternalPositionImportRequest,
   RuntimeEventResponse,
+  RuntimeCapabilitiesResponse,
   ServiceStatusResponse,
   SignalEvaluationRequest,
   SignalEvaluationResponse,
@@ -72,6 +73,7 @@ export type {
   PositionIntentResponse as PositionIntent,
   PositionRuleResponse as PositionRule,
   RuntimeEventResponse as RuntimeEvent,
+  RuntimeCapabilitiesResponse,
   ServiceStatusResponse as ServiceStatus,
   SignalEvaluationRequest,
   SignalEvaluationResponse,
@@ -106,8 +108,19 @@ export class ApiError extends Error {
 
 const apiUrl = (path: string): string => `${API_BASE}${path}`;
 
+let apiToken = "";
+
+export const configureApiToken = (token: string): void => {
+  apiToken = token.trim();
+};
+
+const requestHeaders = (json = false): HeadersInit => ({
+  ...(json ? { "Content-Type": "application/json" } : {}),
+  ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+});
+
 export const fetcher = async <T = unknown>(url: string): Promise<T> => {
-  const res = await fetch(apiUrl(url));
+  const res = await fetch(apiUrl(url), { headers: requestHeaders() });
   if (!res.ok) {
     const info = await res.json().catch(() => null);
     throw new ApiError("An error occurred while fetching the data.", res.status, info);
@@ -118,7 +131,7 @@ export const fetcher = async <T = unknown>(url: string): Promise<T> => {
 export const postData = async <T = unknown>(url: string, data?: unknown): Promise<T> => {
   const res = await fetch(apiUrl(url), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: requestHeaders(true),
     body: data ? JSON.stringify(data) : undefined,
   });
   if (!res.ok) throw new Error(`POST ${url} failed`);
@@ -128,7 +141,7 @@ export const postData = async <T = unknown>(url: string, data?: unknown): Promis
 export const patchData = async <T = unknown>(url: string, data?: unknown): Promise<T> => {
   const res = await fetch(apiUrl(url), {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: requestHeaders(true),
     body: data ? JSON.stringify(data) : undefined,
   });
   if (!res.ok) throw new Error(`PATCH ${url} failed`);
@@ -138,12 +151,17 @@ export const patchData = async <T = unknown>(url: string, data?: unknown): Promi
 export const deleteData = async <T = unknown>(url: string): Promise<T> => {
   const res = await fetch(apiUrl(url), {
     method: "DELETE",
+    headers: requestHeaders(),
   });
   if (!res.ok) throw new Error(`DELETE ${url} failed`);
   return res.json();
 };
 
-export const wsUrl = (path: string): string => apiUrl(path).replace(/^http/, "ws");
+export const wsUrl = (path: string): string => {
+  const url = new URL(apiUrl(path).replace(/^http/, "ws"));
+  if (apiToken) url.searchParams.set("token", apiToken);
+  return url.toString();
+};
 
 export const getAccountSnapshot = (): Promise<AccountSnapshotResponse> =>
   fetcher<AccountSnapshotResponse>("/account/snapshot");
@@ -166,6 +184,9 @@ export const getMarketCandles = (
 
 export const listServices = (): Promise<Record<string, ServiceStatusResponse>> =>
   fetcher<Record<string, ServiceStatusResponse>>("/services");
+
+export const getRuntimeCapabilities = (): Promise<RuntimeCapabilitiesResponse> =>
+  fetcher<RuntimeCapabilitiesResponse>("/runtime/capabilities");
 
 export const enableService = (name: string): Promise<ServiceStatusResponse> =>
   postData<ServiceStatusResponse>(`/services/${encodeURIComponent(name)}/enable`);

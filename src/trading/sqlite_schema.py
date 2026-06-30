@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 import sqlite3
+from contextvars import ContextVar, Token
 from datetime import datetime, timezone
+from pathlib import Path
+
+
+_READ_ONLY_CONNECTIONS: ContextVar[bool] = ContextVar(
+    "maybech_sqlite_read_only",
+    default=False,
+)
 
 
 MIGRATION_TABLE_SQL = """
@@ -16,10 +24,32 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 """
 
 
+def set_sqlite_read_only(enabled: bool) -> Token[bool]:
+    return _READ_ONLY_CONNECTIONS.set(enabled)
+
+
+def reset_sqlite_read_only(token: Token[bool]) -> None:
+    _READ_ONLY_CONNECTIONS.reset(token)
+
+
+def sqlite_read_only() -> bool:
+    return _READ_ONLY_CONNECTIONS.get()
+
+
+def connect_database(db_path: str) -> sqlite3.Connection:
+    if not sqlite_read_only():
+        return sqlite3.connect(db_path)
+    uri = f"{Path(db_path).resolve().as_uri()}?mode=ro"
+    return sqlite3.connect(uri, uri=True)
+
+
 def configure_connection(conn: sqlite3.Connection) -> None:
     """Apply the connection settings every Maybech runtime store expects."""
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    if sqlite_read_only():
+        conn.execute("PRAGMA query_only=ON")
+    else:
+        conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
 
 

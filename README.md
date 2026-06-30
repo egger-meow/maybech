@@ -69,7 +69,12 @@ Start the API-backed runtime:
 
 ```powershell
 uv run python -m src.runtime api
+uv run python -m src.runtime api --role replica
 ```
+
+The API binds to loopback by default. A non-loopback host requires both
+`--allow-remote` and `MAYBECH_API_TOKEN`; use TLS at a reverse proxy or private
+tunnel because bearer authentication alone does not encrypt traffic.
 
 Compatibility wrapper:
 

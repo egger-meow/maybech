@@ -20,6 +20,7 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /services`
 - `GET /runtime/preflight`
 - `GET /runtime/lease`
+- `GET /runtime/capabilities`
 - `GET /risk/limits`
 - `PUT /risk/limits`
 - `GET /risk/entries`
@@ -68,6 +69,17 @@ preflight aborts startup, so no unhealthy live API remains running.
 ownership, plus its process/host owner metadata, resolved database path,
 optional hashed live-account scope, acquisition time, and lock directory. It
 never exposes the raw OKX account UID or API credentials.
+
+`GET /runtime/capabilities` identifies a `combined` execution leader versus a
+read-only `replica`, along with mutation, runtime-control, live-snapshot,
+storage, and authentication constraints. Replicas reject every non-read HTTP method before route
+execution and reject the live-event WebSocket; mutations and in-memory runtime
+traffic must be routed to the leader.
+
+When `MAYBECH_API_TOKEN` is configured, all HTTP routes except `/health`,
+`/runtime/capabilities`, and CORS preflight require a bearer token. The event
+WebSocket accepts the token through its `token` query parameter. Non-loopback
+startup additionally requires `--allow-remote`; a token never replaces TLS.
 
 `GET /risk/limits` returns the singleton SQLite risk envelope. `PUT
 /risk/limits` replaces it with explicit `enabled`, `max_order_notional_usd`,

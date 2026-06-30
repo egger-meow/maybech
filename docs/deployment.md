@@ -118,6 +118,39 @@ Use `src.runtime api` if the Next.js frontend needs to manage services. Use
 root-level `run_api.py` and `run_services.py` wrappers remain supported for
 existing local scripts.
 
+### Runtime Roles
+
+`src.runtime api` defaults to `--role combined`. This is the only role that
+starts daemon services, acquires execution ownership, exposes live runtime
+state, or accepts mutations. Exactly one combined process may own a database
+and OKX account scope.
+
+`src.runtime api --role replica` starts a read-only HTTP process without daemon
+services, runtime locks, WebSocket events, or order capability. It rejects
+`--live`, `--no-strategy`, and every non-read HTTP method. This role establishes
+the safe read-replica boundary for future scaling; it is not another trading
+worker.
+
+SQLite remains a local-first database. Replica processes are supported only on
+the same host or a filesystem with SQLite locking semantics. Multi-host
+horizontal deployment still requires a shared transactional database and load
+balancer routing that sends mutations and live runtime paths to the one
+execution leader. Inspect the active contract through
+`GET /runtime/capabilities`.
+
+Replica-safe reads are persisted strategy, logical-position, risk, audit, and
+public market/chart data. Account snapshots, reconciliation, service state,
+runtime events, decisions/intents, and execution-ingestion status return `503`
+on a replica so absent in-memory state cannot masquerade as an empty account.
+
+Non-loopback binding fails unless `--allow-remote` is explicit and
+`MAYBECH_API_TOKEN` is non-empty. Protected HTTP routes require
+`Authorization: Bearer <token>`; the live WebSocket requires the same token as
+the `token` query parameter. Health and capability discovery remain public.
+Bearer authentication does not encrypt traffic, so terminate TLS at a trusted
+reverse proxy or private tunnel and never expose plaintext control traffic to
+the public internet.
+
 ## Docker Compose
 
 Docker is not the default path for this repo right now. It is useful later when
@@ -133,4 +166,7 @@ The compose file binds `127.0.0.1:8000:8000`, so the API is local-only by defaul
 
 ## Remote Access Safety
 
-Do not expose the API directly with public port forwarding. The API can enable/disable services and eventually may control trading actions. For remote access, prefer a private tunnel such as VPN or Tailscale. If a reverse proxy is added later, require authentication, TLS, and an IP allowlist before any trading-control endpoint is reachable.
+Do not expose the API directly with public port forwarding. The API can control
+real trading actions. For remote access, prefer a private tunnel such as VPN or
+Tailscale. A reverse proxy must add TLS and an IP allowlist in addition to the
+built-in bearer token.

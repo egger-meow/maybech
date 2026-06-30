@@ -16,9 +16,11 @@ from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.position_reconciliation import PositionReconciler
 from src.trading.sqlite_schema import (
     applied_schema_versions,
+    connect_database,
     configure_connection,
     initialize_schema,
     record_schema_version,
+    sqlite_read_only,
 )
 
 
@@ -112,8 +114,9 @@ class AccountRiskStore:
 
     def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or settings.MAYBECH_DB_PATH
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
+        if not sqlite_read_only():
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            self._init_db()
 
     def _init_db(self) -> None:
         with self._conn() as conn:
@@ -140,7 +143,7 @@ class AccountRiskStore:
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
-        conn = sqlite3.connect(self.db_path)
+        conn = connect_database(self.db_path)
         configure_connection(conn)
         try:
             yield conn

@@ -49,6 +49,15 @@ holds an OS file lock for the normalized database path; live mode also locks a
 hashed OKX account scope. Lock files contain owner metadata only and are not
 persistence or migration records.
 
+Read-only API replicas do not acquire execution ownership and cannot mutate
+state or stream in-memory events. Their request-scoped SQLite connections open
+with `mode=ro`, enable `PRAGMA query_only`, and skip schema initialization, so
+the database rejects accidental writes in addition to HTTP method filtering.
+This separates horizontal read capacity from the single execution leader
+without pretending SQLite supports distributed multi-host writes. A future
+PostgreSQL migration can replace the shared storage boundary while preserving
+one account-scoped execution leader.
+
 ## ORM / Migration Options
 
 Prisma is not planned while the Python backend owns persistence. Adding a

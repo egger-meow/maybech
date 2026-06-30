@@ -27,6 +27,12 @@ The current codebase is a good Python MVP:
 
 The main limitation is remaining process coupling in the daemon runtime. The API-backed runner now exposes service state directly, but longer-running production behavior still needs stronger persistence and authentication.
 
+Runtime roles now make that coupling explicit: one `combined` process owns
+execution and live state, while a `replica` process is read-only and starts no
+daemon. This permits bounded read scaling and provides a migration boundary,
+but multi-host scaling still requires shared transactional storage and routing
+mutations/live streams to the leader.
+
 ## Recommended Architecture
 
 Keep Python as the backend engine. Trading, OKX access, candle mining, signal generation, risk checks, and execution should stay in Python because the existing ecosystem and code are already there.

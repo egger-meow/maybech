@@ -45,6 +45,18 @@ class RuntimeLeaseResponse(BaseModel):
     lock_root: str = ""
 
 
+class RuntimeCapabilitiesResponse(BaseModel):
+    role: Literal["combined", "replica"]
+    storage_backend: Literal["sqlite"] = "sqlite"
+    execution_leader: bool
+    product_mutations_available: bool
+    runtime_controls_available: bool
+    live_runtime_snapshots_available: bool
+    horizontal_read_replica: bool
+    authentication_required: bool
+    constraints: list[str] = Field(default_factory=list)
+
+
 class AccountRiskLimitsUpdate(BaseModel):
     enabled: bool
     max_order_notional_usd: float = Field(gt=0)

@@ -37,10 +37,10 @@ Add work here only when it is not required to prevent uncontrolled behavior, exc
 
 - Frontend polish, broad architecture cleanup, and unrelated refactors remain
   deferred until the backend execution finish line is proven.
-- Horizontal expansion requires an explicit single execution leader plus a
-  shared transactional database before multiple backend replicas can mutate
-  one account. Keep SQLite for the current local-first deployment; define the
-  storage/leader boundary before implementing PostgreSQL or read/API replicas.
+- The execution-leader/read-replica boundary now exists, and replica SQLite
+  connections are database-enforced read-only. Keep SQLite replicas same-host;
+  PostgreSQL plus distributed leader routing is still required before
+  multi-host or mutating replicas can share one account.
 - Backtesting is documented as a future Strategy Management capability, but no
   current backtest engine exists in `src/`; do not expose a fake API or block
   live position management on rebuilding that research subsystem.

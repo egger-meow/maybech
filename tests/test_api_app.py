@@ -1,4 +1,6 @@
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from src.api.app import create_app
 from src.daemon.service import DaemonRunner, DaemonService
@@ -47,6 +49,114 @@ class StrategyApiMockService(DaemonService):
 class ApiCloseExecutor:
     def close_position(self, **kwargs):
         return {"ordId": "api-close-order"}
+
+
+def test_runtime_capabilities_distinguish_leader_and_read_replica():
+    leader = TestClient(create_app(DaemonRunner()))
+    replica = TestClient(create_app(DaemonRunner(), runtime_role="replica"))
+
+    leader_body = leader.get("/runtime/capabilities").json()
+    replica_body = replica.get("/runtime/capabilities").json()
+
+    assert leader_body["execution_leader"] is True
+    assert leader_body["product_mutations_available"] is True
+    assert replica_body["execution_leader"] is False
+    assert replica_body["horizontal_read_replica"] is True
+    assert replica_body["product_mutations_available"] is False
+
+
+def test_read_replica_rejects_mutations_before_route_execution():
+    client = TestClient(create_app(DaemonRunner(), runtime_role="replica"))
+
+    response = client.post("/strategies", json={"name": "must-not-write"})
+
+    assert response.status_code == 503
+    assert "read-only" in response.json()["detail"]
+
+
+def test_read_replica_rejects_leader_only_runtime_reads():
+    client = TestClient(create_app(DaemonRunner(), runtime_role="replica"))
+
+    response = client.get("/account/snapshot")
+
+    assert response.status_code == 503
+    assert "execution leader" in response.json()["detail"]
+
+
+def test_read_replica_rejects_live_event_websocket():
+    client = TestClient(create_app(DaemonRunner(), runtime_role="replica"))
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect("/ws/events"):
+            pass
+
+    assert exc_info.value.code == 1013
+
+
+def test_read_replica_position_get_does_not_backfill_or_reconcile(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "replica.db")
+    trade_store = TradeStore(db_path)
+    trade_store.save_trade(
+        TradeRecord(
+            id="legacy-only",
+            strategy_id="legacy",
+            inst_id="BTC-USDT-SWAP",
+            side="long",
+            entry_price=100,
+            status="open",
+        )
+    )
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="persisted",
+            source="manual",
+            inst_id="ETH-USDT-SWAP",
+            side="short",
+            opened_quantity=1,
+            remaining_quantity=1,
+            entry_price=200,
+            status="open",
+        )
+    )
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    client = TestClient(create_app(DaemonRunner(), runtime_role="replica"))
+
+    response = client.get("/positions/logical?status=all")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == ["persisted"]
+    assert response.json()[0]["reconciliation"] is None
+    assert position_store.get("legacy-only") is None
+    assert position_store.get("persisted").exchange_position_key == ""
+
+
+def test_configured_api_token_protects_http_routes():
+    client = TestClient(create_app(DaemonRunner(), api_token="secret-token"))
+
+    missing = client.get("/services")
+    wrong = client.get("/services", headers={"Authorization": "Bearer wrong"})
+    allowed = client.get(
+        "/services",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    capabilities = client.get("/runtime/capabilities")
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert allowed.status_code == 200
+    assert capabilities.status_code == 200
+    assert capabilities.json()["authentication_required"] is True
+
+
+def test_configured_api_token_protects_live_event_websocket():
+    client = TestClient(create_app(DaemonRunner(), api_token="secret-token"))
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect("/ws/events"):
+            pass
+
+    assert exc_info.value.code == 1008
 
 
 def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
@@ -227,6 +337,7 @@ def test_api_cors_allows_configured_local_frontend_and_rejects_other_origins():
     headers = {
         "Origin": "http://localhost:3000",
         "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "Authorization",
     }
 
     allowed = client.options("/services", headers=headers)
@@ -237,6 +348,7 @@ def test_api_cors_allows_configured_local_frontend_and_rejects_other_origins():
 
     assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "Authorization" in allowed.headers["access-control-allow-headers"]
     assert rejected.status_code == 400
     assert "access-control-allow-origin" not in rejected.headers
 

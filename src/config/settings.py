@@ -89,6 +89,9 @@ class Settings:
             if origin.strip()
         ]
     )
+    MAYBECH_API_TOKEN: str = field(
+        default_factory=lambda: _get("MAYBECH_API_TOKEN")
+    )
 
     # Notifications — LINE Bot
     LINE_CHANNEL_ACCESS_TOKEN: str = field(

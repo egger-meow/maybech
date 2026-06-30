@@ -19,9 +19,11 @@ from src.config.settings import settings
 from src.trading.trade_store import TradeRecord
 from src.trading.sqlite_schema import (
     applied_schema_versions,
+    connect_database,
     configure_connection,
     initialize_schema,
     record_schema_version,
+    sqlite_read_only,
 )
 
 
@@ -456,8 +458,9 @@ class LogicalPositionStore:
     def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or settings.MAYBECH_DB_PATH
         self._transaction_conn: sqlite3.Connection | None = None
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
+        if not sqlite_read_only():
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            self._init_db()
 
     def _init_db(self) -> None:
         with self._conn() as conn:
@@ -654,7 +657,7 @@ class LogicalPositionStore:
         if self._transaction_conn is not None:
             yield self._transaction_conn
             return
-        conn = sqlite3.connect(self.db_path)
+        conn = connect_database(self.db_path)
         configure_connection(conn)
         try:
             yield conn
@@ -669,7 +672,7 @@ class LogicalPositionStore:
     def transaction(self) -> Generator[sqlite3.Connection, None, None]:
         if self._transaction_conn is not None:
             raise RuntimeError("nested logical-position transactions are not supported")
-        conn = sqlite3.connect(self.db_path)
+        conn = connect_database(self.db_path)
         configure_connection(conn)
         conn.execute("BEGIN IMMEDIATE")
         self._transaction_conn = conn

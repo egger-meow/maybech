@@ -2369,6 +2369,66 @@
         "title": "RuleGroupResponse",
         "type": "object"
       },
+      "RuntimeCapabilitiesResponse": {
+        "properties": {
+          "authentication_required": {
+            "title": "Authentication Required",
+            "type": "boolean"
+          },
+          "constraints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "execution_leader": {
+            "title": "Execution Leader",
+            "type": "boolean"
+          },
+          "horizontal_read_replica": {
+            "title": "Horizontal Read Replica",
+            "type": "boolean"
+          },
+          "live_runtime_snapshots_available": {
+            "title": "Live Runtime Snapshots Available",
+            "type": "boolean"
+          },
+          "product_mutations_available": {
+            "title": "Product Mutations Available",
+            "type": "boolean"
+          },
+          "role": {
+            "enum": [
+              "combined",
+              "replica"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "runtime_controls_available": {
+            "title": "Runtime Controls Available",
+            "type": "boolean"
+          },
+          "storage_backend": {
+            "const": "sqlite",
+            "default": "sqlite",
+            "title": "Storage Backend",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "execution_leader",
+          "product_mutations_available",
+          "runtime_controls_available",
+          "live_runtime_snapshots_available",
+          "horizontal_read_replica",
+          "authentication_required"
+        ],
+        "title": "RuntimeCapabilitiesResponse",
+        "type": "object"
+      },
       "RuntimeEventResponse": {
         "properties": {
           "created_at": {
@@ -5106,6 +5166,24 @@
           }
         },
         "summary": "Put Account Risk Limits"
+      }
+    },
+    "/runtime/capabilities": {
+      "get": {
+        "operationId": "get_runtime_capabilities_runtime_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeCapabilitiesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Runtime Capabilities"
       }
     },
     "/runtime/lease": {

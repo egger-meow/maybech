@@ -7,11 +7,13 @@ from asyncio import QueueEmpty
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
+import secrets
 import sqlite3
 from typing import Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.config.settings import settings
 from src.data.candles import CandleManager
@@ -46,6 +48,7 @@ from src.trading.position_protection import (
 from src.trading.rules import PositionRule, RuleGroup
 from src.trading.signal_context import build_signal_context_from_candles, collect_signal_requirements
 from src.trading.signal_engine import SignalExpressionEngine
+from src.trading.sqlite_schema import reset_sqlite_read_only, set_sqlite_read_only
 from src.trading.strategy_runtime import validate_strategy_for_execution
 from src.trading.strategy_store import SignalExpressionRecord, StrategyRecord, StrategyStore
 from src.trading.trade_store import TradeStore
@@ -85,6 +88,7 @@ from src.api.schemas import (
     PositionRuleResponse,
     RuleGroupResponse,
     RuntimeLeaseResponse,
+    RuntimeCapabilitiesResponse,
     RuntimeEventResponse,
     ServiceStatusResponse,
     SignalEvaluationRequest,
@@ -709,7 +713,12 @@ def _position_chart_overlays(
     return overlays
 
 
-def create_app(runner: DaemonRunner) -> FastAPI:
+def create_app(
+    runner: DaemonRunner,
+    *,
+    runtime_role: Literal["combined", "replica"] = "combined",
+    api_token: str | None = None,
+) -> FastAPI:
     """Create an API app bound to a daemon runner."""
     app = FastAPI(title="Maybech Runtime API", version="0.1.0")
     app.add_middleware(
@@ -717,9 +726,66 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         allow_origins=settings.MAYBECH_CORS_ORIGINS,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Authorization", "Content-Type"],
     )
     app.state.runner = runner
+    app.state.runtime_role = runtime_role
+    selected_api_token = settings.MAYBECH_API_TOKEN if api_token is None else api_token
+    app.state.authentication_required = bool(selected_api_token)
+
+    @app.middleware("http")
+    async def enforce_api_authentication(request: Request, call_next):
+        if (
+            selected_api_token
+            and request.method != "OPTIONS"
+            and request.url.path not in {"/health", "/runtime/capabilities"}
+        ):
+            authorization = request.headers.get("Authorization", "")
+            scheme, _, credential = authorization.partition(" ")
+            if scheme.lower() != "bearer" or not secrets.compare_digest(
+                credential,
+                selected_api_token,
+            ):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Valid bearer authentication is required"},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def enforce_runtime_role(request: Request, call_next):
+        if runtime_role == "replica":
+            leader_only_reads = {
+                "/account/exposure-reconciliation",
+                "/account/orders",
+                "/account/positions",
+                "/account/snapshot",
+                "/events",
+                "/execution/fills/status",
+                "/market/btc-regime",
+                "/position/intents",
+                "/strategy/decisions",
+            }
+            leader_only_prefixes = ("/services",)
+            if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                detail = (
+                    "API replica is read-only; route mutations to the combined "
+                    "execution leader"
+                )
+            elif request.url.path in leader_only_reads or request.url.path.startswith(
+                leader_only_prefixes
+            ):
+                detail = "Live runtime data is available only from the execution leader"
+            else:
+                detail = ""
+            if detail:
+                return JSONResponse(status_code=503, content={"detail": detail})
+        read_only_token = set_sqlite_read_only(runtime_role == "replica")
+        try:
+            return await call_next(request)
+        finally:
+            reset_sqlite_read_only(read_only_token)
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -738,6 +804,31 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         if status is None:
             raise HTTPException(status_code=503, detail="Runtime lease status unavailable")
         return RuntimeLeaseResponse(**status)
+
+    @app.get("/runtime/capabilities", response_model=RuntimeCapabilitiesResponse)
+    def get_runtime_capabilities() -> RuntimeCapabilitiesResponse:
+        execution_leader = runtime_role == "combined"
+        return RuntimeCapabilitiesResponse(
+            role=runtime_role,
+            execution_leader=execution_leader,
+            product_mutations_available=execution_leader,
+            runtime_controls_available=execution_leader,
+            live_runtime_snapshots_available=execution_leader,
+            horizontal_read_replica=not execution_leader,
+            authentication_required=bool(selected_api_token),
+            constraints=(
+                [
+                    "SQLite replicas require the same host or a supported shared filesystem",
+                    "mutations and live runtime routes must target the execution leader",
+                    "multi-host replicas require a future shared transactional database",
+                ]
+                if not execution_leader
+                else [
+                    "exactly one combined execution leader may own an account and database",
+                    "SQLite is not a multi-host shared database",
+                ]
+            ),
+        )
 
     @app.get("/risk/limits", response_model=AccountRiskLimitsResponse)
     def get_account_risk_limits() -> AccountRiskLimitsResponse:
@@ -950,6 +1041,20 @@ def create_app(runner: DaemonRunner) -> FastAPI:
 
         Optionally filter by event types (comma-separated).
         """
+        if selected_api_token:
+            credential = websocket.query_params.get("token", "")
+            if not secrets.compare_digest(credential, selected_api_token):
+                await websocket.close(
+                    code=1008,
+                    reason="Valid bearer authentication is required",
+                )
+                return
+        if runtime_role == "replica":
+            await websocket.close(
+                code=1013,
+                reason="Live events are available only from the execution leader",
+            )
+            return
         await websocket.accept()
         event_types = set(types.split(",")) if types else None
 
@@ -1482,29 +1587,32 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     ) -> list[LogicalPositionUnitResponse]:
         store = TradeStore()
         position_store = LogicalPositionStore(store.db_path)
-        _backfill_logical_positions(
-            trade_store=store,
-            position_store=position_store,
-            status=status,
-            strategy_id=strategy_id,
-            limit=limit,
-        )
+        if runtime_role == "combined":
+            _backfill_logical_positions(
+                trade_store=store,
+                position_store=position_store,
+                status=status,
+                strategy_id=strategy_id,
+                limit=limit,
+            )
         positions = position_store.list(status=status, strategy_id=strategy_id, limit=limit)
 
         account_snapshot = runner.runtime.get_value("account.snapshot") or {}
         intents = runner.runtime.get_value("position.intents") or []
         events = runner.runtime.events.recent(limit=limit)
-        reconciliations = PositionReconciler().reconcile(
-            logical_positions=positions,
-            exchange_positions=account_snapshot.get("positions", []),
-        )
-        for position_id, reconciliation in reconciliations.items():
-            position_store.update_reconciliation(
-                position_id,
-                exchange_position_key=reconciliation.exchange_position_key,
-                reconciliation=reconciliation.to_dict(),
+        reconciliations: dict[str, PositionReconciliation] = {}
+        if runtime_role == "combined":
+            reconciliations = PositionReconciler().reconcile(
+                logical_positions=positions,
+                exchange_positions=account_snapshot.get("positions", []),
             )
-        positions = position_store.list(status=status, strategy_id=strategy_id, limit=limit)
+            for position_id, reconciliation in reconciliations.items():
+                position_store.update_reconciliation(
+                    position_id,
+                    exchange_position_key=reconciliation.exchange_position_key,
+                    reconciliation=reconciliation.to_dict(),
+                )
+            positions = position_store.list(status=status, strategy_id=strategy_id, limit=limit)
         return [
             _logical_position_response(
                 store=store,
@@ -1529,10 +1637,14 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     ) -> LogicalPositionChartResponse:
         trade_store = TradeStore()
         position_store = LogicalPositionStore(trade_store.db_path)
-        position = _get_or_backfill_logical_position(
-            trade_store=trade_store,
-            position_store=position_store,
-            position_id=position_id,
+        position = (
+            _get_or_backfill_logical_position(
+                trade_store=trade_store,
+                position_store=position_store,
+                position_id=position_id,
+            )
+            if runtime_role == "combined"
+            else position_store.get(position_id)
         )
         if position is None:
             raise HTTPException(status_code=404, detail="Logical position not found")
@@ -1702,22 +1814,28 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     def get_logical_position(position_id: str) -> LogicalPositionUnitResponse:
         store = TradeStore()
         position_store = LogicalPositionStore(store.db_path)
-        position = _get_or_backfill_logical_position(
-            trade_store=store,
-            position_store=position_store,
-            position_id=position_id,
+        position = (
+            _get_or_backfill_logical_position(
+                trade_store=store,
+                position_store=position_store,
+                position_id=position_id,
+            )
+            if runtime_role == "combined"
+            else position_store.get(position_id)
         )
         if position is None:
             raise HTTPException(status_code=404, detail="Logical position not found")
         account_snapshot = runner.runtime.get_value("account.snapshot") or {}
         intents = runner.runtime.get_value("position.intents") or []
         events = runner.runtime.events.recent(limit=100)
-        reconciliations = PositionReconciler().reconcile(
-            logical_positions=[position],
-            exchange_positions=account_snapshot.get("positions", []),
-        )
-        reconciliation = reconciliations.get(position.id)
-        if reconciliation is not None:
+        reconciliation = None
+        if runtime_role == "combined":
+            reconciliations = PositionReconciler().reconcile(
+                logical_positions=[position],
+                exchange_positions=account_snapshot.get("positions", []),
+            )
+            reconciliation = reconciliations.get(position.id)
+        if runtime_role == "combined" and reconciliation is not None:
             position_store.update_reconciliation(
                 position.id,
                 exchange_position_key=reconciliation.exchange_position_key,
@@ -1861,10 +1979,14 @@ def create_app(runner: DaemonRunner) -> FastAPI:
     ) -> list[LogicalPositionCloseConditionResponse]:
         store = TradeStore()
         position_store = LogicalPositionStore(store.db_path)
-        position = _get_or_backfill_logical_position(
-            trade_store=store,
-            position_store=position_store,
-            position_id=position_id,
+        position = (
+            _get_or_backfill_logical_position(
+                trade_store=store,
+                position_store=position_store,
+                position_id=position_id,
+            )
+            if runtime_role == "combined"
+            else position_store.get(position_id)
         )
         if position is None:
             raise HTTPException(status_code=404, detail="Logical position not found")

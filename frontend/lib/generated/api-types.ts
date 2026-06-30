@@ -408,6 +408,18 @@ export type RuleGroupResponse = {
   "created_at": string;
 };
 
+export type RuntimeCapabilitiesResponse = {
+  "role": "combined" | "replica";
+  "storage_backend"?: "sqlite";
+  "execution_leader": boolean;
+  "product_mutations_available": boolean;
+  "runtime_controls_available": boolean;
+  "live_runtime_snapshots_available": boolean;
+  "horizontal_read_replica": boolean;
+  "authentication_required": boolean;
+  "constraints"?: string[];
+};
+
 export type RuntimeEventResponse = {
   "id": string;
   "type": string;
@@ -661,6 +673,7 @@ export type ApiSchemas = {
   "PositionStopAmendCommand": PositionStopAmendCommand;
   "RuleGroupCreate": RuleGroupCreate;
   "RuleGroupResponse": RuleGroupResponse;
+  "RuntimeCapabilitiesResponse": RuntimeCapabilitiesResponse;
   "RuntimeEventResponse": RuntimeEventResponse;
   "RuntimeLeaseResponse": RuntimeLeaseResponse;
   "ServiceStatusResponse": ServiceStatusResponse;
