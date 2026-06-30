@@ -30,6 +30,7 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /account/snapshot`
 - `GET /account/exposure-reconciliation`
 - `GET /market/btc-regime`
+- `GET /market/candles`
 - `GET /strategy/decisions`
 - `GET /strategies/{strategy_id}/decisions`
 - `GET /position/intents`
@@ -50,6 +51,7 @@ These endpoints currently exist or are already documented in runtime status:
 - `POST /positions/import`
 - `POST /positions/logical/{position_id}/protection`
 - `GET /positions/logical/{position_id}`
+- `GET /positions/logical/{position_id}/chart`
 - `GET /positions/logical/{position_id}/allocations`
 - `POST /positions/logical/{position_id}/allocations`
 - `POST /positions/logical/{position_id}/close`
@@ -343,13 +345,18 @@ Logical position responses expose both `client_order_id` and
 `exchange_order_id`. The client ID exists before submission and remains until
 the order reaches a completed or safely recovered state.
 
-## Target Visualization Endpoints
+## Visualization Endpoints
 
-For clear K-line overlays in the UI:
+The backend exposes the data required for clear K-line overlays in the UI:
 
 - `GET /market/candles?inst_id=...&bar=...&limit=...`: recent candles.
 - `GET /positions/logical/{position_id}/chart`: candles plus overlay levels for
   entry, current price, stop-loss, take-profit, break-even, and executed exits.
+
+Candle rows are ascending typed OHLCV values with confirmed/unconfirmed state.
+Position overlays are derived from the independent logical unit's persisted
+entry, enabled close conditions, break-even evidence, and confirmed allocation
+records rather than the merged OKX position.
 
 ## Open Questions
 

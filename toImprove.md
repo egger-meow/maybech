@@ -26,10 +26,8 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Make logical-position listing return every active lifecycle state by default.
-   The current frontend requests only `open`, so `pending_open`, `reducing`, and
-   `closing` units disappear during execution and prevent fluent operator
-   control.
+No active real-money correctness or operator-control blocker is currently
+recorded.
 
 ## Non-Blocking / Later
 
@@ -43,3 +41,6 @@ Add work here only when it is not required to prevent uncontrolled behavior, exc
   shared transactional database before multiple backend replicas can mutate
   one account. Keep SQLite for the current local-first deployment; define the
   storage/leader boundary before implementing PostgreSQL or read/API replicas.
+- Backtesting is documented as a future Strategy Management capability, but no
+  current backtest engine exists in `src/`; do not expose a fake API or block
+  live position management on rebuilding that research subsystem.

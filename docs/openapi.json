@@ -319,6 +319,49 @@
         "title": "BTCRegimeResponse",
         "type": "object"
       },
+      "CandleResponse": {
+        "properties": {
+          "close": {
+            "title": "Close",
+            "type": "number"
+          },
+          "confirmed": {
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "open": {
+            "title": "Open",
+            "type": "number"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "volume": {
+            "title": "Volume",
+            "type": "number"
+          }
+        },
+        "required": [
+          "timestamp",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "confirmed"
+        ],
+        "title": "CandleResponse",
+        "type": "object"
+      },
       "ConfirmedPositionFillCreate": {
         "properties": {
           "action": {
@@ -980,6 +1023,48 @@
           "created_at"
         ],
         "title": "LogicalPositionAllocationResponse",
+        "type": "object"
+      },
+      "LogicalPositionChartResponse": {
+        "properties": {
+          "bar": {
+            "title": "Bar",
+            "type": "string"
+          },
+          "candles": {
+            "items": {
+              "$ref": "#/components/schemas/CandleResponse"
+            },
+            "title": "Candles",
+            "type": "array"
+          },
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "overlays": {
+            "items": {
+              "$ref": "#/components/schemas/PositionChartOverlayResponse"
+            },
+            "title": "Overlays",
+            "type": "array"
+          },
+          "position_id": {
+            "title": "Position Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inst_id",
+          "bar",
+          "fetched_at",
+          "position_id"
+        ],
+        "title": "LogicalPositionChartResponse",
         "type": "object"
       },
       "LogicalPositionCloseConditionCreate": {
@@ -1724,6 +1809,36 @@
         "title": "LogicalPositionUnitResponse",
         "type": "object"
       },
+      "MarketCandlesResponse": {
+        "properties": {
+          "bar": {
+            "title": "Bar",
+            "type": "string"
+          },
+          "candles": {
+            "items": {
+              "$ref": "#/components/schemas/CandleResponse"
+            },
+            "title": "Candles",
+            "type": "array"
+          },
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inst_id",
+          "bar",
+          "fetched_at"
+        ],
+        "title": "MarketCandlesResponse",
+        "type": "object"
+      },
       "MutationStatusResponse": {
         "properties": {
           "id": {
@@ -1779,6 +1894,59 @@
           "condition_id"
         ],
         "title": "PositionBreakEvenCommand",
+        "type": "object"
+      },
+      "PositionChartOverlayResponse": {
+        "properties": {
+          "allocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocation Id"
+          },
+          "kind": {
+            "enum": [
+              "entry",
+              "current",
+              "stop_loss",
+              "take_profit",
+              "break_even",
+              "execution"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          }
+        },
+        "required": [
+          "kind",
+          "price",
+          "label"
+        ],
+        "title": "PositionChartOverlayResponse",
         "type": "object"
       },
       "PositionGroupResponse": {
@@ -3867,6 +4035,71 @@
         "summary": "Get Btc Regime"
       }
     },
+    "/market/candles": {
+      "get": {
+        "operationId": "get_market_candles_market_candles_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "inst_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Inst Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bar",
+            "required": false,
+            "schema": {
+              "default": "1m",
+              "maxLength": 8,
+              "minLength": 1,
+              "title": "Bar",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 120,
+              "maximum": 300,
+              "minimum": 2,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketCandlesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Market Candles"
+      }
+    },
     "/position/intents": {
       "get": {
         "operationId": "get_position_intents_position_intents_get",
@@ -4254,6 +4487,69 @@
           }
         },
         "summary": "Move Logical Position To Break Even"
+      }
+    },
+    "/positions/logical/{position_id}/chart": {
+      "get": {
+        "operationId": "get_logical_position_chart_positions_logical__position_id__chart_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bar",
+            "required": false,
+            "schema": {
+              "default": "1m",
+              "maxLength": 8,
+              "minLength": 1,
+              "title": "Bar",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 120,
+              "maximum": 300,
+              "minimum": 2,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionChartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Logical Position Chart"
       }
     },
     "/positions/logical/{position_id}/close": {

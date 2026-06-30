@@ -36,6 +36,8 @@ Frontends must use `active`; there is no `state` field.
   `total_equity`, `available_equity`, and optional `unrealized_pnl`.
 - `GET /market/btc-regime` returns the latest BTC regime. `direction`,
   `strength`, and `impulse` are categorical strings, not guaranteed numbers.
+- `GET /market/candles` returns typed ascending OHLCV candles with exchange
+  confirmation state for one instrument and interval.
 - `GET /strategy/decisions` and `GET /position/intents` return empty lists when
   no runtime snapshot is available.
 - `GET /execution/fills/status` returns the latest authenticated OKX SWAP fill
@@ -65,6 +67,8 @@ Frontends must use `active`; there is no `state` field.
   current position intent, matching OKX net-position snapshot data when present,
   conservative reconciliation state, and related audit events when event
   payloads reference the trade/position id.
+- `GET /positions/logical/{position_id}/chart` returns recent candles plus
+  entry, current, enabled rule, break-even, and confirmed execution overlays.
 - `GET/POST/PATCH/DELETE /positions/logical/{position_id}/close-conditions`
   manages validated per-unit close signal expressions without executing orders.
 - `GET/POST /positions/logical/{position_id}/allocations` lists or ingests

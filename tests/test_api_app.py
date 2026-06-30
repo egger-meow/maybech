@@ -710,6 +710,135 @@ def test_api_can_include_candles_in_signal_context(monkeypatch):
     assert context["source"]["candles"]["requested_symbols"] == ["BTC-USDT-SWAP"]
 
 
+def test_api_returns_typed_market_candles(monkeypatch):
+    import pandas as pd
+
+    class FakeCandleManager:
+        def __init__(self, client):
+            del client
+
+        def fetch(self, inst_id: str, bar: str = "1m", limit: int = 100):
+            assert (inst_id, bar, limit) == ("BTC-USDT-SWAP", "5m", 2)
+            return pd.DataFrame(
+                [
+                    {
+                        "timestamp": pd.Timestamp("2026-01-01T00:00:00Z"),
+                        "open": 100,
+                        "high": 102,
+                        "low": 99,
+                        "close": 101,
+                        "volume": 12,
+                        "confirm": 1,
+                    },
+                    {
+                        "timestamp": pd.Timestamp("2026-01-01T00:05:00Z"),
+                        "open": 101,
+                        "high": 103,
+                        "low": 100,
+                        "close": 102,
+                        "volume": 15,
+                        "confirm": 0,
+                    },
+                ]
+            )
+
+    monkeypatch.setattr("src.api.app.CandleManager", FakeCandleManager)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.get("/market/candles?inst_id=BTC-USDT-SWAP&bar=5m&limit=2")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inst_id"] == "BTC-USDT-SWAP"
+    assert body["candles"][0]["open"] == 100
+    assert body["candles"][1]["confirmed"] is False
+
+
+def test_api_returns_logical_position_chart_overlays(monkeypatch, tmp_path):
+    import pandas as pd
+
+    db_path = str(tmp_path / "positions.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="unit-chart",
+            source="strategy",
+            strategy_id="breakout",
+            inst_id="BTC-USDT-SWAP",
+            side="long",
+            opened_quantity=2,
+            remaining_quantity=2,
+            entry_price=100,
+            status="open",
+        )
+    )
+    position_store.create_close_condition(
+        position_id="unit-chart",
+        purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "self", "value": 95},
+        metadata={
+            "break_even": {
+                "target_stop": "100",
+                "applied_at": "2026-01-01T00:02:00+00:00",
+            }
+        },
+    )
+    position_store.create_close_condition(
+        position_id="unit-chart",
+        purpose="take_profit",
+        expression={"type": "price_above", "symbol": "self", "value": 120},
+    )
+    position_store.record_allocation(
+        LogicalPositionAllocation(
+            id="reduce-fill",
+            position_id="unit-chart",
+            action="reduce",
+            quantity=1,
+            price=110,
+        )
+    )
+
+    class FakeCandleManager:
+        def __init__(self, client):
+            del client
+
+        def fetch(self, inst_id: str, bar: str = "1m", limit: int = 100):
+            assert inst_id == "BTC-USDT-SWAP"
+            return pd.DataFrame(
+                [
+                    {
+                        "timestamp": pd.Timestamp("2026-01-01T00:05:00Z"),
+                        "open": 108,
+                        "high": 112,
+                        "low": 107,
+                        "close": 111,
+                        "volume": 20,
+                        "confirm": 1,
+                    }
+                ]
+            )
+
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    monkeypatch.setattr("src.api.app.CandleManager", FakeCandleManager)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.get("/positions/logical/unit-chart/chart")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["position_id"] == "unit-chart"
+    assert {overlay["kind"] for overlay in body["overlays"]} == {
+        "entry",
+        "current",
+        "stop_loss",
+        "take_profit",
+        "break_even",
+        "execution",
+    }
+    assert next(item for item in body["overlays"] if item["kind"] == "current")["price"] == 111
+
+
 def test_api_reports_signal_validation_errors():
     client = TestClient(create_app(DaemonRunner()))
 

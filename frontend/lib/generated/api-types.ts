@@ -55,6 +55,16 @@ export type BTCRegimeResponse = {
   "evidence"?: Record<string, unknown>;
 };
 
+export type CandleResponse = {
+  "timestamp": string;
+  "open": number;
+  "high": number;
+  "low": number;
+  "close": number;
+  "volume": number;
+  "confirmed": boolean;
+};
+
 export type ConfirmedPositionFillCreate = {
   "fill_id": string;
   "action": "open" | "reduce" | "close";
@@ -182,6 +192,15 @@ export type LogicalPositionAllocationResponse = {
   "metadata"?: Record<string, unknown>;
 };
 
+export type LogicalPositionChartResponse = {
+  "inst_id": string;
+  "bar": string;
+  "candles"?: CandleResponse[];
+  "fetched_at": string;
+  "position_id": string;
+  "overlays"?: PositionChartOverlayResponse[];
+};
+
 export type LogicalPositionCloseConditionCreate = {
   "purpose"?: "stop_loss" | "take_profit" | "trailing" | "break_even" | "manual_review" | "exit" | string;
   "expression"?: Record<string, unknown>;
@@ -292,6 +311,13 @@ export type LogicalPositionUnitResponse = {
   "audit_events"?: RuntimeEventResponse[];
 };
 
+export type MarketCandlesResponse = {
+  "inst_id": string;
+  "bar": string;
+  "candles"?: CandleResponse[];
+  "fetched_at": string;
+};
+
 export type MutationStatusResponse = {
   "status": "deleted" | "ok";
   "id": string;
@@ -302,6 +328,14 @@ export type PositionBreakEvenCommand = {
   "condition_id": string;
   "lock_in_pct"?: number;
   "reason"?: string;
+};
+
+export type PositionChartOverlayResponse = {
+  "kind": "entry" | "current" | "stop_loss" | "take_profit" | "break_even" | "execution";
+  "price": number;
+  "timestamp"?: string | null;
+  "label": string;
+  "allocation_id"?: string | null;
 };
 
 export type PositionGroupResponse = {
@@ -594,6 +628,7 @@ export type ApiSchemas = {
   "AccountSnapshotResponse": AccountSnapshotResponse;
   "AuditEventResponse": AuditEventResponse;
   "BTCRegimeResponse": BTCRegimeResponse;
+  "CandleResponse": CandleResponse;
   "ConfirmedPositionFillCreate": ConfirmedPositionFillCreate;
   "ConfirmedPositionFillResponse": ConfirmedPositionFillResponse;
   "EntryControlCommand": EntryControlCommand;
@@ -604,6 +639,7 @@ export type ApiSchemas = {
   "HealthResponse": HealthResponse;
   "LivePreflightResponse": LivePreflightResponse;
   "LogicalPositionAllocationResponse": LogicalPositionAllocationResponse;
+  "LogicalPositionChartResponse": LogicalPositionChartResponse;
   "LogicalPositionCloseConditionCreate": LogicalPositionCloseConditionCreate;
   "LogicalPositionCloseConditionResponse": LogicalPositionCloseConditionResponse;
   "LogicalPositionCloseConditionUpdate": LogicalPositionCloseConditionUpdate;
@@ -613,8 +649,10 @@ export type ApiSchemas = {
   "LogicalPositionReduceRequest": LogicalPositionReduceRequest;
   "LogicalPositionReduceResponse": LogicalPositionReduceResponse;
   "LogicalPositionUnitResponse": LogicalPositionUnitResponse;
+  "MarketCandlesResponse": MarketCandlesResponse;
   "MutationStatusResponse": MutationStatusResponse;
   "PositionBreakEvenCommand": PositionBreakEvenCommand;
+  "PositionChartOverlayResponse": PositionChartOverlayResponse;
   "PositionGroupResponse": PositionGroupResponse;
   "PositionIntentResponse": PositionIntentResponse;
   "PositionProtectionCommand": PositionProtectionCommand;

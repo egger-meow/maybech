@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from asyncio import QueueEmpty
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 import json
 import sqlite3
@@ -70,11 +70,14 @@ from src.api.schemas import (
     LogicalPositionCloseConditionUpdate,
     LogicalPositionCloseRequest,
     LogicalPositionCloseResponse,
+    LogicalPositionChartResponse,
     LogicalPositionReduceRequest,
     LogicalPositionReduceResponse,
     LogicalPositionAllocationResponse,
     MutationStatusResponse,
+    MarketCandlesResponse,
     PositionGroupResponse,
+    PositionChartOverlayResponse,
     PositionIntentResponse,
     PositionBreakEvenCommand,
     PositionProtectionCommand,
@@ -616,6 +619,96 @@ def _signal_candle_context(
     return context
 
 
+def _fetch_candle_rows(inst_id: str, *, bar: str, limit: int) -> list[dict]:
+    try:
+        frame = CandleManager(OKXClient()).fetch(inst_id, bar=bar, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Unable to fetch candles: {exc}") from exc
+
+    candles: list[dict] = []
+    for _, row in frame.iterrows():
+        timestamp = row["timestamp"]
+        candles.append(
+            {
+                "timestamp": (
+                    timestamp.isoformat()
+                    if hasattr(timestamp, "isoformat")
+                    else str(timestamp)
+                ),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": float(row["volume"]),
+                "confirmed": bool(int(row.get("confirm", 1))),
+            }
+        )
+    return candles
+
+
+def _position_chart_overlays(
+    position_store: LogicalPositionStore,
+    position: LogicalPositionRecord,
+    candles: list[dict],
+) -> list[PositionChartOverlayResponse]:
+    overlays = [
+        PositionChartOverlayResponse(
+            kind="entry",
+            price=position.entry_price,
+            timestamp=position.entry_time,
+            label="Entry",
+        )
+    ]
+    if candles:
+        overlays.append(
+            PositionChartOverlayResponse(
+                kind="current",
+                price=float(candles[-1]["close"]),
+                timestamp=str(candles[-1]["timestamp"]),
+                label="Current",
+            )
+        )
+
+    for condition in position_store.list_close_conditions(position.id, enabled=True):
+        if condition.purpose not in {"stop_loss", "take_profit", "break_even"}:
+            continue
+        value = _as_float(condition.expression.get("value"))
+        if value is not None and value > 0:
+            overlays.append(
+                PositionChartOverlayResponse(
+                    kind=condition.purpose,
+                    price=value,
+                    label=condition.purpose.replace("_", " ").title(),
+                )
+            )
+        break_even = condition.metadata.get("break_even")
+        if isinstance(break_even, dict):
+            target = _as_float(break_even.get("target_stop"))
+            if target is not None and target > 0:
+                overlays.append(
+                    PositionChartOverlayResponse(
+                        kind="break_even",
+                        price=target,
+                        timestamp=str(break_even.get("applied_at") or "") or None,
+                        label="Break Even",
+                    )
+                )
+
+    for allocation in position_store.list_allocations(position.id):
+        if allocation.price is None or allocation.price <= 0:
+            continue
+        overlays.append(
+            PositionChartOverlayResponse(
+                kind="execution",
+                price=allocation.price,
+                timestamp=allocation.created_at,
+                label=allocation.action.replace("_", " ").title(),
+                allocation_id=allocation.id,
+            )
+        )
+    return overlays
+
+
 def create_app(runner: DaemonRunner) -> FastAPI:
     """Create an API app bound to a daemon runner."""
     app = FastAPI(title="Maybech Runtime API", version="0.1.0")
@@ -749,6 +842,19 @@ def create_app(runner: DaemonRunner) -> FastAPI:
         if regime is None:
             raise HTTPException(status_code=404, detail="BTC regime is not available yet")
         return regime
+
+    @app.get("/market/candles", response_model=MarketCandlesResponse)
+    def get_market_candles(
+        inst_id: str = Query(min_length=1, max_length=64),
+        bar: str = Query(default="1m", min_length=1, max_length=8),
+        limit: int = Query(default=120, ge=2, le=300),
+    ) -> MarketCandlesResponse:
+        return MarketCandlesResponse(
+            inst_id=inst_id,
+            bar=bar,
+            candles=_fetch_candle_rows(inst_id, bar=bar, limit=limit),
+            fetched_at=datetime.now(timezone.utc).isoformat(),
+        )
 
     @app.get("/strategy/decisions", response_model=list[StrategyDecisionResponse])
     def get_strategy_decisions() -> list[dict]:
@@ -1411,6 +1517,34 @@ def create_app(runner: DaemonRunner) -> FastAPI:
             )
             for position in positions
         ]
+
+    @app.get(
+        "/positions/logical/{position_id}/chart",
+        response_model=LogicalPositionChartResponse,
+    )
+    def get_logical_position_chart(
+        position_id: str,
+        bar: str = Query(default="1m", min_length=1, max_length=8),
+        limit: int = Query(default=120, ge=2, le=300),
+    ) -> LogicalPositionChartResponse:
+        trade_store = TradeStore()
+        position_store = LogicalPositionStore(trade_store.db_path)
+        position = _get_or_backfill_logical_position(
+            trade_store=trade_store,
+            position_store=position_store,
+            position_id=position_id,
+        )
+        if position is None:
+            raise HTTPException(status_code=404, detail="Logical position not found")
+        candles = _fetch_candle_rows(position.inst_id, bar=bar, limit=limit)
+        return LogicalPositionChartResponse(
+            position_id=position.id,
+            inst_id=position.inst_id,
+            bar=bar,
+            candles=candles,
+            overlays=_position_chart_overlays(position_store, position, candles),
+            fetched_at=datetime.now(timezone.utc).isoformat(),
+        )
 
     @app.get(
         "/account/exposure-reconciliation",

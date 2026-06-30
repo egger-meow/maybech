@@ -15,8 +15,10 @@ import type {
   LogicalPositionReduceRequest,
   LogicalPositionReduceResponse,
   LogicalPositionAllocationResponse,
+  LogicalPositionChartResponse,
   LogicalPositionUnitResponse,
   MutationStatusResponse,
+  MarketCandlesResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
   PositionProtectionCommand,
@@ -59,7 +61,9 @@ export type {
   LogicalPositionReduceRequest,
   LogicalPositionReduceResponse,
   LogicalPositionAllocationResponse,
+  LogicalPositionChartResponse,
   MutationStatusResponse,
+  MarketCandlesResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
   PositionProtectionCommand,
@@ -149,6 +153,16 @@ export const getExecutionFillStatus = (): Promise<ExecutionFillIngestionStatusRe
 
 export const getBtcRegime = (): Promise<BTCRegimeResponse> =>
   fetcher<BTCRegimeResponse>("/market/btc-regime");
+
+export const getMarketCandles = (
+  instId: string,
+  options: { bar?: string; limit?: number } = {},
+): Promise<MarketCandlesResponse> => {
+  const params = new URLSearchParams({ inst_id: instId });
+  if (options.bar) params.set("bar", options.bar);
+  if (options.limit) params.set("limit", String(options.limit));
+  return fetcher<MarketCandlesResponse>(`/market/candles?${params.toString()}`);
+};
 
 export const listServices = (): Promise<Record<string, ServiceStatusResponse>> =>
   fetcher<Record<string, ServiceStatusResponse>>("/services");
@@ -333,6 +347,19 @@ export const listLogicalPositions = (
   fetcher<LogicalPositionUnitResponse[]>(
     `/positions/logical?status=${encodeURIComponent(status)}`,
   );
+
+export const getLogicalPositionChart = (
+  positionId: string,
+  options: { bar?: string; limit?: number } = {},
+): Promise<LogicalPositionChartResponse> => {
+  const params = new URLSearchParams();
+  if (options.bar) params.set("bar", options.bar);
+  if (options.limit) params.set("limit", String(options.limit));
+  const suffix = params.toString();
+  return fetcher<LogicalPositionChartResponse>(
+    `/positions/logical/${encodeURIComponent(positionId)}/chart${suffix ? `?${suffix}` : ""}`,
+  );
+};
 
 export const createLogicalPositionCloseCondition = (
   positionId: string,

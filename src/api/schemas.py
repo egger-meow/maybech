@@ -345,6 +345,43 @@ class SignalRuntimeContextResponse(BaseModel):
     source: dict[str, Any] = Field(default_factory=dict)
 
 
+class CandleResponse(BaseModel):
+    timestamp: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    confirmed: bool
+
+
+class MarketCandlesResponse(BaseModel):
+    inst_id: str
+    bar: str
+    candles: list[CandleResponse] = Field(default_factory=list)
+    fetched_at: str
+
+
+class PositionChartOverlayResponse(BaseModel):
+    kind: Literal[
+        "entry",
+        "current",
+        "stop_loss",
+        "take_profit",
+        "break_even",
+        "execution",
+    ]
+    price: float
+    timestamp: str | None = None
+    label: str
+    allocation_id: str | None = None
+
+
+class LogicalPositionChartResponse(MarketCandlesResponse):
+    position_id: str
+    overlays: list[PositionChartOverlayResponse] = Field(default_factory=list)
+
+
 class SignalExpressionResponse(SignalExpressionCreate):
     id: str
     strategy_id: str
