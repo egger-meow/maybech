@@ -71,6 +71,9 @@ For this repo's current shape, the supported direction is:
 - Confirmed allocation inserts and their logical-position quantity changes must
   commit in one transaction. External fill ids are immutable idempotency keys;
   conflicting payloads must fail rather than overwrite prior allocation data.
+- Product-definition mutations and their audit events must commit in one
+  transaction. A failed audit insert must leave strategy, signal-expression,
+  and logical-position close-condition state unchanged.
 - Runtime data should live under a clear runtime data path, not inside `src/`.
 - Stores should keep domain concepts separate: strategies, signals, logical
   positions, allocations, and audit events should not collapse into one table.

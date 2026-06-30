@@ -125,8 +125,11 @@ The product-definition API provides complete persisted strategy and child
 signal-expression CRUD. Deleting a strategy requires it to be disabled and
 unreferenced by logical-position history. Strategy, signal-expression, and
 logical-position close-condition mutations produce durable `product_api` audit
-events with before/after evidence. `GET /positions/groups` provides typed
-persisted summaries for the final position-management frontend.
+events with before/after evidence in the same SQLite transaction as the
+mutation. Audit failure rolls back the definition change. Strategy deletion
+checks both logical-position and legacy trade history. `GET /positions/groups`
+provides complete typed summaries for the final position-management frontend;
+strategy groups remain financially valid by partitioning instrument and side.
 
 `StrategyService` writes an action-decision record before an allowed execution
 and updates that record with the result. Live actions fail closed when this

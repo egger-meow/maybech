@@ -93,7 +93,9 @@ position closes.
   `position_id`, `trade_id`, and `before` filters. Position-manager
   close-condition evaluations, strategy execution lifecycles, and product API
   mutations are persisted. Definition mutations use `source=product_api` and
-  include before/after snapshots where applicable.
+  include before/after snapshots where applicable. The definition change and
+  its audit event commit in one SQLite transaction; an audit-write failure
+  rolls the mutation back.
 
 The durable endpoint is the restart-safe source for operator history. It does
 not yet persist every runtime event and has no retention/compaction contract.
@@ -302,9 +304,11 @@ disables entries. Background protection checks share the same execution lock so
 they cannot observe a valid amendment halfway through.
 
 `GET /positions/groups` returns typed persisted summaries grouped by
-instrument/side, strategy, or exchange-position key. Each summary includes its
-logical-unit ids, status counts, active count, total opened/remaining quantity,
-and remaining-quantity-weighted entry price.
+instrument/side, strategy plus instrument/side, or exchange-position key. Each
+summary includes its logical-unit ids, status counts, active count, total
+opened/remaining quantity, and remaining-quantity-weighted entry price. The
+`limit` applies to complete groups after all matching positions are aggregated;
+it never truncates a group's financial totals.
 
 Create, edit, and delete operations for logical-position close conditions also
 write durable `product_api` audit events with condition snapshots.

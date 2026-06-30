@@ -197,9 +197,9 @@ class AuditEventStore:
         with self._conn() as conn:
             return applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
 
-    def save(self, event: AuditEventRecord) -> str:
-        with self._conn() as conn:
-            conn.execute(
+    @staticmethod
+    def _save_on_connection(conn: sqlite3.Connection, event: AuditEventRecord) -> None:
+        conn.execute(
                 """INSERT INTO audit_events
                    (id, type, source, strategy_id, correlation_id, position_id,
                     trade_id, payload_json, created_at)
@@ -225,6 +225,18 @@ class AuditEventStore:
                     event.created_at,
                 ),
             )
+
+    def save(
+        self,
+        event: AuditEventRecord,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> str:
+        if connection is not None:
+            self._save_on_connection(connection, event)
+        else:
+            with self._conn() as conn:
+                self._save_on_connection(conn, event)
         return event.id
 
     def create(
@@ -235,6 +247,7 @@ class AuditEventStore:
         payload: dict[str, Any] | None = None,
         id: str | None = None,
         created_at: str = "",
+        connection: sqlite3.Connection | None = None,
     ) -> AuditEventRecord:
         payload = payload or {}
         event = AuditEventRecord(
@@ -248,7 +261,7 @@ class AuditEventStore:
             payload_json=_json_dumps(payload),
             created_at=created_at,
         )
-        self.save(event)
+        self.save(event, connection=connection)
         return event
 
     def save_runtime_event(self, event: RuntimeEvent) -> str:

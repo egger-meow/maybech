@@ -26,9 +26,10 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-No active blocker is currently recorded. Add nothing here until a concrete
-correctness, execution, or operator-control blocker independently meets the
-definition above.
+1. Make logical-position listing return every active lifecycle state by default.
+   The current frontend requests only `open`, so `pending_open`, `reducing`, and
+   `closing` units disappear during execution and prevent fluent operator
+   control.
 
 ## Non-Blocking / Later
 
@@ -38,3 +39,7 @@ Add work here only when it is not required to prevent uncontrolled behavior, exc
 
 - Frontend polish, broad architecture cleanup, and unrelated refactors remain
   deferred until the backend execution finish line is proven.
+- Horizontal expansion requires an explicit single execution leader plus a
+  shared transactional database before multiple backend replicas can mutate
+  one account. Keep SQLite for the current local-first deployment; define the
+  storage/leader boundary before implementing PostgreSQL or read/API replicas.

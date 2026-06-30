@@ -455,6 +455,7 @@ class LogicalPositionStore:
 
     def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or settings.MAYBECH_DB_PATH
+        self._transaction_conn: sqlite3.Connection | None = None
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -650,6 +651,9 @@ class LogicalPositionStore:
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
+        if self._transaction_conn is not None:
+            yield self._transaction_conn
+            return
         conn = sqlite3.connect(self.db_path)
         configure_connection(conn)
         try:
@@ -659,6 +663,24 @@ class LogicalPositionStore:
             conn.rollback()
             raise
         finally:
+            conn.close()
+
+    @contextmanager
+    def transaction(self) -> Generator[sqlite3.Connection, None, None]:
+        if self._transaction_conn is not None:
+            raise RuntimeError("nested logical-position transactions are not supported")
+        conn = sqlite3.connect(self.db_path)
+        configure_connection(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        self._transaction_conn = conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self._transaction_conn = None
             conn.close()
 
     def save(self, position: LogicalPositionRecord) -> str:
@@ -1009,7 +1031,7 @@ class LogicalPositionStore:
         *,
         status: str | None = "open",
         strategy_id: str | None = None,
-        limit: int = 100,
+        limit: int | None = 100,
     ) -> list[LogicalPositionRecord]:
         query = "SELECT * FROM logical_positions WHERE 1=1"
         params: list[Any] = []
@@ -1019,8 +1041,10 @@ class LogicalPositionStore:
         if strategy_id:
             query += " AND strategy_id = ?"
             params.append(strategy_id)
-        query += " ORDER BY entry_time DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY entry_time DESC"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
         return [LogicalPositionRecord.from_row(row) for row in rows]

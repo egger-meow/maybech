@@ -198,6 +198,7 @@ class StrategyStore:
 
     def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or settings.MAYBECH_DB_PATH
+        self._transaction_conn: sqlite3.Connection | None = None
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -227,6 +228,9 @@ class StrategyStore:
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
+        if self._transaction_conn is not None:
+            yield self._transaction_conn
+            return
         conn = sqlite3.connect(self.db_path)
         configure_connection(conn)
         try:
@@ -236,6 +240,24 @@ class StrategyStore:
             conn.rollback()
             raise
         finally:
+            conn.close()
+
+    @contextmanager
+    def transaction(self) -> Generator[sqlite3.Connection, None, None]:
+        if self._transaction_conn is not None:
+            raise RuntimeError("nested strategy store transactions are not supported")
+        conn = sqlite3.connect(self.db_path)
+        configure_connection(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        self._transaction_conn = conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self._transaction_conn = None
             conn.close()
 
     def applied_schema_versions(self) -> list[int]:
@@ -497,3 +519,23 @@ class StrategyStore:
         with self._conn() as conn:
             result = conn.execute("DELETE FROM strategies WHERE id = ?", (strategy_id,))
         return result.rowcount > 0
+
+    def has_position_history(self, strategy_id: str) -> bool:
+        with self._conn() as conn:
+            table_names = {
+                str(row["name"])
+                for row in conn.execute(
+                    """SELECT name FROM sqlite_master
+                       WHERE type = 'table' AND name IN ('logical_positions', 'trades')"""
+                ).fetchall()
+            }
+            for table_name in ("logical_positions", "trades"):
+                if table_name not in table_names:
+                    continue
+                row = conn.execute(
+                    f"SELECT 1 FROM {table_name} WHERE strategy_id = ? LIMIT 1",
+                    (strategy_id,),
+                ).fetchone()
+                if row is not None:
+                    return True
+        return False

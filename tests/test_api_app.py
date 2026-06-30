@@ -1111,7 +1111,7 @@ def test_api_rejects_enable_when_strategy_signal_is_invalid(monkeypatch, tmp_pat
     assert "Strategy is not executable" in response.json()["detail"]["message"]
 
 
-def test_api_disables_enabled_strategy_when_edit_makes_it_invalid(monkeypatch, tmp_path):
+def test_api_rolls_back_enabled_strategy_edit_when_it_makes_it_invalid(monkeypatch, tmp_path):
     store = StrategyStore(str(tmp_path / "strategies.db"))
     store.create(
         id="breakout",
@@ -1135,7 +1135,8 @@ def test_api_disables_enabled_strategy_when_edit_makes_it_invalid(monkeypatch, t
     response = client.patch("/strategies/breakout", json={"default_rules": {}})
 
     assert response.status_code == 400
-    assert store.get("breakout").enabled is False
+    assert store.get("breakout").enabled is True
+    assert store.get("breakout").default_rules["close_conditions"]
 
 
 def test_api_creates_and_lists_strategy_signal_expressions(monkeypatch, tmp_path):
@@ -1226,6 +1227,48 @@ def test_api_deletes_only_disabled_unreferenced_strategy(monkeypatch, tmp_path):
     assert store.get("unused") is None
     events = AuditEventStore(store.db_path).list(event_type="strategy.deleted")
     assert events[0].strategy_id == "unused"
+
+
+def test_api_rejects_strategy_delete_with_unbackfilled_legacy_trade(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "strategies.db")
+    store = StrategyStore(db_path)
+    store.create(id="legacy", name="Legacy")
+    trade_store = TradeStore(db_path)
+    trade_store.save_trade(
+        TradeRecord(
+            id="legacy-trade",
+            strategy_id="legacy",
+            inst_id="BTC-USDT-SWAP",
+            side="long",
+            entry_price=100,
+            status="closed",
+        )
+    )
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.delete("/strategies/legacy")
+
+    assert response.status_code == 409
+    assert store.get("legacy") is not None
+    assert LogicalPositionStore(db_path).get("legacy-trade") is None
+
+
+def test_strategy_mutation_rolls_back_when_audit_insert_fails(monkeypatch, tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(id="breakout", name="Before")
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
+    monkeypatch.setattr(
+        AuditEventStore,
+        "_save_on_connection",
+        staticmethod(lambda connection, event: (_ for _ in ()).throw(OSError("disk full"))),
+    )
+    client = TestClient(create_app(DaemonRunner()), raise_server_exceptions=False)
+
+    response = client.patch("/strategies/breakout", json={"name": "After"})
+
+    assert response.status_code == 500
+    assert store.get("breakout").name == "Before"
 
 
 def test_api_projects_open_trades_as_logical_positions(monkeypatch, tmp_path):
@@ -1453,6 +1496,73 @@ def test_api_groups_persisted_logical_positions(monkeypatch, tmp_path):
     assert group["weighted_entry_price"] == 106.66666666666667
 
 
+def test_api_group_limit_applies_after_complete_aggregation(monkeypatch, tmp_path):
+    position_store = LogicalPositionStore(str(tmp_path / "positions.db"))
+    for index in range(3):
+        position_store.save(
+            LogicalPositionRecord(
+                id=f"unit-{index}",
+                source="manual",
+                inst_id="BTC-USDT-SWAP",
+                side="long",
+                opened_quantity=1,
+                remaining_quantity=1,
+                entry_price=100 + index,
+                status="open",
+            )
+        )
+    monkeypatch.setattr(
+        "src.api.app.LogicalPositionStore",
+        lambda db_path=None: position_store,
+    )
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.get("/positions/groups?limit=1")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["position_count"] == 3
+    assert response.json()[0]["remaining_quantity"] == 3
+
+
+def test_api_strategy_groups_split_financial_values_by_instrument_and_side(
+    monkeypatch,
+    tmp_path,
+):
+    position_store = LogicalPositionStore(str(tmp_path / "positions.db"))
+    for position_id, inst_id, side, price in (
+        ("btc", "BTC-USDT-SWAP", "long", 100),
+        ("eth", "ETH-USDT-SWAP", "short", 200),
+    ):
+        position_store.save(
+            LogicalPositionRecord(
+                id=position_id,
+                source="strategy",
+                strategy_id="multi",
+                inst_id=inst_id,
+                side=side,
+                opened_quantity=1,
+                remaining_quantity=1,
+                entry_price=price,
+                status="open",
+            )
+        )
+    monkeypatch.setattr(
+        "src.api.app.LogicalPositionStore",
+        lambda db_path=None: position_store,
+    )
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.get("/positions/groups?group_by=strategy")
+
+    assert response.status_code == 200
+    assert {(group["inst_id"], group["side"]) for group in response.json()} == {
+        ("BTC-USDT-SWAP", "long"),
+        ("ETH-USDT-SWAP", "short"),
+    }
+    assert {group["weighted_entry_price"] for group in response.json()} == {100, 200}
+
+
 def test_api_returns_404_for_missing_logical_position(monkeypatch, tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     monkeypatch.setattr("src.api.app.TradeStore", lambda: store)
@@ -1520,6 +1630,46 @@ def test_api_manages_logical_position_close_conditions(monkeypatch, tmp_path):
         "position_close_condition.updated",
         "position_close_condition.deleted",
     }
+
+
+def test_close_condition_mutation_rolls_back_when_audit_insert_fails(
+    monkeypatch,
+    tmp_path,
+):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="unit-a",
+            source="manual",
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            entry_price=3000,
+        )
+    )
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    monkeypatch.setattr(
+        AuditEventStore,
+        "_save_on_connection",
+        staticmethod(lambda connection, event: (_ for _ in ()).throw(OSError("disk full"))),
+    )
+    client = TestClient(create_app(DaemonRunner()), raise_server_exceptions=False)
+
+    response = client.post(
+        "/positions/logical/unit-a/close-conditions",
+        json={
+            "purpose": "take_profit",
+            "expression": {
+                "type": "price_above",
+                "symbol": "ETH-USDT-SWAP",
+                "value": 3200,
+            },
+        },
+    )
+
+    assert response.status_code == 500
+    assert position_store.list_close_conditions("unit-a") == []
 
 
 def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch, tmp_path):
