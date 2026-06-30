@@ -2,6 +2,8 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:800
 
 import type {
   AccountSnapshotResponse,
+  AccountRiskLimitsResponse,
+  EntryControlResponse,
   AuditEventResponse,
   BTCRegimeResponse,
   ConfirmedPositionFillCreate,
@@ -17,6 +19,7 @@ import type {
   LogicalPositionAllocationResponse,
   LogicalPositionChartResponse,
   LogicalPositionUnitResponse,
+  LivePreflightResponse,
   MutationStatusResponse,
   MarketCandlesResponse,
   PositionBreakEvenCommand,
@@ -48,12 +51,15 @@ import type {
 
 export type {
   AccountSnapshotResponse as AccountSnapshot,
+  AccountRiskLimitsResponse,
+  EntryControlResponse,
   AuditEventResponse,
   BTCRegimeResponse as BtcRegime,
   ConfirmedPositionFillCreate,
   ConfirmedPositionFillResponse,
   ExecutionFillIngestionStatusResponse,
   LogicalPositionUnitResponse as LogicalPositionUnit,
+  LivePreflightResponse,
   LogicalPositionCloseConditionCreate,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
   LogicalPositionCloseConditionUpdate,
@@ -165,6 +171,15 @@ export const wsUrl = (path: string): string => {
 
 export const getAccountSnapshot = (): Promise<AccountSnapshotResponse> =>
   fetcher<AccountSnapshotResponse>("/account/snapshot");
+
+export const getLivePreflight = (): Promise<LivePreflightResponse> =>
+  fetcher<LivePreflightResponse>("/runtime/preflight");
+
+export const getRiskLimits = (): Promise<AccountRiskLimitsResponse> =>
+  fetcher<AccountRiskLimitsResponse>("/risk/limits");
+
+export const getEntryControl = (): Promise<EntryControlResponse> =>
+  fetcher<EntryControlResponse>("/risk/entries");
 
 export const getExecutionFillStatus = (): Promise<ExecutionFillIngestionStatusResponse> =>
   fetcher<ExecutionFillIngestionStatusResponse>("/execution/fills/status");

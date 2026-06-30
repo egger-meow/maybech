@@ -1,65 +1,36 @@
 "use client";
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Briefcase, Settings2, History, ActivitySquare } from 'lucide-react';
-import ThemeToggle from './ThemeToggle';
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { ActivitySquare, Briefcase, History, LayoutDashboard, Settings2 } from "lucide-react";
+
+import ThemeToggle from "./ThemeToggle";
+
+const links = [
+  { href: "/", label: "總覽", icon: LayoutDashboard },
+  { href: "/strategies", label: "策略管理", icon: Settings2 },
+  { href: "/positions", label: "部位管理", icon: Briefcase },
+  { href: "/history", label: "交易紀錄", icon: History },
+  { href: "/events", label: "事件稽核", icon: ActivitySquare },
+];
 
 export default function Sidebar() {
   const pathname = usePathname();
-
-  const links = [
-    { href: '/', label: '儀表板 (Dashboard)', icon: <LayoutDashboard size={20} /> },
-    { href: '/strategies', label: '策略管理 (Strategies)', icon: <Settings2 size={20} /> },
-    { href: '/positions', label: '倉位管理 (Positions)', icon: <Briefcase size={20} /> },
-    { href: '/history', label: '歷史記錄 (History)', icon: <History size={20} /> },
-    { href: '/events', label: '系統日誌 (Events)', icon: <ActivitySquare size={20} /> },
-  ];
-
   return (
-    <aside style={{
-      width: '260px',
-      height: '100vh',
-      borderRight: '1px solid var(--border-color)',
-      padding: '2rem 1rem',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '2rem',
-      position: 'sticky',
-      top: 0
-    }}>
-      <div>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--accent-primary)', marginBottom: '0.5rem' }}>Maybech</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Crypto Trading Bot</p>
+    <aside className="sidebar">
+      <div className="brand-block">
+        <h1>Maybech</h1>
+        <p>交易管理工作台</p>
       </div>
-
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
-        {links.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              padding: '0.75rem 1rem',
-              borderRadius: 'var(--radius-sm)',
-              color: pathname === link.href ? 'var(--accent-primary)' : 'var(--text-secondary)',
-              backgroundColor: pathname === link.href ? 'var(--bg-secondary)' : 'transparent',
-              fontWeight: pathname === link.href ? 600 : 500,
-              textDecoration: 'none',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            {link.icon}
-            {link.label}
+      <nav className="sidebar-nav" aria-label="主要導覽">
+        {links.map(({ href, label, icon: Icon }) => (
+          <Link key={href} href={href} className={pathname === href ? "nav-link active" : "nav-link"}>
+            <Icon size={20} />
+            {label}
           </Link>
         ))}
       </nav>
-
-      <div style={{ marginTop: 'auto', paddingTop: '2rem', borderTop: '1px solid var(--border-color)' }}>
-        <ThemeToggle />
-      </div>
+      <div className="theme-slot"><ThemeToggle /></div>
     </aside>
   );
 }

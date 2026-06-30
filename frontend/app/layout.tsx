@@ -3,8 +3,8 @@ import './globals.css';
 import Sidebar from '@/components/Sidebar';
 
 export const metadata: Metadata = {
-  title: 'Maybech Dashboard',
-  description: 'Premium UI for Maybech Crypto Trading Bot',
+  title: 'Maybech Trading Workspace',
+  description: 'Local-first strategy and logical-position management for OKX perpetuals',
 };
 
 export default function RootLayout({
@@ -15,9 +15,9 @@ export default function RootLayout({
   return (
     <html lang="zh-TW" suppressHydrationWarning>
       <body suppressHydrationWarning>
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <div className="app-shell">
           <Sidebar />
-          <main style={{ flex: 1, padding: '2rem 3rem', backgroundColor: 'var(--bg-primary)' }}>
+          <main className="app-main">
             {children}
           </main>
         </div>
