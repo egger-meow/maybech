@@ -21,13 +21,13 @@ capability moves from planned to partial or complete.
 | BTC regime state | Partial | `BTCRegimeService` publishes regime state and `/market/btc-regime` exposes the latest snapshot. |
 | Strategy decisions | Partial | Runtime snapshots remain for compatibility; every evaluated setup is also persisted with a correlation id, policy evidence, execution result, and order/trade/position references. `GET /strategies/{strategy_id}/decisions` provides filtered restart-safe history. |
 | Position intents | Partial | Current position intent snapshots exist and `/positions/logical` exposes persisted logical units with trade backfill, per-unit close signal conditions, legacy trade rules, and reconciliation state for the frontend. |
-| Confirmed live close execution | Partial | Armed live triggers submit guarded reduce-only market orders and wait for fills. Private order events recover cancellations quickly, REST catch-up remains authoritative, stale orders receive one cancellation request, and current OKX min/lot precision is validated before submission. |
-| Logical position units | Partial | SQLite persistence, per-unit close conditions, typed grouping by instrument/side, strategy, or exchange position, account-wide net-position reconciliation, exact-gap external import, immutable entry/close/protective-algo ownership, confirmed stop amendments, break-even, exact partial reduce, out-of-order fill allocation, and manual close API are implemented. Partial reduce waits for its target fills and restores exact remaining protection after completion or terminal recovery. |
+| Confirmed live close execution | Built | Armed live triggers submit guarded reduce-only orders and wait for confirmed fills before changing logical quantity or closing a unit. Private events reduce latency, REST catch-up remains authoritative, and terminal/partial recovery restores exact remaining protection. The bounded lifecycle has passed on demo and production. |
+| Logical position units | Built | SQLite persistence, per-unit close conditions, typed grouping, account-wide reconciliation, exact-gap import, immutable order/protection ownership, confirmed stop amendments, break-even, exact partial reduce, out-of-order allocation, and manual close are implemented and exposed in the browser. |
 | Execution fill ingestion | Built | A required authenticated `orders/SWAP` WebSocket applies fills and terminal cancellations with low latency and reconnects with bounded backoff. `ExecutionFillService` also traverses three-month OKX fill history by bill ID with durable checkpoints as the correctness layer. Both paths share idempotent allocation. Live entries remain blocked until REST is caught up and the private stream is connected. |
 | Signal strategy execution | Built | Enabled SQLite strategies compose persisted entry expressions, resolve `self` per target, evaluate candle context, consume one persisted false-to-true edge, pass BTC policy, submit a validated order, and copy default close conditions to the new logical unit. |
-| Strategy Management page | Partial | A frontend route exists, but the target strategy-management workflow is not complete. |
-| Position Management page | Partial | The frontend lists typed logical units, independent quantity/status, close conditions, source strategy, owned protection lifecycle, and confirmed close control. Backend contracts now provide typed recent candles and per-unit entry/current/rule/execution overlays; final chart rendering and rule-editing UI remain. |
-| API contract generation | Partial | Runtime, full strategy/signal-expression CRUD, logical-position grouping/rule mutations, and execution commands use Pydantic response models and OpenAPI; `scripts/generate_openapi_types.py` exports `docs/openapi.json`; frontend schema types and dashboard API helpers are typed from generated contracts. |
+| Strategy Management page | Built | The responsive frontend creates, edits, inspects, enables, disables, and safely deletes persisted strategies; it edits primary/child signal expressions and default position rules with nested AND/OR groups, explicit saved state, readiness, and decision evidence. |
+| Position Management page | Built | The responsive frontend separates logical units from OKX net snapshots, renders typed K-line overlays, edits per-unit composite rules, uses confirmed stop-amend/break-even paths, shows protection and allocation evidence, and confirms close/reduce commands. |
+| API contract generation | Built | Product mutations and reads use Pydantic/OpenAPI contracts; generated TypeScript types drive dashboard helpers and both management pages, with checked-in drift checks. |
 | Authentication/authorization | Partial | Loopback remains default. Non-loopback startup requires explicit `--allow-remote` plus a configured bearer token; HTTP, WebSocket, CORS, and frontend client helpers support it. TLS, user identities, and fine-grained roles remain external/future concerns. |
 | Structured persistence | Partial | SQLite stores exist for trades, logical positions, allocations, strategies, editable signal expressions, product-definition mutation audits, position-manager audits, and strategy decision/execution history; most general runtime events remain in-memory. |
 | SQLite schema management | Partial | `TradeStore` and `ExecutionCursorStore` record version `1`, `AuditEventStore` records version `2`, `StrategyStore` records version `3`, and `LogicalPositionStore` records version `6` through explicit migration paths. All default to `MAYBECH_DB_PATH`. |
@@ -40,11 +40,12 @@ capability moves from planned to partial or complete.
 
 ## Next Build Milestones
 
-No active backend execution blocker remains in `toImprove.md`. Unattended
-strategy entries remain disabled by default and still require explicit runtime
-and operator arming. The next product stage is the final frontend management
-workflow over the typed strategy, signal-expression, position-group, rule, and
-audit contracts.
+The first usable strategy-to-logical-position product loop is complete. No
+active real-money execution blocker is recorded in `toImprove.md`. Unattended
+entries remain disabled by default and require explicit runtime arming, strategy
+enablement, and entry-gate confirmation. Backtesting/research and broader event
+retention remain non-blocking later work; they are not compatibility paths for
+this completed loop.
 
 ## Execution Verification Evidence
 

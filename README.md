@@ -164,8 +164,11 @@ Check frontend quality gates:
 ```powershell
 npm run contract
 npm run lint
+npm run typecheck
 npm run build
 ```
+
+Run all four frontend gates in order with `npm run verify`.
 
 `npm run contract` checks that `docs/openapi.json` and
 `frontend/lib/generated/api-types.ts` still match the FastAPI OpenAPI schema.
@@ -179,7 +182,8 @@ uv run python scripts/generate_openapi_types.py
 
 Use `docs/runtime-status.md` as the source of truth for API payloads, service
 status keys, and current live-trading safety limits. Keep `toImprove.md`
-maintained with at least three active improvement priorities.
+limited to concrete current real-money blockers; do not add replacement items
+merely to maintain a fixed count.
 
 For product direction, see `docs/project-charter.md` and
 `docs/domain-model.md`. For target API and UI shape, see `docs/api-spec.md` and

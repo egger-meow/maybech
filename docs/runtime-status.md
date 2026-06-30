@@ -111,9 +111,9 @@ a caller-selected quantity. Import also places and verifies the exchange stop.
 same deterministic algo order after recovery or close-condition edits.
 
 The current `/positions/logical` endpoint has persistent logical-unit storage,
-per-unit close signal conditions, and conservative reconciliation against OKX
-net-position snapshots. It is not yet the final execution-confirmed allocation
-lifecycle described in `docs/domain-model.md`.
+per-unit close signal conditions, conservative reconciliation against OKX
+net-position snapshots, and the execution-confirmed allocation lifecycle
+described in `docs/domain-model.md`.
 `PositionManagerService` now evaluates persisted close signal conditions against
 runtime price/change context and optional candle-derived context for rapid-move
 and volume-ratio conditions. In dry-run mode it can close the simulated logical

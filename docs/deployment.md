@@ -24,6 +24,48 @@ Production credentials use `OKX_API_KEY`, `OKX_API_SECRET`, and
 production credentials. Never copy real values into `.env.example` or docs.
 Trading instruments, timeframe, signals, default close rules, and contract
 counts are strategy data in SQLite; they are intentionally absent from `.env`.
+
+## Guarded Path To Real Money
+
+There is intentionally no one-click transition from dry-run to real-money
+execution. Use this sequence and stop whenever one stage is not independently
+verified:
+
+1. Keep `MAYBECH_ARM_ORDERS=0`. This means Maybech cannot place live orders,
+   even if strategies are enabled in SQLite. Build and inspect strategies,
+   logical-position rules, account risk limits, and audit evidence in dry-run.
+2. Create a dedicated OKX demo API key first. Grant only the permissions needed
+   for trading and inspection, never withdrawal permission. Configure the OKX
+   IP whitelist for the machine that runs Maybech. Store demo credentials only
+   in `DEMO_OKX_*`, select them with `OKX_FLAG=1`, and never expose secrets in
+   the browser, docs, logs, commits, screenshots, or support messages.
+3. Confirm the OKX account can trade derivatives and uses `net_mode`. Run the
+   bounded demo lifecycle verifier and prove protected open, stop amendment,
+   exact partial reduce, final close, restart catch-up, and zero residual
+   positions/orders/algos.
+4. Configure and review the persisted account risk envelope. Every enabled
+   strategy needs explicit contract counts, a maximum entry-slippage fraction,
+   and an enabled side-consistent absolute stop. Contract counts are OKX
+   contracts, not base-asset quantities.
+5. Start with `--live` only after the preceding checks pass. Setting
+   `MAYBECH_ARM_ORDERS=1` merely allows successful live preflight to arm order
+   placement; it does not bypass credentials, account mode, risk, strategy,
+   instrument, reconciliation, protection, lease, fill-catch-up, or private
+   stream checks. A failed check aborts startup before services run.
+6. Inspect `/runtime/preflight`, `/risk/limits`, `/risk/entries`, reconciliation,
+   and the dashboard mode banner. Then separately enable reviewed strategies
+   and explicitly confirm the entry gate. Every live restart disables entries
+   again. Reduce-only protection and exits remain independent of the entry gate.
+7. Only after the complete demo path is repeatable should a dedicated
+   production key be placed in `OKX_*` with `OKX_FLAG=0`. Repeat the read-only
+   checks and bounded verifier at the smallest acceptable contract size before
+   unattended strategy entry is considered.
+
+Exchange stops limit risk but cannot guarantee a maximum realized loss during
+price gaps, poor liquidity, exchange failure, or market-order slippage. Maybech
+fails closed when required protection is missing or mismatched; that is not a
+guarantee that a stop will fill exactly at its trigger price.
+
 Before `--live`, populate `metadata.order_size_contracts` and
 `metadata.max_entry_slippage_pct` on each enabled strategy. Verify each size as
 an OKX contract count rather than a base-asset quantity. The slippage value is a
