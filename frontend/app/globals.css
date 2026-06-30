@@ -247,6 +247,7 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .decision-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; }
 .decision-card { display: grid; gap: .55rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }
 .decision-card p, .decision-card small { color: var(--text-muted); overflow-wrap: anywhere; }
+.contract-size-grid { display: grid; gap: .45rem; }.contract-size-grid label { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, .6fr); align-items: center; gap: .5rem; }.contract-size-grid small { color: var(--text-muted); overflow-wrap: anywhere; }
 .error-state { display: flex; align-items: center; gap: .5rem; }
 .position-workspace { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 1rem; align-items: start; }
 .position-list { position: sticky; top: 1rem; }

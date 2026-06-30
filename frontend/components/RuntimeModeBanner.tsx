@@ -30,19 +30,13 @@ const modeCopy: Record<Mode, { title: string; detail: string }> = {
   },
 };
 
-function stale(timestamp?: string | null): boolean {
-  if (!timestamp) return true;
-  const age = Date.now() - new Date(timestamp).getTime();
-  return !Number.isFinite(age) || age > 120_000;
-}
-
 export default function RuntimeModeBanner() {
   const preflight = useSWR("runtime-preflight", getLivePreflight, { refreshInterval: 10_000 });
   const risk = useSWR("risk-limits", getRiskLimits, { refreshInterval: 10_000 });
   const entries = useSWR("entry-control", getEntryControl, { refreshInterval: 10_000 });
 
   let mode: Mode = "stale";
-  if (!preflight.error && preflight.data && !stale(preflight.data.checked_at)) {
+  if (!preflight.error && !risk.error && !entries.error && preflight.data) {
     if (!preflight.data.passed || (preflight.data.execution_mode !== "dry_run" && !risk.data?.enabled)) {
       mode = "blocked";
     } else if (preflight.data.execution_mode === "dry_run") {

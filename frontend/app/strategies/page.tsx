@@ -28,7 +28,7 @@ type Draft = {
   name: string;
   instruments: string;
   side: "long" | "short";
-  contracts: string;
+  contractSizes: Record<string, string>;
   slippagePercent: string;
   entrySignal: SignalExpression;
   closeRules: CloseRule[];
@@ -38,7 +38,7 @@ const blankDraft = (): Draft => ({
   name: "",
   instruments: "ETH-USDT-SWAP",
   side: "long",
-  contracts: "1",
+  contractSizes: { "ETH-USDT-SWAP": "1" },
   slippagePercent: "0.5",
   entrySignal: { type: "price_above", symbol: "self", value: 0 },
   closeRules: [
@@ -67,12 +67,11 @@ function rulesFrom(strategy: StrategySummary): CloseRule[] {
 function draftFrom(strategy: StrategySummary): Draft {
   const metadata = object(strategy.metadata);
   const sizes = object(metadata.order_size_contracts);
-  const firstInstrument = strategy.target_instruments?.[0] ?? "";
   return {
     name: strategy.name,
     instruments: (strategy.target_instruments ?? []).join(", "),
     side: metadata.position_side === "short" ? "short" : "long",
-    contracts: String(sizes[firstInstrument] ?? "1"),
+    contractSizes: Object.fromEntries((strategy.target_instruments ?? []).map((instrument) => [instrument, String(sizes[instrument] ?? "1")])),
     slippagePercent: String(Number(metadata.max_entry_slippage_pct ?? .005) * 100),
     entrySignal: object(strategy.entry_signal),
     closeRules: rulesFrom(strategy),
@@ -171,7 +170,7 @@ function StrategyEditor({ strategy, onSaved }: { strategy?: StrategySummary; onS
       const validated = await Promise.all(expressions.map((expression) => validateSignal({ expression })));
       const invalid = validated.find((result) => !result.valid);
       if (invalid) throw new Error(invalid.errors?.join("；") || "規則格式不正確");
-      const sizes = Object.fromEntries(instruments.map((instrument) => [instrument, draft.contracts]));
+      const sizes = Object.fromEntries(instruments.map((instrument) => [instrument, draft.contractSizes[instrument] ?? "1"]));
       const payload = {
         name: draft.name.trim(),
         kind: "signal",
@@ -209,8 +208,8 @@ function StrategyEditor({ strategy, onSaved }: { strategy?: StrategySummary; onS
         <label className="field"><span>策略名稱</span><input value={draft.name} onChange={(event) => set("name", event.target.value)} /></label>
         <label className="field"><span>方向</span><select value={draft.side} onChange={(event) => set("side", event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
         <label className="field full"><span>交易商品（逗號分隔）</span><input value={draft.instruments} onChange={(event) => set("instruments", event.target.value)} placeholder="ETH-USDT-SWAP, SOL-USDT-SWAP" /></label>
-        <label className="field"><span>每個商品委託口數</span><input type="number" min="0" step="any" value={draft.contracts} onChange={(event) => set("contracts", event.target.value)} /></label>
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
+        <div className="field"><span>每個商品委託口數</span><div className="contract-size-grid">{instruments.map((instrument) => <label key={instrument}><small>{instrument}</small><input type="number" min="0" step="any" value={draft.contractSizes[instrument] ?? "1"} onChange={(event) => set("contractSizes", { ...draft.contractSizes, [instrument]: event.target.value })} /></label>)}</div></div>
         <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" /></div>
       </div>
 
