@@ -78,6 +78,32 @@ class AccountRiskLimitsResponse(AccountRiskLimitsUpdate):
     updated_at: str
 
 
+class InstrumentMetadataResponse(BaseModel):
+    inst_id: str
+    inst_type: str
+    state: str
+    base_ccy: str = ""
+    quote_ccy: str = ""
+    settle_ccy: str = ""
+    contract_type: str = ""
+    contract_value: str = ""
+    contract_currency: str = ""
+    contract_multiplier: str = ""
+    lot_size: str
+    min_size: str
+    tick_size: str
+    size_precision: int
+    price_precision: int
+    max_limit_size: str = ""
+    max_market_size: str = ""
+    updated_at: str
+
+
+class InstrumentMetadataListResponse(BaseModel):
+    items: list[InstrumentMetadataResponse]
+    refreshed_at: str
+
+
 class EntryControlCommand(BaseModel):
     confirm: Literal[True]
 

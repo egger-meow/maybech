@@ -24,6 +24,8 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /risk/limits`
 - `PUT /risk/limits`
 - `GET /risk/entries`
+- `GET /instruments`
+- `POST /instruments/refresh`
 - `POST /risk/entries/enable`
 - `POST /risk/entries/kill`
 - `GET /events`
@@ -85,6 +87,13 @@ startup additionally requires `--allow-remote`; a token never replaces TLS.
 /risk/limits` replaces it with explicit `enabled`, `max_order_notional_usd`,
 `max_total_exposure_usd`, and `max_leverage` values. The order limit cannot
 exceed the total exposure limit; all numeric limits must be positive.
+
+`GET /instruments` returns the cached, currently tradable OKX SWAP instrument
+metadata used by operator selectors and sizing conversion. An empty cache is a
+visible `503`, never a hardcoded fallback. `POST /instruments/refresh` replaces
+the SWAP cache atomically from the OKX public instruments API and returns the
+same typed list contract. Records include contract value/currency, settlement
+currency, lot/min/tick sizes, precision, state, and refresh time.
 
 Entry control is persisted separately from editable risk-limit values, so a
 risk-limit update cannot silently re-enable trading. Entries default to

@@ -885,6 +885,125 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "InstrumentMetadataListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InstrumentMetadataResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "refreshed_at": {
+            "title": "Refreshed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "refreshed_at"
+        ],
+        "title": "InstrumentMetadataListResponse",
+        "type": "object"
+      },
+      "InstrumentMetadataResponse": {
+        "properties": {
+          "base_ccy": {
+            "default": "",
+            "title": "Base Ccy",
+            "type": "string"
+          },
+          "contract_currency": {
+            "default": "",
+            "title": "Contract Currency",
+            "type": "string"
+          },
+          "contract_multiplier": {
+            "default": "",
+            "title": "Contract Multiplier",
+            "type": "string"
+          },
+          "contract_type": {
+            "default": "",
+            "title": "Contract Type",
+            "type": "string"
+          },
+          "contract_value": {
+            "default": "",
+            "title": "Contract Value",
+            "type": "string"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "inst_type": {
+            "title": "Inst Type",
+            "type": "string"
+          },
+          "lot_size": {
+            "title": "Lot Size",
+            "type": "string"
+          },
+          "max_limit_size": {
+            "default": "",
+            "title": "Max Limit Size",
+            "type": "string"
+          },
+          "max_market_size": {
+            "default": "",
+            "title": "Max Market Size",
+            "type": "string"
+          },
+          "min_size": {
+            "title": "Min Size",
+            "type": "string"
+          },
+          "price_precision": {
+            "title": "Price Precision",
+            "type": "integer"
+          },
+          "quote_ccy": {
+            "default": "",
+            "title": "Quote Ccy",
+            "type": "string"
+          },
+          "settle_ccy": {
+            "default": "",
+            "title": "Settle Ccy",
+            "type": "string"
+          },
+          "size_precision": {
+            "title": "Size Precision",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "tick_size": {
+            "title": "Tick Size",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inst_id",
+          "inst_type",
+          "state",
+          "lot_size",
+          "min_size",
+          "tick_size",
+          "size_precision",
+          "price_precision",
+          "updated_at"
+        ],
+        "title": "InstrumentMetadataResponse",
+        "type": "object"
+      },
       "LivePreflightResponse": {
         "properties": {
           "account_level": {
@@ -4075,6 +4194,42 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/instruments": {
+      "get": {
+        "operationId": "list_instruments_instruments_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentMetadataListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Instruments"
+      }
+    },
+    "/instruments/refresh": {
+      "post": {
+        "operationId": "refresh_instruments_instruments_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentMetadataListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Refresh Instruments"
       }
     },
     "/market/btc-regime": {

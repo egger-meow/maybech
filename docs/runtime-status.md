@@ -57,6 +57,10 @@ Frontends must use `active`; there is no `state` field.
 - `GET/PUT /risk/limits` reads or replaces the singleton SQLite account risk
   envelope used for live order-notional, gross-exposure, and leverage checks.
 - `GET /risk/entries` reports persisted and process-local entry state.
+- `GET /instruments` reads the SQLite-cached live OKX SWAP catalog. It returns
+  `503` when metadata has not been refreshed; no synthetic instruments or unit
+  defaults are returned. `POST /instruments/refresh` replaces that cache from
+  the OKX public API.
   Confirmed `POST /risk/entries/enable` and `POST /risk/entries/kill` commands
   change that state; kill also requests cancellation of Maybech pending entries.
 - `GET /strategies/{strategy_id}/decisions` returns restart-safe strategy

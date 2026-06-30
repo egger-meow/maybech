@@ -165,6 +165,32 @@ export type HealthResponse = {
   "running": boolean;
 };
 
+export type InstrumentMetadataListResponse = {
+  "items": InstrumentMetadataResponse[];
+  "refreshed_at": string;
+};
+
+export type InstrumentMetadataResponse = {
+  "inst_id": string;
+  "inst_type": string;
+  "state": string;
+  "base_ccy"?: string;
+  "quote_ccy"?: string;
+  "settle_ccy"?: string;
+  "contract_type"?: string;
+  "contract_value"?: string;
+  "contract_currency"?: string;
+  "contract_multiplier"?: string;
+  "lot_size": string;
+  "min_size": string;
+  "tick_size": string;
+  "size_precision": number;
+  "price_precision": number;
+  "max_limit_size"?: string;
+  "max_market_size"?: string;
+  "updated_at": string;
+};
+
 export type LivePreflightResponse = {
   "passed": boolean;
   "armed": boolean;
@@ -649,6 +675,8 @@ export type ApiSchemas = {
   "ExternalPositionImportRequest": ExternalPositionImportRequest;
   "HTTPValidationError": HTTPValidationError;
   "HealthResponse": HealthResponse;
+  "InstrumentMetadataListResponse": InstrumentMetadataListResponse;
+  "InstrumentMetadataResponse": InstrumentMetadataResponse;
   "LivePreflightResponse": LivePreflightResponse;
   "LogicalPositionAllocationResponse": LogicalPositionAllocationResponse;
   "LogicalPositionChartResponse": LogicalPositionChartResponse;

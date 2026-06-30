@@ -41,6 +41,7 @@ from src.trading.position_import import (
     PositionImportRequest,
     PositionImportService,
 )
+from src.trading.instrument_metadata import InstrumentMetadataStore
 from src.trading.position_protection import (
     PositionProtectionError,
     PositionProtectionService,
@@ -66,6 +67,8 @@ from src.api.schemas import (
     EntryControlResponse,
     ExternalPositionImportRequest,
     HealthResponse,
+    InstrumentMetadataListResponse,
+    InstrumentMetadataResponse,
     LivePreflightResponse,
     LogicalPositionUnitResponse,
     LogicalPositionCloseConditionCreate,
@@ -850,6 +853,36 @@ def create_app(
             )
         )
         return AccountRiskLimitsResponse(**saved.to_dict())
+
+    @app.get("/instruments", response_model=InstrumentMetadataListResponse)
+    def list_instruments() -> InstrumentMetadataListResponse:
+        records = InstrumentMetadataStore().list(inst_type="SWAP")
+        if not records:
+            raise HTTPException(
+                status_code=503,
+                detail="OKX instrument metadata cache is empty; refresh is required",
+            )
+        return InstrumentMetadataListResponse(
+            items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
+            refreshed_at=max(record.updated_at for record in records),
+        )
+
+    @app.post("/instruments/refresh", response_model=InstrumentMetadataListResponse)
+    def refresh_instruments() -> InstrumentMetadataListResponse:
+        try:
+            records = InstrumentMetadataStore().replace_type(
+                "SWAP",
+                OKXClient().get_instruments(inst_type="SWAP"),
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"OKX instrument metadata refresh failed: {exc}",
+            ) from exc
+        return InstrumentMetadataListResponse(
+            items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
+            refreshed_at=max(record.updated_at for record in records),
+        )
 
     @app.get("/risk/entries", response_model=EntryControlResponse)
     def get_entry_control() -> EntryControlResponse:

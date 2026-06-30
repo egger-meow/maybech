@@ -16,6 +16,8 @@ backup, and does not require a separate database service.
   evidence with filters for event type, source, logical position, and trade.
 - `src/trading/account_risk.py`: the singleton account risk envelope and live
   entry approval logic.
+- `src/trading/instrument_metadata.py`: cached OKX tradable-instrument metadata
+  for selectors and contract/display-unit conversion.
 - `src/trading/sqlite_schema.py`: shared SQLite connection configuration and
   schema migration ledger helpers.
 
@@ -40,7 +42,7 @@ algo-client, and triggered child-order identities plus explicit lifecycle
 state. `audit_events` is at version 2,
 `strategies` is at version 3, `account_risk` is at version 2 after adding the
 default-disabled entry-control singleton, and `trade_store` and
-`execution_cursors` are at version 1.
+`execution_cursors` are at version 1. `instrument_metadata` is at version 1.
 Future changes should add explicit migration steps instead of editing existing
 schema assumptions in place.
 
