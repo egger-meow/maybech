@@ -140,7 +140,10 @@ export const postData = async <T = unknown>(url: string, data?: unknown): Promis
     headers: requestHeaders(true),
     body: data ? JSON.stringify(data) : undefined,
   });
-  if (!res.ok) throw new Error(`POST ${url} failed`);
+  if (!res.ok) {
+    const info = await res.json().catch(() => null);
+    throw new ApiError(`POST ${url} failed`, res.status, info);
+  }
   return res.json();
 };
 
@@ -150,7 +153,10 @@ export const patchData = async <T = unknown>(url: string, data?: unknown): Promi
     headers: requestHeaders(true),
     body: data ? JSON.stringify(data) : undefined,
   });
-  if (!res.ok) throw new Error(`PATCH ${url} failed`);
+  if (!res.ok) {
+    const info = await res.json().catch(() => null);
+    throw new ApiError(`PATCH ${url} failed`, res.status, info);
+  }
   return res.json();
 };
 
@@ -159,7 +165,10 @@ export const deleteData = async <T = unknown>(url: string): Promise<T> => {
     method: "DELETE",
     headers: requestHeaders(),
   });
-  if (!res.ok) throw new Error(`DELETE ${url} failed`);
+  if (!res.ok) {
+    const info = await res.json().catch(() => null);
+    throw new ApiError(`DELETE ${url} failed`, res.status, info);
+  }
   return res.json();
 };
 
