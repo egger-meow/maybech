@@ -101,7 +101,9 @@ Create the account risk envelope through `PUT /risk/limits` while running the
 dry-run API, then inspect it with `GET /risk/limits`. Set operator-selected
 positive limits for one order's USD notional, total gross USD exposure, and
 maximum OKX cross leverage; keep `enabled=false` until the values are reviewed.
-These values are SQLite configuration and do not belong in `.env`.
+The mutation requires `"confirm": true`, is rejected while strategy entries
+are enabled, and writes a durable before/after audit in the same SQLite
+transaction. These values are SQLite configuration and do not belong in `.env`.
 Entry placement is a separate persisted control and defaults to disabled. Use
 `POST /risk/entries/enable` with `{ "confirm": true }` only after reviewing the
 risk envelope and successfully starting an armed live runtime. Every live

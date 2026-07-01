@@ -26,14 +26,14 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. `PUT /risk/limits` can replace the live-account safety envelope without an
-   explicit confirmation and without a durable before/after audit event. An
-   authenticated or local caller can therefore raise exposure limits without
-   leaving operator-visible mutation evidence.
-2. Risk-limit diagnostics name every missing live field, but the dashboard has
+1. Risk-limit diagnostics name every missing live field, but the dashboard has
    no first-class editor for the persisted account envelope. Operators still
    need direct API access to configure per-order notional, total exposure,
    leverage, and allowed instruments before live preflight can pass.
+2. Risk-limit writes have no revision or expected-update token. Two operator
+   sessions can edit the same envelope and a stale tab can silently overwrite a
+   newer reviewed limit, changing live-account behavior from the expectation of
+   the operator who saved most recently.
 3. Notification delivery acknowledgements currently have no retention or
    compaction policy. Long-running accounts can grow one row per delivered
    channel and lifecycle event indefinitely; eventual SQLite disk exhaustion

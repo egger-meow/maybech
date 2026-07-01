@@ -962,14 +962,34 @@ def create_app(
     def put_account_risk_limits(
         payload: AccountRiskLimitsUpdate,
     ) -> AccountRiskLimitsResponse:
-        saved = AccountRiskStore().save(
-            AccountRiskLimits(
-                enabled=payload.enabled,
-                max_order_notional_usd=Decimal(str(payload.max_order_notional_usd)),
-                max_total_exposure_usd=Decimal(str(payload.max_total_exposure_usd)),
-                max_leverage=Decimal(str(payload.max_leverage)),
+        store = AccountRiskStore()
+        audit_store = AuditEventStore(store.db_path)
+        before = store.get()
+        if before is not None and before.entries_enabled:
+            raise HTTPException(
+                status_code=409,
+                detail="Disable strategy entries before changing account risk limits",
             )
-        )
+        with store.transaction() as connection:
+            saved = store.save(
+                AccountRiskLimits(
+                    enabled=payload.enabled,
+                    max_order_notional_usd=Decimal(str(payload.max_order_notional_usd)),
+                    max_total_exposure_usd=Decimal(str(payload.max_total_exposure_usd)),
+                    max_leverage=Decimal(str(payload.max_leverage)),
+                ),
+                connection=connection,
+            )
+            _record_definition_audit(
+                audit_store,
+                event_type="risk.limits_updated",
+                payload={
+                    "before": before.to_dict() if before else None,
+                    "after": saved.to_dict(),
+                    "result": "updated",
+                },
+                connection=connection,
+            )
         return AccountRiskLimitsResponse(**saved.to_dict())
 
     @app.get("/instruments", response_model=InstrumentMetadataListResponse)

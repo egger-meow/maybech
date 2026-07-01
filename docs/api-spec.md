@@ -86,9 +86,12 @@ WebSocket accepts the token through its `token` query parameter. Non-loopback
 startup additionally requires `--allow-remote`; a token never replaces TLS.
 
 `GET /risk/limits` returns the singleton SQLite risk envelope. `PUT
-/risk/limits` replaces it with explicit `enabled`, `max_order_notional_usd`,
-`max_total_exposure_usd`, and `max_leverage` values. The order limit cannot
-exceed the total exposure limit; all numeric limits must be positive.
+/risk/limits` requires `confirm=true` and replaces it with explicit `enabled`,
+`max_order_notional_usd`, `max_total_exposure_usd`, and `max_leverage` values.
+The order limit cannot exceed the total exposure limit; all numeric limits must
+be positive. Mutations are rejected while strategy entries are enabled and
+commit a durable `risk.limits_updated` before/after audit atomically with the
+new envelope.
 
 `GET /notifications/health` returns only channel configuration booleans,
 service state, durable success/failure timestamps, bounded-backoff state, and

@@ -64,6 +64,8 @@ Frontends must use `active`; there is no `state` field.
   write support.
 - `GET/PUT /risk/limits` reads or replaces the singleton SQLite account risk
   envelope used for live order-notional, gross-exposure, and leverage checks.
+  Replacement requires explicit confirmation, is blocked while strategy
+  entries are enabled, and atomically writes before/after audit evidence.
 - `GET /risk/entries` reports persisted and process-local entry state.
 - `GET /instruments` reads the SQLite-cached live OKX SWAP catalog. It returns
   `503` when metadata has not been refreshed; no synthetic instruments or unit

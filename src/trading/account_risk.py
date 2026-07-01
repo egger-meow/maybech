@@ -182,11 +182,21 @@ class AccountRiskStore:
         with self._conn() as conn:
             return applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
 
-    def save(self, limits: AccountRiskLimits) -> AccountRiskLimits:
+    @contextmanager
+    def transaction(self) -> Generator[sqlite3.Connection, None, None]:
+        with self._conn() as conn:
+            yield conn
+
+    def save(
+        self,
+        limits: AccountRiskLimits,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> AccountRiskLimits:
         limits.validate()
         now = datetime.now(timezone.utc).isoformat()
         created_at = limits.created_at or now
-        with self._conn() as conn:
+        def persist(conn: sqlite3.Connection) -> AccountRiskLimits:
             conn.execute(
                 """INSERT INTO account_risk_limits
                    (id, enabled, max_order_notional_usd,
@@ -207,7 +217,32 @@ class AccountRiskStore:
                     now,
                 ),
             )
-        saved = self.get()
+            row = conn.execute(
+                "SELECT * FROM account_risk_limits WHERE id = 'account'"
+            ).fetchone()
+            control = conn.execute(
+                "SELECT entries_enabled FROM entry_control WHERE id = 'account'"
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Account risk limits were not persisted")
+            return AccountRiskLimits(
+                enabled=bool(row["enabled"]),
+                max_order_notional_usd=_decimal(
+                    row["max_order_notional_usd"], field="max_order_notional_usd"
+                ),
+                max_total_exposure_usd=_decimal(
+                    row["max_total_exposure_usd"], field="max_total_exposure_usd"
+                ),
+                max_leverage=_decimal(row["max_leverage"], field="max_leverage"),
+                entries_enabled=bool(control["entries_enabled"]) if control else False,
+                created_at=str(row["created_at"]),
+                updated_at=str(row["updated_at"]),
+            )
+        if connection is not None:
+            saved = persist(connection)
+        else:
+            with self._conn() as conn:
+                saved = persist(conn)
         if saved is None:
             raise RuntimeError("Account risk limits were not persisted")
         return saved

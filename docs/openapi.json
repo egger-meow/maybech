@@ -75,18 +75,14 @@
             "type": "boolean"
           },
           "max_leverage": {
-            "exclusiveMinimum": 0.0,
-            "maximum": 125.0,
             "title": "Max Leverage",
             "type": "number"
           },
           "max_order_notional_usd": {
-            "exclusiveMinimum": 0.0,
             "title": "Max Order Notional Usd",
             "type": "number"
           },
           "max_total_exposure_usd": {
-            "exclusiveMinimum": 0.0,
             "title": "Max Total Exposure Usd",
             "type": "number"
           },
@@ -108,6 +104,11 @@
       },
       "AccountRiskLimitsUpdate": {
         "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -130,6 +131,7 @@
           }
         },
         "required": [
+          "confirm",
           "enabled",
           "max_order_notional_usd",
           "max_total_exposure_usd",

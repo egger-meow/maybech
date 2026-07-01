@@ -90,6 +90,7 @@ class RuntimeCapabilitiesResponse(BaseModel):
 
 
 class AccountRiskLimitsUpdate(BaseModel):
+    confirm: Literal[True]
     enabled: bool
     max_order_notional_usd: float = Field(gt=0)
     max_total_exposure_usd: float = Field(gt=0)
@@ -104,7 +105,11 @@ class AccountRiskLimitsUpdate(BaseModel):
         return self
 
 
-class AccountRiskLimitsResponse(AccountRiskLimitsUpdate):
+class AccountRiskLimitsResponse(BaseModel):
+    enabled: bool
+    max_order_notional_usd: float
+    max_total_exposure_usd: float
+    max_leverage: float
     entries_enabled: bool = False
     created_at: str
     updated_at: str

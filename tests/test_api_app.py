@@ -8,7 +8,7 @@ from src.api.app import create_app
 from src.daemon.service import DaemonRunner, DaemonService
 from src.daemon.position_manager_service import PositionManagerService
 from src.exchange.client import arm_order_placement, disarm_order_placement
-from src.trading.account_risk import AccountRiskStore
+from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
 from src.trading.entry_control import EntryControlManager
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.logical_position_store import (
@@ -243,9 +243,20 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
 
     assert client.get("/risk/limits").status_code == 404
 
+    rejected = client.put(
+        "/risk/limits",
+        json={
+            "confirm": False,
+            "enabled": True,
+            "max_order_notional_usd": 100,
+            "max_total_exposure_usd": 500,
+            "max_leverage": 5,
+        },
+    )
     response = client.put(
         "/risk/limits",
         json={
+            "confirm": True,
             "enabled": True,
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
@@ -253,10 +264,15 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
         },
     )
 
+    assert rejected.status_code == 422
     assert response.status_code == 200
     assert response.json()["enabled"] is True
     assert response.json()["max_total_exposure_usd"] == 500
     assert client.get("/risk/limits").json() == response.json()
+    audits = AuditEventStore(store.db_path).list(event_type="risk.limits_updated")
+    assert len(audits) == 1
+    assert audits[0].payload["before"] is None
+    assert audits[0].payload["after"]["max_total_exposure_usd"] == 500
 
 
 def test_api_requires_confirmation_for_entry_enable_and_kill(monkeypatch, tmp_path):
@@ -268,6 +284,7 @@ def test_api_requires_confirmation_for_entry_enable_and_kill(monkeypatch, tmp_pa
     client.put(
         "/risk/limits",
         json={
+            "confirm": True,
             "enabled": True,
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
@@ -289,6 +306,61 @@ def test_api_requires_confirmation_for_entry_enable_and_kill(monkeypatch, tmp_pa
         assert client.get("/risk/entries").json()["entries_enabled"] is False
     finally:
         disarm_order_placement()
+
+
+def test_risk_limit_update_rolls_back_when_audit_write_fails(monkeypatch, tmp_path):
+    store = AccountRiskStore(str(tmp_path / "trades.db"))
+
+    class BrokenAuditStore:
+        def create(self, **kwargs):
+            raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr("src.api.app.AccountRiskStore", lambda: store)
+    monkeypatch.setattr("src.api.app.AuditEventStore", lambda *args: BrokenAuditStore())
+    client = TestClient(create_app(DaemonRunner()), raise_server_exceptions=False)
+
+    response = client.put(
+        "/risk/limits",
+        json={
+            "confirm": True,
+            "enabled": True,
+            "max_order_notional_usd": 100,
+            "max_total_exposure_usd": 500,
+            "max_leverage": 5,
+        },
+    )
+
+    assert response.status_code == 500
+    assert store.get() is None
+
+
+def test_risk_limit_update_requires_entries_disabled(monkeypatch, tmp_path):
+    store = AccountRiskStore(str(tmp_path / "trades.db"))
+    store.save(
+        AccountRiskLimits(
+            enabled=True,
+            max_order_notional_usd=100,
+            max_total_exposure_usd=500,
+            max_leverage=5,
+        )
+    )
+    store.set_entries_enabled(True)
+    monkeypatch.setattr("src.api.app.AccountRiskStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.put(
+        "/risk/limits",
+        json={
+            "confirm": True,
+            "enabled": True,
+            "max_order_notional_usd": 200,
+            "max_total_exposure_usd": 1000,
+            "max_leverage": 10,
+        },
+    )
+
+    assert response.status_code == 409
+    assert store.get().max_order_notional_usd == 100
 
 
 def test_api_imports_only_current_unexplained_position_gap(monkeypatch, tmp_path):
