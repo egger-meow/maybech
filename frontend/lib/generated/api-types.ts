@@ -651,6 +651,11 @@ export type StrategyDecisionResponse = {
   "completed_at"?: string | null;
 };
 
+export type StrategyEnableCommand = {
+  "confirm": true;
+  "expected_updated_at": string;
+};
+
 export type StrategyRuntimeResponse = {
   "service"?: ServiceStatusResponse | null;
   "dry_run"?: boolean | null;
@@ -807,6 +812,7 @@ export type ApiSchemas = {
   "SignalValidationResponse": SignalValidationResponse;
   "StrategyCreate": StrategyCreate;
   "StrategyDecisionResponse": StrategyDecisionResponse;
+  "StrategyEnableCommand": StrategyEnableCommand;
   "StrategyRuntimeResponse": StrategyRuntimeResponse;
   "StrategySummaryResponse": StrategySummaryResponse;
   "StrategyUpdate": StrategyUpdate;

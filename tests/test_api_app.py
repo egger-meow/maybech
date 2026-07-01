@@ -1569,9 +1569,16 @@ def test_api_enables_and_disables_persisted_strategy(monkeypatch, tmp_path):
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
 
-    enabled = client.post("/strategies/breakout/enable")
+    patch_bypass = client.patch("/strategies/breakout", json={"enabled": True})
+    current_version = store.get("breakout").updated_at
+    unconfirmed = client.post("/strategies/breakout/enable", json={"confirm": False, "expected_updated_at": current_version})
+    stale = client.post("/strategies/breakout/enable", json={"confirm": True, "expected_updated_at": "stale"})
+    enabled = client.post("/strategies/breakout/enable", json={"confirm": True, "expected_updated_at": current_version})
     disabled = client.post("/strategies/breakout/disable")
 
+    assert patch_bypass.status_code == 422
+    assert unconfirmed.status_code == 422
+    assert stale.status_code == 409
     assert enabled.status_code == 200
     assert enabled.json()["enabled"] is True
     assert disabled.status_code == 200
@@ -1589,7 +1596,7 @@ def test_api_rejects_enable_when_strategy_signal_is_invalid(monkeypatch, tmp_pat
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
 
-    response = client.post("/strategies/breakout/enable")
+    response = client.post("/strategies/breakout/enable", json={"confirm": True, "expected_updated_at": store.get("breakout").updated_at})
 
     assert response.status_code == 400
     assert "Strategy is not executable" in response.json()["detail"]["message"]
@@ -1625,7 +1632,7 @@ def test_api_rejects_strategy_enable_outside_account_allowlist(monkeypatch, tmp_
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
 
-    response = client.post("/strategies/eth-breakout/enable")
+    response = client.post("/strategies/eth-breakout/enable", json={"confirm": True, "expected_updated_at": store.get("eth-breakout").updated_at})
 
     assert response.status_code == 400
     assert "outside account risk allowlist" in response.json()["detail"]["errors"][0]

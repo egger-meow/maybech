@@ -188,7 +188,8 @@ The Strategy Management page has a persisted strategy definition contract now:
   default position rules.
 - `PATCH /strategies/{strategy_id}`: edit strategy metadata, signal expression,
   risk filters, and default position rules.
-- `POST /strategies/{strategy_id}/enable`: mark a persisted strategy enabled.
+- `POST /strategies/{strategy_id}/enable`: with `confirm=true` and the exact
+  `expected_updated_at`, mark the reviewed persisted strategy enabled.
 - `POST /strategies/{strategy_id}/disable`: mark a persisted strategy disabled.
 - `DELETE /strategies/{strategy_id}`: delete only a disabled strategy with no
   logical-position history; signal-expression children cascade with it.
@@ -270,6 +271,9 @@ The current implementation supports JSON expression objects:
 
 Persisted strategies must satisfy the complete execution contract before
 `POST /strategies/{strategy_id}/enable` succeeds.
+Creation and PATCH cannot set `enabled=true`; the dedicated endpoint is the
+only enable transition. A stale confirmation returns `409`, so a caller cannot
+review one definition and accidentally enable a newer unseen version.
 `POST /signals/evaluate` can use caller-provided context, or merge in runtime
 context with `use_runtime_context=true`. It can also fetch candle-derived
 context with `use_candle_context=true`; the evaluator derives required symbols

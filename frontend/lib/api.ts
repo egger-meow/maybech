@@ -51,6 +51,7 @@ import type {
   SignalValidationResponse,
   StrategyCreate,
   StrategyDecisionResponse,
+  StrategyEnableCommand,
   StrategySummaryResponse,
   StrategyUpdate,
   TradeDetailResponse,
@@ -113,6 +114,7 @@ export type {
   SignalValidationResponse,
   StrategyCreate,
   StrategyDecisionResponse as StrategyDecision,
+  StrategyEnableCommand,
   StrategySummaryResponse as StrategySummary,
   StrategyUpdate,
   TradeDetailResponse as TradeDetail,
@@ -356,8 +358,8 @@ export const updateStrategy = (
 ): Promise<StrategySummaryResponse> =>
   patchData<StrategySummaryResponse>(`/strategies/${encodeURIComponent(strategyId)}`, payload);
 
-export const enableStrategy = (strategyId: string): Promise<StrategySummaryResponse> =>
-  postData<StrategySummaryResponse>(`/strategies/${encodeURIComponent(strategyId)}/enable`);
+export const enableStrategy = (strategyId: string, expectedUpdatedAt: string): Promise<StrategySummaryResponse> =>
+  postData<StrategySummaryResponse>(`/strategies/${encodeURIComponent(strategyId)}/enable`, { confirm: true, expected_updated_at: expectedUpdatedAt } satisfies StrategyEnableCommand);
 
 export const disableStrategy = (strategyId: string): Promise<StrategySummaryResponse> =>
   postData<StrategySummaryResponse>(`/strategies/${encodeURIComponent(strategyId)}/disable`);

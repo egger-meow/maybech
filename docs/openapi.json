@@ -3766,6 +3766,26 @@
         "title": "StrategyDecisionResponse",
         "type": "object"
       },
+      "StrategyEnableCommand": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "expected_updated_at": {
+            "minLength": 1,
+            "title": "Expected Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "expected_updated_at"
+        ],
+        "title": "StrategyEnableCommand",
+        "type": "object"
+      },
       "StrategyRuntimeResponse": {
         "properties": {
           "dry_run": {
@@ -6771,6 +6791,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyEnableCommand"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

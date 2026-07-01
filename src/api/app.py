@@ -116,6 +116,7 @@ from src.api.schemas import (
     SignalValidationRequest,
     SignalValidationResponse,
     StrategyCreate,
+    StrategyEnableCommand,
     StrategyDecisionResponse,
     StrategyRuntimeResponse,
     StrategySummaryResponse,
@@ -1557,13 +1558,24 @@ def create_app(
         return _strategy_summary(runner, strategy, store)
 
     @app.post("/strategies/{strategy_id}/enable", response_model=StrategySummaryResponse)
-    def enable_strategy(strategy_id: str) -> StrategySummaryResponse:
+    def enable_strategy(
+        strategy_id: str,
+        payload: StrategyEnableCommand,
+    ) -> StrategySummaryResponse:
         store = StrategyStore()
         audit_store = AuditEventStore(store.db_path)
         with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
             strategy = store.get(strategy_id)
             if strategy is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")
+            if payload.expected_updated_at != strategy.updated_at:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Strategy changed since enable was confirmed",
+                        "current_updated_at": strategy.updated_at,
+                    },
+                )
             validation_errors = _strategy_validation_errors(strategy, store)
             if validation_errors:
                 raise HTTPException(

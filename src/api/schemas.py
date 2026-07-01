@@ -683,6 +683,12 @@ class StrategyCreate(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     execution_delay_seconds: int = Field(default=0, ge=0, le=86400)
 
+    @model_validator(mode="after")
+    def require_dedicated_enable(self) -> "StrategyCreate":
+        if self.enabled:
+            raise ValueError("Create strategies disabled, then use the confirmed enable endpoint")
+        return self
+
 
 class StrategyUpdate(BaseModel):
     name: str | None = None
@@ -693,6 +699,17 @@ class StrategyUpdate(BaseModel):
     default_rules: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
     execution_delay_seconds: int | None = Field(default=None, ge=0, le=86400)
+
+    @model_validator(mode="after")
+    def require_dedicated_enable(self) -> "StrategyUpdate":
+        if self.enabled is True:
+            raise ValueError("Use the confirmed strategy enable endpoint")
+        return self
+
+
+class StrategyEnableCommand(BaseModel):
+    confirm: Literal[True]
+    expected_updated_at: str = Field(min_length=1)
 
 
 class StrategySummaryResponse(BaseModel):

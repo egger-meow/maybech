@@ -228,7 +228,14 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
     if (!strategy) return;
     if (!strategy.enabled && !confirm("啟用策略後，在實盤已武裝且進場閘門開啟時可能建立真實部位。確定啟用？")) return;
     setBusy(true); setError("");
-    try { if (strategy.enabled) await disableStrategy(strategy.id); else await enableStrategy(strategy.id); await onSaved(strategy.id); }
+    try {
+      if (strategy.enabled) await disableStrategy(strategy.id);
+      else {
+        if (!strategy.updated_at) throw new Error("策略版本時間缺失，無法安全確認啟用。請重新整理。");
+        await enableStrategy(strategy.id, strategy.updated_at);
+      }
+      await onSaved(strategy.id);
+    }
     catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   };
   const remove = async () => {
