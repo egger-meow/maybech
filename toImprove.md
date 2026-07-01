@@ -26,11 +26,14 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Generic LINE cooldown is implemented and legacy price alerts are gone, but
-   lifecycle audit categories are not yet routed to LINE/Gmail. Phone/email
-   monitoring therefore does not yet cover strategy, position, runtime-safety,
-   and exchange/API failures end to end.
-2. Risk-limit diagnostics name every missing live field, but the dashboard has
+1. Lifecycle notifications route current audits, but their delivery cursor is
+   process-local. A notifier outage or restart can therefore miss lifecycle
+   events written while delivery was unavailable instead of resuming from a
+   durable acknowledged cursor.
+2. LINE/Gmail transport failures currently remain in process logs only. The
+   dashboard has no persisted delivery health or failed-delivery evidence, so
+   an operator can incorrectly assume phone/email monitoring is functioning.
+3. Risk-limit diagnostics name every missing live field, but the dashboard has
    no first-class editor for the persisted account envelope. Operators still
    need direct API access to configure per-order notional, total exposure,
    leverage, and allowed instruments before live preflight can pass.

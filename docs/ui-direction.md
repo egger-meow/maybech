@@ -15,6 +15,13 @@ The dashboard should make these pages first-class:
 
 Strategy Management and Position Management are the two core product pages.
 
+A future top-right Demo / Real selector must make the active environment
+visually obvious but must not arm orders, enable strategies, or open the entry
+gate. Demo maps to `DEMO_OKX_*` plus `OKX_FLAG=1`; Real maps to `OKX_*` plus
+`OKX_FLAG=0`. Until separately locked databases, account scopes, ports, and
+single leaders can be proven, changing environment should require a restart
+rather than suggesting safe one-click concurrent operation.
+
 ## Strategy Management Page
 
 Purpose: manage pre-position plans.

@@ -24,9 +24,31 @@ Production credentials use `OKX_API_KEY`, `OKX_API_SECRET`, and
 production credentials. Never copy real values into `.env.example` or docs.
 Trading instruments, timeframe, signals, default close rules, and contract
 counts are strategy data in SQLite; they are intentionally absent from `.env`.
-`NOTIFICATION_COOLDOWN_SECONDS` controls duplicate suppression for generic LINE
-lifecycle messages and defaults to 300. There is no standalone market-price
-alert service; price logic belongs in persisted strategy/position expressions.
+`NOTIFICATION_COOLDOWN_SECONDS` controls duplicate suppression for LINE and
+Gmail lifecycle messages and defaults to 300. There is no standalone
+market-price alert service; price logic belongs in persisted strategy/position
+expressions.
+
+### Future Demo / Real Dashboard Switch
+
+The planned top-right environment selector is documentation-only in this
+release. It must make the selected environment visually unmistakable:
+
+- Demo selects only `DEMO_OKX_API_KEY`, `DEMO_OKX_API_SECRET`, and
+  `DEMO_OKX_PASSPHRASE`, with `OKX_FLAG=1`.
+- Real selects only `OKX_API_KEY`, `OKX_API_SECRET`, and `OKX_PASSPHRASE`, with
+  `OKX_FLAG=0`.
+- Switching the label or credential set must never set
+  `MAYBECH_ARM_ORDERS=1`, pass preflight, enable a strategy, or open the entry
+  gate. It is an environment choice, not one-click live arming.
+
+Demo and Real must not share one SQLite database or one execution process.
+Maybech's database lease and hashed OKX-account lease intentionally allow only
+one mutating leader for a database/account scope. Side-by-side operation is
+safe only as two explicitly separated deployments with different absolute
+`MAYBECH_DB_PATH` values, credential scopes, ports, runtime locks, and one
+leader per account. Until the UI can prove that separation, it should require a
+restart to change environments rather than imply both are concurrently safe.
 
 ## Guarded Path To Real Money
 

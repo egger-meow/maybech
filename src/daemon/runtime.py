@@ -5,6 +5,7 @@ from __future__ import annotations
 from src.daemon.account_service import AccountSnapshotService
 from src.daemon.btc_regime_service import BTCRegimeService
 from src.daemon.execution_fill_service import ExecutionFillService
+from src.daemon.lifecycle_notification_service import LifecycleNotificationService
 from src.daemon.position_intent_service import PositionIntentService
 from src.daemon.position_manager_service import PositionManagerService
 from src.daemon.service import DaemonRunner
@@ -20,6 +21,7 @@ from src.trading.strategy_store import StrategyStore
 from src.trading.trade_store import TradeStore
 from src.trading.execution_allocation import ExecutionAllocationService
 from src.trading.account_risk import AccountRiskStore
+from src.trading.audit_event_store import AuditEventStore
 from src.trading.entry_control import EntryControlManager
 
 
@@ -67,6 +69,11 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
         )
         if include_strategy:
             runner.register(StrategyService(dry_run=dry_run, trade_store=store))
+        runner.register(
+            LifecycleNotificationService(
+                audit_store=AuditEventStore(store.db_path),
+            )
+        )
         lease_service.setup()
         if not dry_run:
             required_services = {
