@@ -21,6 +21,8 @@ from src.data.candles import CandleManager
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
 from src.exchange.client import OKXClient, entry_order_placement_enabled
+from src.notifications.email_alert import EmailNotifier
+from src.notifications.line_bot import LineBotNotifier
 
 from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
 from src.trading.audit_event_store import AuditEventRecord, AuditEventStore
@@ -77,6 +79,9 @@ from src.api.schemas import (
     LivePreflightResponse,
     LogicalPositionUnitResponse,
     ManualPositionOpenRequest,
+    NotificationHealthResponse,
+    NotificationTestRequest,
+    NotificationTestResponse,
     LogicalPositionCloseConditionCreate,
     LogicalPositionCloseConditionResponse,
     LogicalPositionCloseConditionUpdate,
@@ -806,6 +811,106 @@ def create_app(
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return {"ok": True, "running": runner.running}
+
+    @app.get("/notifications/health", response_model=NotificationHealthResponse)
+    def get_notification_health() -> NotificationHealthResponse:
+        store = AuditEventStore()
+        persisted = store.notification_delivery_health("lifecycle_notifications")
+        now = datetime.now(timezone.utc)
+        configured = {
+            "line": bool(
+                settings.LINE_CHANNEL_ACCESS_TOKEN
+                and settings.LINE_CHANNEL_SECRET
+                and settings.LINE_USER_ID
+            ),
+            "email": bool(
+                settings.EMAIL_SENDER
+                and settings.EMAIL_PASSWORD
+                and settings.EMAIL_RECEIVER
+            ),
+        }
+        channels = []
+        for channel in ("line", "email"):
+            record = persisted.get(channel, {})
+            if not configured[channel]:
+                state = "disabled"
+            elif int(record.get("consecutive_failures") or 0) > 0:
+                retry_at = str(record.get("next_retry_at") or "")
+                state = "backoff" if retry_at and retry_at > now.isoformat() else "failing"
+            elif record.get("last_success_at"):
+                state = "healthy"
+            else:
+                state = "unverified"
+            channels.append(
+                {
+                    "channel": channel,
+                    "configured": configured[channel],
+                    "state": state,
+                    "last_attempt_at": record.get("last_attempt_at") or None,
+                    "last_success_at": record.get("last_success_at") or None,
+                    "last_failure_at": record.get("last_failure_at") or None,
+                    "last_error": record.get("last_error") or None,
+                    "consecutive_failures": int(record.get("consecutive_failures") or 0),
+                    "next_retry_at": record.get("next_retry_at") or None,
+                }
+            )
+        service = runner.get_service_status("lifecycle_notifications")
+        return NotificationHealthResponse(
+            service_enabled=bool(service and service.get("active", False)),
+            backlog_count=store.pending_delivery_count("lifecycle_notifications"),
+            channels=channels,
+            checked_at=now.isoformat(),
+        )
+
+    @app.post("/notifications/test", response_model=NotificationTestResponse)
+    def test_notification(payload: NotificationTestRequest) -> NotificationTestResponse:
+        store = AuditEventStore()
+        event_id = f"notification-test-{uuid4().hex}"
+        attempted_at = datetime.now(timezone.utc).isoformat()
+        message = f"Maybech｜通知測試\n通道：{payload.channel}\n時間：{attempted_at}"
+        notifier = LineBotNotifier() if payload.channel == "line" else EmailNotifier()
+        if not notifier.enabled:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{payload.channel} notification channel is not configured",
+            )
+        store.create(
+            id=event_id,
+            type="notification.test_requested",
+            source="product_api",
+            payload={"channel": payload.channel},
+            created_at=attempted_at,
+        )
+        success = (
+            notifier.send(message)
+            if payload.channel == "line"
+            else notifier.send("Maybech｜通知測試", message)
+        )
+        error = "" if success else str(notifier.last_error or "transport returned failure")
+        store.record_notification_delivery_attempt(
+            "lifecycle_notifications",
+            payload.channel,
+            event_id=event_id,
+            succeeded=success,
+            error=error,
+        )
+        store.create(
+            type="notification.test_completed",
+            source="product_api",
+            payload={
+                "channel": payload.channel,
+                "result": "success" if success else "failed",
+                "error": error or None,
+                "correlation_id": event_id,
+            },
+        )
+        return NotificationTestResponse(
+            channel=payload.channel,
+            success=success,
+            state="healthy" if success else "failing",
+            attempted_at=attempted_at,
+            error=error or None,
+        )
 
     @app.get("/runtime/preflight", response_model=LivePreflightResponse)
     def get_live_preflight() -> LivePreflightResponse:

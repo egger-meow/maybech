@@ -21,6 +21,8 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /runtime/preflight`
 - `GET /runtime/lease`
 - `GET /runtime/capabilities`
+- `GET /notifications/health`
+- `POST /notifications/test`
 - `GET /risk/limits`
 - `PUT /risk/limits`
 - `GET /risk/entries`
@@ -87,6 +89,14 @@ startup additionally requires `--allow-remote`; a token never replaces TLS.
 /risk/limits` replaces it with explicit `enabled`, `max_order_notional_usd`,
 `max_total_exposure_usd`, and `max_leverage` values. The order limit cannot
 exceed the total exposure limit; all numeric limits must be positive.
+
+`GET /notifications/health` returns only channel configuration booleans,
+service state, durable success/failure timestamps, bounded-backoff state, and
+the queued audit count. It never returns LINE tokens, user IDs, SMTP passwords,
+or destination addresses. `POST /notifications/test` requires
+`{ "confirm": true, "channel": "line" | "email" }`, performs one real
+transport call, records requested/completed audit evidence and persistent
+health, and reports transport acceptance honestly.
 
 `GET /instruments` returns the cached, currently tradable OKX SWAP instrument
 metadata used by operator selectors and sizing conversion. An empty cache is a

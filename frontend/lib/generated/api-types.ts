@@ -385,6 +385,38 @@ export type MutationStatusResponse = {
   "id": string;
 };
 
+export type NotificationChannelHealthResponse = {
+  "channel": "line" | "email";
+  "configured": boolean;
+  "state": "disabled" | "unverified" | "healthy" | "failing" | "backoff";
+  "last_attempt_at"?: string | null;
+  "last_success_at"?: string | null;
+  "last_failure_at"?: string | null;
+  "last_error"?: string | null;
+  "consecutive_failures"?: number;
+  "next_retry_at"?: string | null;
+};
+
+export type NotificationHealthResponse = {
+  "service_enabled": boolean;
+  "backlog_count": number;
+  "channels": NotificationChannelHealthResponse[];
+  "checked_at": string;
+};
+
+export type NotificationTestRequest = {
+  "confirm": true;
+  "channel": "line" | "email";
+};
+
+export type NotificationTestResponse = {
+  "channel": "line" | "email";
+  "success": boolean;
+  "state": "healthy" | "failing";
+  "attempted_at": string;
+  "error"?: string | null;
+};
+
 export type PositionBreakEvenCommand = {
   "confirm": true;
   "condition_id": string;
@@ -741,6 +773,10 @@ export type ApiSchemas = {
   "ManualPositionOpenRequest": ManualPositionOpenRequest;
   "MarketCandlesResponse": MarketCandlesResponse;
   "MutationStatusResponse": MutationStatusResponse;
+  "NotificationChannelHealthResponse": NotificationChannelHealthResponse;
+  "NotificationHealthResponse": NotificationHealthResponse;
+  "NotificationTestRequest": NotificationTestRequest;
+  "NotificationTestResponse": NotificationTestResponse;
   "PositionBreakEvenCommand": PositionBreakEvenCommand;
   "PositionChartOverlayResponse": PositionChartOverlayResponse;
   "PositionGroupResponse": PositionGroupResponse;

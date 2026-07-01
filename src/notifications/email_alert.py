@@ -20,6 +20,7 @@ class EmailNotifier:
     """Sends email notifications via SMTP."""
 
     def __init__(self) -> None:
+        self.last_error = ""
         self.cooldown_seconds = max(0, settings.NOTIFICATION_COOLDOWN_SECONDS)
         self._sent_at: dict[str, float] = {}
         self.enabled = bool(
@@ -63,8 +64,10 @@ class EmailNotifier:
                     message.as_string(),
                 )
             self._sent_at[fingerprint] = now
+            self.last_error = ""
             logger.info("Email notification sent successfully.")
             return True
         except Exception as exc:
             logger.error("Failed to send email notification: %s", exc)
+            self.last_error = type(exc).__name__
             return False

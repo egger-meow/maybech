@@ -37,6 +37,7 @@ def test_lifecycle_service_delivers_only_new_supported_audits(tmp_path):
         audit_store=store,
         line=line,  # type: ignore[arg-type]
         email=email,  # type: ignore[arg-type]
+        retry_base_seconds=0,
     )
     service.runtime = RuntimeState()
     service.setup()
@@ -69,6 +70,7 @@ def test_runtime_service_error_routes_as_safety_failure(tmp_path):
         audit_store=AuditEventStore(str(tmp_path / "trades.db")),
         line=line,  # type: ignore[arg-type]
         email=email,  # type: ignore[arg-type]
+        retry_base_seconds=0,
     )
     service.runtime = runtime
     service.setup()
@@ -122,6 +124,7 @@ def test_lifecycle_cursor_retries_failure_before_later_events(tmp_path):
         audit_store=store,
         line=line,  # type: ignore[arg-type]
         email=RecordingNotifier(),  # type: ignore[arg-type]
+        retry_base_seconds=0,
     )
     service.setup()
     store.create(type="strategy.enabled", source="api", payload={"strategy_id": "a"})
@@ -147,6 +150,7 @@ def test_lifecycle_retry_does_not_redeliver_acknowledged_channel(tmp_path):
         audit_store=store,
         line=line,  # type: ignore[arg-type]
         email=email,  # type: ignore[arg-type]
+        retry_base_seconds=0,
     )
     service.setup()
     store.create(type="strategy.enabled", source="api", payload={"strategy_id": "a"})
@@ -157,6 +161,29 @@ def test_lifecycle_retry_does_not_redeliver_acknowledged_channel(tmp_path):
 
     assert len(line.messages) == 1
     assert len(service.email.messages) == 1  # type: ignore[attr-defined]
+
+
+def test_lifecycle_failure_persists_health_and_bounded_backoff(tmp_path):
+    store = AuditEventStore(str(tmp_path / "trades.db"))
+    line = FailingNotifier()
+    service = LifecycleNotificationService(
+        audit_store=store,
+        line=line,  # type: ignore[arg-type]
+        email=RecordingNotifier(),  # type: ignore[arg-type]
+        retry_base_seconds=30,
+        retry_max_seconds=60,
+    )
+    service.setup()
+    store.create(type="strategy.enabled", source="api", payload={"strategy_id": "a"})
+
+    service.tick()
+    service.tick()
+
+    health = store.notification_delivery_health("lifecycle_notifications")["line"]
+    assert len(line.messages) == 1
+    assert health["consecutive_failures"] == 1
+    assert health["last_failure_at"]
+    assert health["next_retry_at"] > health["last_failure_at"]
 
 
 def test_category_mapping_covers_confirmed_position_lifecycle():

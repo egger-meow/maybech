@@ -101,11 +101,15 @@ class LifecycleNotificationService(DaemonService):
         audit_store: AuditEventStore,
         line: LineBotNotifier | None = None,
         email: EmailNotifier | None = None,
+        retry_base_seconds: float = 5,
+        retry_max_seconds: float = 900,
     ) -> None:
         super().__init__()
         self.audit_store = audit_store
         self.line = line or LineBotNotifier()
         self.email = email or EmailNotifier()
+        self.retry_base_seconds = max(0, retry_base_seconds)
+        self.retry_max_seconds = max(self.retry_base_seconds, retry_max_seconds)
         self._unsubscribe: Callable[[], None] | None = None
 
     def setup(self) -> None:
@@ -157,7 +161,22 @@ class LifecycleNotificationService(DaemonService):
         for channel, notifier, args in channels:
             if channel in acknowledged or getattr(notifier, "enabled", True) is False:
                 continue
-            if notifier.send(*args):
+            if not self.audit_store.notification_channel_retry_ready(
+                self._consumer, channel
+            ):
+                delivered = False
+                continue
+            succeeded = notifier.send(*args)
+            self.audit_store.record_notification_delivery_attempt(
+                self._consumer,
+                channel,
+                event_id=event.id,
+                succeeded=succeeded,
+                error=str(getattr(notifier, "last_error", "")),
+                retry_base_seconds=self.retry_base_seconds,
+                retry_max_seconds=self.retry_max_seconds,
+            )
+            if succeeded:
                 self.audit_store.acknowledge_delivery_channel(
                     self._consumer, event.id, channel
                 )

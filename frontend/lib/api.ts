@@ -26,6 +26,9 @@ import type {
   ManualPositionOpenRequest,
   LivePreflightResponse,
   MutationStatusResponse,
+  NotificationHealthResponse,
+  NotificationTestRequest,
+  NotificationTestResponse,
   MarketCandlesResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
@@ -82,6 +85,9 @@ export type {
   LogicalPositionAllocationResponse,
   LogicalPositionChartResponse,
   MutationStatusResponse,
+  NotificationHealthResponse,
+  NotificationTestRequest,
+  NotificationTestResponse,
   MarketCandlesResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
@@ -112,6 +118,8 @@ export type {
   TradeRuleResponse as TradeRule,
   TradeResponse,
 } from "./generated/api-types";
+
+export type { NotificationChannelHealthResponse } from "./generated/api-types";
 
 export class ApiError extends Error {
   info: unknown;
@@ -196,6 +204,14 @@ export const getAccountSnapshot = (): Promise<AccountSnapshotResponse> =>
 
 export const getLivePreflight = (): Promise<LivePreflightResponse> =>
   fetcher<LivePreflightResponse>("/runtime/preflight");
+
+export const getNotificationHealth = (): Promise<NotificationHealthResponse> =>
+  fetcher<NotificationHealthResponse>("/notifications/health");
+
+export const sendNotificationTest = (
+  payload: NotificationTestRequest,
+): Promise<NotificationTestResponse> =>
+  postData<NotificationTestResponse>("/notifications/test", payload);
 
 export const getRiskLimits = (): Promise<AccountRiskLimitsResponse> =>
   fetcher<AccountRiskLimitsResponse>("/risk/limits");

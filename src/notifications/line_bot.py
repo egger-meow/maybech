@@ -46,6 +46,7 @@ class LineBotNotifier:
     """Sends push notifications via LINE Messaging API."""
 
     def __init__(self) -> None:
+        self.last_error = ""
         self.cooldown_seconds = max(0, settings.NOTIFICATION_COOLDOWN_SECONDS)
         self._sent_at: dict[str, float] = {}
         self.enabled = bool(
@@ -63,6 +64,7 @@ class LineBotNotifier:
             self._user_id = settings.LINE_USER_ID
         except Exception as e:
             logger.error(f"Failed to initialize LINE Bot API: {e}")
+            self.last_error = type(e).__name__
             self.enabled = False
 
     def send(self, message: str) -> bool:
@@ -87,9 +89,11 @@ class LineBotNotifier:
             )
             self._api.push_message(request)
             self._sent_at[fingerprint] = now
+            self.last_error = ""
             logger.info("LINE message sent successfully.")
             return True
         except Exception as e:
             # Avoid logging the sensitive tokens/ID which might be in the exception repr
             logger.error(f"Failed to send LINE message: {e}")
+            self.last_error = type(e).__name__
             return False

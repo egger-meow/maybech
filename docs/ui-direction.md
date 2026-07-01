@@ -22,6 +22,14 @@ gate. Demo maps to `DEMO_OKX_*` plus `OKX_FLAG=1`; Real maps to `OKX_*` plus
 single leaders can be proven, changing environment should require a restart
 rather than suggesting safe one-click concurrent operation.
 
+## Notification Management Page
+
+- First-class Traditional Chinese page for LINE and Gmail channel readiness.
+- Show persisted last success/failure, failure class, retry time, consecutive
+  failures, service state, and queued lifecycle-event count honestly.
+- Require a visible confirmation before a real test message is sent.
+- Never return or render tokens, passwords, user IDs, or destination addresses.
+
 ## Strategy Management Page
 
 Purpose: manage pre-position plans.

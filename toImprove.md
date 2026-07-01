@@ -26,20 +26,18 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. LINE/Gmail transport failures currently remain in process logs only. The
-   dashboard has no persisted delivery health or failed-delivery evidence, so
-   an operator can incorrectly assume phone/email monitoring is functioning.
-   Add a first-class LINE/Gmail management page with channel readiness,
-   persisted delivery health, backlog/failure evidence, and an explicit test
-   action; never expose stored credentials in API responses or the browser.
+1. `PUT /risk/limits` can replace the live-account safety envelope without an
+   explicit confirmation and without a durable before/after audit event. An
+   authenticated or local caller can therefore raise exposure limits without
+   leaving operator-visible mutation evidence.
 2. Risk-limit diagnostics name every missing live field, but the dashboard has
    no first-class editor for the persisted account envelope. Operators still
    need direct API access to configure per-order notional, total exposure,
    leverage, and allowed instruments before live preflight can pass.
-3. Lifecycle delivery retries currently run at the daemon's fixed two-second
-   polling interval. A prolonged LINE or SMTP outage can repeatedly hammer the
-   failed transport and fill process logs instead of using persisted bounded
-   exponential backoff while keeping the queued event visible to the operator.
+3. Notification delivery acknowledgements currently have no retention or
+   compaction policy. Long-running accounts can grow one row per delivered
+   channel and lifecycle event indefinitely; eventual SQLite disk exhaustion
+   could prevent new audits and trading-state writes.
 
 ## Non-Blocking / Later
 

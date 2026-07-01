@@ -292,7 +292,12 @@ raw payloads are never included. The audit consumer stores its acknowledged
 event cursor and per-channel acknowledgements in SQLite. A restart therefore
 resumes after the last fully handled event; a failed channel is retried without
 resending an already acknowledged sibling channel, and later events remain
-queued in order until the failed event succeeds.
+queued in order until the failed event succeeds. Failed transports use
+persistent exponential backoff from five seconds up to fifteen minutes. The
+Traditional Chinese Notification Management page reads
+`GET /notifications/health` and provides a separately confirmed real test
+action through `POST /notifications/test`; neither contract exposes secrets or
+notification destinations.
 
 ## Safety Notes
 

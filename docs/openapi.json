@@ -2191,6 +2191,201 @@
         "title": "MutationStatusResponse",
         "type": "object"
       },
+      "NotificationChannelHealthResponse": {
+        "properties": {
+          "channel": {
+            "enum": [
+              "line",
+              "email"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "consecutive_failures": {
+            "default": 0,
+            "title": "Consecutive Failures",
+            "type": "integer"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_failure_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure At"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
+          },
+          "state": {
+            "enum": [
+              "disabled",
+              "unverified",
+              "healthy",
+              "failing",
+              "backoff"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "configured",
+          "state"
+        ],
+        "title": "NotificationChannelHealthResponse",
+        "type": "object"
+      },
+      "NotificationHealthResponse": {
+        "properties": {
+          "backlog_count": {
+            "title": "Backlog Count",
+            "type": "integer"
+          },
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationChannelHealthResponse"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "service_enabled": {
+            "title": "Service Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "service_enabled",
+          "backlog_count",
+          "channels",
+          "checked_at"
+        ],
+        "title": "NotificationHealthResponse",
+        "type": "object"
+      },
+      "NotificationTestRequest": {
+        "properties": {
+          "channel": {
+            "enum": [
+              "line",
+              "email"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm",
+          "channel"
+        ],
+        "title": "NotificationTestRequest",
+        "type": "object"
+      },
+      "NotificationTestResponse": {
+        "properties": {
+          "attempted_at": {
+            "title": "Attempted At",
+            "type": "string"
+          },
+          "channel": {
+            "enum": [
+              "line",
+              "email"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "state": {
+            "enum": [
+              "healthy",
+              "failing"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "channel",
+          "success",
+          "state",
+          "attempted_at"
+        ],
+        "title": "NotificationTestResponse",
+        "type": "object"
+      },
       "PositionBreakEvenCommand": {
         "properties": {
           "condition_id": {
@@ -4682,6 +4877,62 @@
           }
         },
         "summary": "Get Market Candles"
+      }
+    },
+    "/notifications/health": {
+      "get": {
+        "operationId": "get_notification_health_notifications_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Notification Health"
+      }
+    },
+    "/notifications/test": {
+      "post": {
+        "operationId": "test_notification_notifications_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationTestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Notification"
       }
     },
     "/position/intents": {

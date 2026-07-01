@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Generator
 from uuid import uuid4
@@ -23,7 +23,7 @@ from src.trading.sqlite_schema import (
 
 
 _SCHEMA_COMPONENT = "audit_events"
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 _SCHEMA = """
@@ -71,6 +71,21 @@ CREATE TABLE IF NOT EXISTS notification_delivery_acknowledgements (
     acknowledged_at TEXT NOT NULL,
     PRIMARY KEY (consumer, event_id, channel),
     FOREIGN KEY (event_id) REFERENCES audit_events(id) ON DELETE CASCADE
+);
+"""
+
+_SCHEMA_V4_NOTIFICATION_HEALTH = """
+CREATE TABLE IF NOT EXISTS notification_delivery_health (
+    consumer             TEXT NOT NULL,
+    channel              TEXT NOT NULL,
+    last_event_id        TEXT NOT NULL DEFAULT '',
+    last_attempt_at      TEXT NOT NULL DEFAULT '',
+    last_success_at      TEXT NOT NULL DEFAULT '',
+    last_failure_at      TEXT NOT NULL DEFAULT '',
+    last_error           TEXT NOT NULL DEFAULT '',
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    next_retry_at        TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (consumer, channel)
 );
 """
 
@@ -186,6 +201,9 @@ class AuditEventStore:
             versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
             if 3 not in versions:
                 self._migrate_v3(conn)
+            versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
+            if 4 not in versions:
+                self._migrate_v4(conn)
 
     @staticmethod
     def _migrate_v2(conn: sqlite3.Connection) -> None:
@@ -208,6 +226,11 @@ class AuditEventStore:
     def _migrate_v3(conn: sqlite3.Connection) -> None:
         conn.executescript(_SCHEMA_V3_NOTIFICATIONS)
         record_schema_version(conn, component=_SCHEMA_COMPONENT, version=3)
+
+    @staticmethod
+    def _migrate_v4(conn: sqlite3.Connection) -> None:
+        conn.executescript(_SCHEMA_V4_NOTIFICATION_HEALTH)
+        record_schema_version(conn, component=_SCHEMA_COMPONENT, version=4)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -466,3 +489,98 @@ class AuditEventStore:
                 "event_id = excluded.event_id, updated_at = excluded.updated_at",
                 (consumer, event.created_at, event.id, now),
             )
+
+    def pending_delivery_count(self, consumer: str) -> int:
+        with self._conn() as conn:
+            cursor = conn.execute(
+                "SELECT event_created_at, event_id FROM notification_delivery_cursors "
+                "WHERE consumer = ?",
+                (consumer,),
+            ).fetchone()
+            if cursor is None:
+                row = conn.execute("SELECT COUNT(*) AS count FROM audit_events").fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS count FROM audit_events "
+                    "WHERE created_at > ? OR (created_at = ? AND id > ?)",
+                    (
+                        cursor["event_created_at"],
+                        cursor["event_created_at"],
+                        cursor["event_id"],
+                    ),
+                ).fetchone()
+        return int(row["count"] if row is not None else 0)
+
+    def notification_delivery_health(self, consumer: str) -> dict[str, dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM notification_delivery_health WHERE consumer = ?",
+                (consumer,),
+            ).fetchall()
+        return {str(row["channel"]): dict(row) for row in rows}
+
+    def notification_channel_retry_ready(
+        self,
+        consumer: str,
+        channel: str,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        current = now or datetime.now(timezone.utc)
+        health = self.notification_delivery_health(consumer).get(channel)
+        if not health or not health.get("next_retry_at"):
+            return True
+        try:
+            return current >= datetime.fromisoformat(str(health["next_retry_at"]))
+        except ValueError:
+            return True
+
+    def record_notification_delivery_attempt(
+        self,
+        consumer: str,
+        channel: str,
+        *,
+        event_id: str,
+        succeeded: bool,
+        error: str = "",
+        retry_base_seconds: float = 5,
+        retry_max_seconds: float = 900,
+    ) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        with self._conn() as conn:
+            previous = conn.execute(
+                "SELECT * FROM notification_delivery_health "
+                "WHERE consumer = ? AND channel = ?",
+                (consumer, channel),
+            ).fetchone()
+            failures = 0 if succeeded else int(previous["consecutive_failures"] if previous else 0) + 1
+            delay = min(retry_max_seconds, retry_base_seconds * (2 ** max(0, failures - 1)))
+            next_retry_at = "" if succeeded else (now + timedelta(seconds=delay)).isoformat()
+            conn.execute(
+                "INSERT INTO notification_delivery_health "
+                "(consumer, channel, last_event_id, last_attempt_at, last_success_at, "
+                "last_failure_at, last_error, consecutive_failures, next_retry_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(consumer, channel) DO UPDATE SET "
+                "last_event_id = excluded.last_event_id, "
+                "last_attempt_at = excluded.last_attempt_at, "
+                "last_success_at = CASE WHEN excluded.last_success_at != '' "
+                "THEN excluded.last_success_at ELSE notification_delivery_health.last_success_at END, "
+                "last_failure_at = CASE WHEN excluded.last_failure_at != '' "
+                "THEN excluded.last_failure_at ELSE notification_delivery_health.last_failure_at END, "
+                "last_error = excluded.last_error, "
+                "consecutive_failures = excluded.consecutive_failures, "
+                "next_retry_at = excluded.next_retry_at",
+                (
+                    consumer,
+                    channel,
+                    event_id,
+                    now.isoformat(),
+                    now.isoformat() if succeeded else "",
+                    "" if succeeded else now.isoformat(),
+                    "" if succeeded else (error or "transport returned failure")[:256],
+                    failures,
+                    next_retry_at,
+                ),
+            )
+        return self.notification_delivery_health(consumer)[channel]

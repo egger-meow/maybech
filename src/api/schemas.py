@@ -20,6 +20,38 @@ class HealthResponse(BaseModel):
     running: bool
 
 
+class NotificationChannelHealthResponse(BaseModel):
+    channel: Literal["line", "email"]
+    configured: bool
+    state: Literal["disabled", "unverified", "healthy", "failing", "backoff"]
+    last_attempt_at: str | None = None
+    last_success_at: str | None = None
+    last_failure_at: str | None = None
+    last_error: str | None = None
+    consecutive_failures: int = 0
+    next_retry_at: str | None = None
+
+
+class NotificationHealthResponse(BaseModel):
+    service_enabled: bool
+    backlog_count: int
+    channels: list[NotificationChannelHealthResponse]
+    checked_at: str
+
+
+class NotificationTestRequest(BaseModel):
+    confirm: Literal[True]
+    channel: Literal["line", "email"]
+
+
+class NotificationTestResponse(BaseModel):
+    channel: Literal["line", "email"]
+    success: bool
+    state: Literal["healthy", "failing"]
+    attempted_at: str
+    error: str | None = None
+
+
 class LivePreflightResponse(BaseModel):
     passed: bool
     armed: bool

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -49,6 +51,81 @@ class StrategyApiMockService(DaemonService):
 class ApiCloseExecutor:
     def close_position(self, **kwargs):
         return {"ordId": "api-close-order"}
+
+
+class NotificationApiMockService(DaemonService):
+    name = "lifecycle_notifications"
+    interval = 2.0
+
+    def setup(self):
+        pass
+
+    def tick(self):
+        pass
+
+
+class SuccessfulNotificationTestNotifier:
+    enabled = True
+    last_error = ""
+
+    def send(self, *parts: str) -> bool:
+        return True
+
+
+def test_notification_health_exposes_readiness_without_credentials(tmp_path, monkeypatch):
+    store = AuditEventStore(str(tmp_path / "notifications.db"))
+    store.record_notification_delivery_attempt(
+        "lifecycle_notifications",
+        "line",
+        event_id="line-health",
+        succeeded=False,
+        error="TimeoutError",
+    )
+    monkeypatch.setattr("src.api.app.AuditEventStore", lambda *args: store)
+    from src.api.app import settings as api_settings
+    monkeypatch.setattr(
+        "src.api.app.settings",
+        replace(
+            api_settings,
+            LINE_CHANNEL_ACCESS_TOKEN="secret-token",
+            LINE_CHANNEL_SECRET="secret-value",
+            LINE_USER_ID="private-user",
+        ),
+    )
+    runner = DaemonRunner()
+    runner.register(NotificationApiMockService())
+
+    body = TestClient(create_app(runner)).get("/notifications/health").json()
+
+    assert body["service_enabled"] is True
+    assert body["channels"][0]["channel"] == "line"
+    assert body["channels"][0]["state"] == "backoff"
+    assert body["channels"][0]["last_error"] == "TimeoutError"
+    serialized = str(body)
+    assert "secret-token" not in serialized
+    assert "secret-value" not in serialized
+    assert "private-user" not in serialized
+
+
+def test_notification_test_requires_confirmation_and_persists_result(tmp_path, monkeypatch):
+    store = AuditEventStore(str(tmp_path / "notifications.db"))
+    monkeypatch.setattr("src.api.app.AuditEventStore", lambda *args: store)
+    monkeypatch.setattr("src.api.app.LineBotNotifier", SuccessfulNotificationTestNotifier)
+    client = TestClient(create_app(DaemonRunner()))
+
+    rejected = client.post("/notifications/test", json={"channel": "line"})
+    response = client.post(
+        "/notifications/test",
+        json={"confirm": True, "channel": "line"},
+    )
+
+    assert rejected.status_code == 422
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert store.notification_delivery_health("lifecycle_notifications")["line"][
+        "last_success_at"
+    ]
+    assert len(store.list(event_type="notification.test_completed")) == 1
 
 
 def test_runtime_capabilities_distinguish_leader_and_read_replica():

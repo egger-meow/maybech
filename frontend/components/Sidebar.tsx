@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ActivitySquare, Briefcase, History, LayoutDashboard, Settings2 } from "lucide-react";
+import { ActivitySquare, BellRing, Briefcase, History, LayoutDashboard, Settings2 } from "lucide-react";
 
 import ThemeToggle from "./ThemeToggle";
 
@@ -12,6 +12,7 @@ const links = [
   { href: "/positions", label: "部位管理", icon: Briefcase },
   { href: "/history", label: "交易紀錄", icon: History },
   { href: "/events", label: "事件稽核", icon: ActivitySquare },
+  { href: "/notifications", label: "通知管理", icon: BellRing },
 ];
 
 export default function Sidebar() {
