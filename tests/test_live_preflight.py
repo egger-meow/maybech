@@ -397,6 +397,11 @@ def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_pa
         "setup",
         lambda self: None,
     )
+    monkeypatch.setattr(
+        runtime_module.AccountSnapshotService,
+        "setup",
+        lambda self: None,
+    )
     preflight_calls = []
 
     class Report:
