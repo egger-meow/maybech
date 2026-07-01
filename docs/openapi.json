@@ -61,6 +61,13 @@
       },
       "AccountRiskLimitsResponse": {
         "properties": {
+          "allowed_instruments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Instruments",
+            "type": "array"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
@@ -104,6 +111,13 @@
       },
       "AccountRiskLimitsUpdate": {
         "properties": {
+          "allowed_instruments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Instruments",
+            "type": "array"
+          },
           "confirm": {
             "const": true,
             "title": "Confirm",

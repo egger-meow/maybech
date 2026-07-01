@@ -118,6 +118,7 @@ def _valid_risk(db_path):
             max_order_notional_usd=Decimal("100"),
             max_total_exposure_usd=Decimal("1000"),
             max_leverage=Decimal("5"),
+            allowed_instruments=("ETH-USDT-SWAP",),
         )
     )
 
@@ -185,6 +186,7 @@ def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypa
             remaining_quantity=1,
         )
     )
+
     position_store.save_protection(
         LogicalPositionProtection(
             position_id="position-a",
@@ -274,6 +276,36 @@ def test_live_preflight_rejects_active_unit_without_owned_protection(
         )
 
 
+def test_live_preflight_rejects_strategy_target_outside_account_allowlist(
+    monkeypatch,
+    tmp_path,
+):
+    _set_live_environment(monkeypatch)
+    strategy_store = StrategyStore(str(tmp_path / "trades.db"))
+    _valid_strategy(strategy_store)
+    AccountRiskStore(strategy_store.db_path).save(
+        AccountRiskLimits(
+            enabled=True,
+            max_order_notional_usd=Decimal("100"),
+            max_total_exposure_usd=Decimal("1000"),
+            max_leverage=Decimal("5"),
+            allowed_instruments=("BTC-USDT-SWAP",),
+        )
+    )
+
+    with pytest.raises(LivePreflightError, match="outside the account risk allowlist"):
+        run_live_preflight(
+            client=FakePreflightClient(
+                instruments={
+                    "BTC-USDT-SWAP": _instrument("BTC-USDT-SWAP"),
+                    "ETH-USDT-SWAP": _instrument("ETH-USDT-SWAP"),
+                }
+            ),
+            strategy_store=strategy_store,
+            position_store=LogicalPositionStore(strategy_store.db_path),
+        )
+
+
 @pytest.mark.parametrize(
     ("position_mode", "instrument", "expected"),
     [
@@ -346,7 +378,9 @@ def test_live_preflight_skips_strategy_checks_when_service_is_disabled(monkeypat
     _valid_risk(strategy_store.db_path)
 
     report = run_live_preflight(
-        client=FakePreflightClient(),
+        client=FakePreflightClient(
+            instruments={"ETH-USDT-SWAP": _instrument("ETH-USDT-SWAP")}
+        ),
         strategy_store=strategy_store,
         position_store=LogicalPositionStore(strategy_store.db_path),
         include_strategy=False,

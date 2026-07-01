@@ -100,7 +100,10 @@ current OKX instrument precision.
 Create the account risk envelope through `PUT /risk/limits` while running the
 dry-run API, then inspect it with `GET /risk/limits`. Set operator-selected
 positive limits for one order's USD notional, total gross USD exposure, and
-maximum OKX cross leverage; keep `enabled=false` until the values are reviewed.
+maximum OKX cross leverage, plus a non-empty `allowed_instruments` list; keep
+`enabled=false` until the values and searchable cached SWAP selections are
+reviewed. Strategy targets outside this account boundary cannot pass live
+preflight or per-entry approval.
 The mutation requires `"confirm": true`, is rejected while strategy entries
 are enabled, and writes a durable before/after audit in the same SQLite
 transaction. These values are SQLite configuration and do not belong in `.env`.

@@ -985,6 +985,7 @@ def create_app(
                     max_order_notional_usd=Decimal(str(payload.max_order_notional_usd)),
                     max_total_exposure_usd=Decimal(str(payload.max_total_exposure_usd)),
                     max_leverage=Decimal(str(payload.max_leverage)),
+                    allowed_instruments=tuple(payload.allowed_instruments),
                 ),
                 connection=connection,
             )

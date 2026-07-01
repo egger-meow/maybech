@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw, Save, ShieldCheck } from "lucide-react";
 
+import InstrumentSelector from "@/components/InstrumentSelector";
 import {
   ApiError,
   getEntryControl,
   getRiskLimits,
+  listInstruments,
   updateRiskLimits,
   type AccountRiskLimitsResponse,
+  type InstrumentMetadataListResponse,
 } from "@/lib/api";
 
 type FormState = {
@@ -16,6 +19,7 @@ type FormState = {
   maxOrder: string;
   maxExposure: string;
   maxLeverage: string;
+  allowedInstruments: string[];
 };
 
 const emptyForm: FormState = {
@@ -23,6 +27,7 @@ const emptyForm: FormState = {
   maxOrder: "",
   maxExposure: "",
   maxLeverage: "",
+  allowedInstruments: [],
 };
 
 const fromLimits = (limits: AccountRiskLimitsResponse): FormState => ({
@@ -30,12 +35,14 @@ const fromLimits = (limits: AccountRiskLimitsResponse): FormState => ({
   maxOrder: String(limits.max_order_notional_usd),
   maxExposure: String(limits.max_total_exposure_usd),
   maxLeverage: String(limits.max_leverage),
+  allowedInstruments: limits.allowed_instruments ?? [],
 });
 
 export default function RiskLimitsPage() {
   const [saved, setSaved] = useState<AccountRiskLimitsResponse | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [entriesEnabled, setEntriesEnabled] = useState<boolean | null>(null);
+  const [instruments, setInstruments] = useState<InstrumentMetadataListResponse | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -45,15 +52,17 @@ export default function RiskLimitsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [riskResult, entryResult] = await Promise.allSettled([
+      const [riskResult, entryResult, instrumentResult] = await Promise.allSettled([
         getRiskLimits(),
         getEntryControl(),
+        listInstruments(),
       ]);
       if (entryResult.status === "fulfilled") {
         setEntriesEnabled(entryResult.value.entries_enabled);
       } else {
         setEntriesEnabled(null);
       }
+      setInstruments(instrumentResult.status === "fulfilled" ? instrumentResult.value : null);
       if (riskResult.status === "fulfilled") {
         setSaved(riskResult.value);
         setForm(fromLimits(riskResult.value));
@@ -89,6 +98,7 @@ export default function RiskLimitsPage() {
     }
     if (order > exposure) return "單筆委託上限不可高於帳戶總曝險上限。";
     if (leverage > 125) return "最大槓桿不可高於 125 倍。";
+    if (form.enabled && form.allowedInstruments.length === 0) return "啟用風險信封前，至少選擇一個允許進場的 SWAP。";
     return "";
   }, [form]);
 
@@ -105,6 +115,7 @@ export default function RiskLimitsPage() {
         max_order_notional_usd: Number(form.maxOrder),
         max_total_exposure_usd: Number(form.maxExposure),
         max_leverage: Number(form.maxLeverage),
+        allowed_instruments: form.allowedInstruments,
       });
       setSaved(next);
       setForm(fromLimits(next));
@@ -151,6 +162,19 @@ export default function RiskLimitsPage() {
             <label className="field"><span>單筆委託名目上限</span><span className="risk-input"><input inputMode="decimal" value={form.maxOrder} onChange={(event) => setForm({ ...form, maxOrder: event.target.value })} placeholder="例如 100" /><b>USDT</b></span><small>每一次新進場最多可使用的估算名目金額。</small></label>
             <label className="field"><span>帳戶總曝險上限</span><span className="risk-input"><input inputMode="decimal" value={form.maxExposure} onChange={(event) => setForm({ ...form, maxExposure: event.target.value })} placeholder="例如 500" /><b>USDT</b></span><small>現有部位、未成交進場與新委託合計不得超過此值。</small></label>
             <label className="field"><span>最大 Cross 槓桿</span><span className="risk-input"><input inputMode="decimal" value={form.maxLeverage} onChange={(event) => setForm({ ...form, maxLeverage: event.target.value })} placeholder="例如 5" /><b>倍</b></span><small>OKX 回報槓桿高於此值時，新進場會被封鎖。</small></label>
+          </div>
+
+          <div className="risk-allowlist">
+            <div><strong>允許進場商品</strong><p>這是帳戶層級最後一道邊界。策略即使誤選其他商品，preflight 與每筆 entry approval 都會封鎖。</p></div>
+            <InstrumentSelector
+              instruments={instruments?.items ?? []}
+              value={form.allowedInstruments}
+              onChange={(allowedInstruments) => setForm({ ...form, allowedInstruments })}
+              multiple
+              stale={!instruments || instruments.stale}
+              placeholder="輸入 BTC、ETH 或 USDT 搜尋允許商品"
+            />
+            {!instruments && <div className="error-state">無法取得 OKX 商品快取；不提供假選項，請先確認 /instruments。</div>}
           </div>
 
           <label className="risk-enable-toggle"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} /><span><strong>啟用此風險信封</strong><small>實盤啟動要求此項已啟用；它不等於允許送單。</small></span></label>

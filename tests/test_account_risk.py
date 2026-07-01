@@ -84,6 +84,7 @@ def _store(tmp_path, *, order="50", total="200", leverage="10", enabled=True):
             max_order_notional_usd=Decimal(order),
             max_total_exposure_usd=Decimal(total),
             max_leverage=Decimal(leverage),
+            allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
         )
     )
     store.set_entries_enabled(True)
@@ -121,8 +122,33 @@ def test_account_risk_store_persists_one_versioned_envelope(tmp_path):
     assert limits.max_order_notional_usd == Decimal("50")
     assert limits.max_total_exposure_usd == Decimal("200")
     assert limits.max_leverage == Decimal("10")
+    assert limits.allowed_instruments == ("BTC-USDT-SWAP", "ETH-USDT-SWAP")
     assert limits.entries_enabled is True
-    assert store.applied_schema_versions() == [1, 2]
+    assert store.applied_schema_versions() == [1, 2, 3]
+
+
+def test_entry_approval_blocks_instrument_outside_account_allowlist(tmp_path):
+    store = _store(tmp_path)
+    current = store.get()
+    assert current is not None
+    store.set_entries_enabled(False)
+    store.save(
+        AccountRiskLimits(
+            enabled=True,
+            max_order_notional_usd=current.max_order_notional_usd,
+            max_total_exposure_usd=current.max_total_exposure_usd,
+            max_leverage=current.max_leverage,
+            allowed_instruments=("BTC-USDT-SWAP",),
+        )
+    )
+    store.set_entries_enabled(True)
+
+    with pytest.raises(EntryRiskBlocked, match="outside the account risk allowlist"):
+        AccountRiskGuard(RiskClient(), store).approve_entry(
+            inst_id="ETH-USDT-SWAP",
+            requested_size="1",
+            entry_price="2000",
+        )
 
 
 def test_entry_approval_counts_positions_pending_entries_and_requested_order(tmp_path):
@@ -276,6 +302,7 @@ def test_entry_approval_is_disabled_by_default_and_survives_restart(tmp_path):
             max_order_notional_usd=Decimal("50"),
             max_total_exposure_usd=Decimal("200"),
             max_leverage=Decimal("10"),
+            allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
         )
     )
 

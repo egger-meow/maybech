@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -25,7 +26,7 @@ from src.trading.sqlite_schema import (
 
 
 _SCHEMA_COMPONENT = "account_risk"
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS account_risk_limits (
     id                         TEXT PRIMARY KEY CHECK (id = 'account'),
@@ -44,6 +45,11 @@ CREATE TABLE IF NOT EXISTS entry_control (
     entries_enabled INTEGER NOT NULL DEFAULT 0,
     updated_at      TEXT NOT NULL
 );
+"""
+
+_SCHEMA_V3 = """
+ALTER TABLE account_risk_limits
+ADD COLUMN allowed_instruments_json TEXT NOT NULL DEFAULT '[]';
 """
 
 
@@ -78,6 +84,7 @@ class AccountRiskLimits:
     max_order_notional_usd: Decimal
     max_total_exposure_usd: Decimal
     max_leverage: Decimal
+    allowed_instruments: tuple[str, ...] = ()
     entries_enabled: bool = False
     created_at: str = ""
     updated_at: str = ""
@@ -96,6 +103,12 @@ class AccountRiskLimits:
             )
         if leverage > Decimal("125"):
             raise ValueError("max_leverage cannot exceed 125")
+        instruments = tuple(dict.fromkeys(self.allowed_instruments))
+        if self.enabled and not instruments:
+            raise ValueError("allowed_instruments must not be empty when enabled")
+        for inst_id in instruments:
+            if not inst_id or not inst_id.endswith("-SWAP"):
+                raise ValueError(f"invalid allowed instrument: {inst_id!r}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -103,6 +116,7 @@ class AccountRiskLimits:
             "max_order_notional_usd": float(self.max_order_notional_usd),
             "max_total_exposure_usd": float(self.max_total_exposure_usd),
             "max_leverage": float(self.max_leverage),
+            "allowed_instruments": list(self.allowed_instruments),
             "entries_enabled": self.entries_enabled,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -127,7 +141,7 @@ class AccountRiskStore:
                 version=1,
             )
             versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
-            if _SCHEMA_VERSION not in versions:
+            if 2 not in versions:
                 conn.executescript(_SCHEMA_V2)
                 conn.execute(
                     """INSERT OR IGNORE INTO entry_control
@@ -138,8 +152,12 @@ class AccountRiskStore:
                 record_schema_version(
                     conn,
                     component=_SCHEMA_COMPONENT,
-                    version=_SCHEMA_VERSION,
+                    version=2,
                 )
+            versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
+            if 3 not in versions:
+                conn.executescript(_SCHEMA_V3)
+                record_schema_version(conn, component=_SCHEMA_COMPONENT, version=3)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -183,6 +201,7 @@ class AccountRiskStore:
                 row["max_total_exposure_usd"], field="max_total_exposure_usd"
             ),
             max_leverage=_decimal(row["max_leverage"], field="max_leverage"),
+            allowed_instruments=tuple(json.loads(row["allowed_instruments_json"])),
             entries_enabled=bool(control["entries_enabled"]) if control else False,
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
@@ -211,19 +230,22 @@ class AccountRiskStore:
             conn.execute(
                 """INSERT INTO account_risk_limits
                    (id, enabled, max_order_notional_usd,
-                    max_total_exposure_usd, max_leverage, created_at, updated_at)
-                   VALUES ('account', ?, ?, ?, ?, ?, ?)
+                    max_total_exposure_usd, max_leverage, allowed_instruments_json,
+                    created_at, updated_at)
+                   VALUES ('account', ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                     enabled = excluded.enabled,
                     max_order_notional_usd = excluded.max_order_notional_usd,
                     max_total_exposure_usd = excluded.max_total_exposure_usd,
                     max_leverage = excluded.max_leverage,
+                    allowed_instruments_json = excluded.allowed_instruments_json,
                     updated_at = excluded.updated_at""",
                 (
                     1 if limits.enabled else 0,
                     str(limits.max_order_notional_usd),
                     str(limits.max_total_exposure_usd),
                     str(limits.max_leverage),
+                    json.dumps(list(dict.fromkeys(limits.allowed_instruments))),
                     created_at,
                     now,
                 ),
@@ -245,6 +267,7 @@ class AccountRiskStore:
                     row["max_total_exposure_usd"], field="max_total_exposure_usd"
                 ),
                 max_leverage=_decimal(row["max_leverage"], field="max_leverage"),
+                allowed_instruments=tuple(json.loads(row["allowed_instruments_json"])),
                 entries_enabled=bool(control["entries_enabled"]) if control else False,
                 created_at=str(row["created_at"]),
                 updated_at=str(row["updated_at"]),
@@ -340,6 +363,11 @@ class AccountRiskGuard:
         if not limits.entries_enabled:
             raise EntryRiskBlocked("strategy entries are disabled by the operator")
         limits.validate()
+
+        if inst_id not in limits.allowed_instruments:
+            raise EntryRiskBlocked(
+                f"instrument {inst_id} is outside the account risk allowlist"
+            )
 
         size = _decimal(requested_size, field="requested_size")
         price = _decimal(entry_price, field="entry_price")

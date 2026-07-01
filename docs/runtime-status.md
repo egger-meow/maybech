@@ -66,7 +66,9 @@ Frontends must use `active`; there is no `state` field.
   envelope used for live order-notional, gross-exposure, and leverage checks.
   Replacement requires explicit confirmation, is blocked while strategy
   entries are enabled, rejects a stale `expected_updated_at`, and atomically
-  writes before/after audit evidence.
+  writes before/after audit evidence. Its non-empty `allowed_instruments` is an
+  account-level boundary checked by live preflight and every entry approval;
+  an enabled strategy cannot authorize a different SWAP by itself.
 - `GET /risk/entries` reports persisted and process-local entry state.
 - `GET /instruments` reads the SQLite-cached live OKX SWAP catalog. It returns
   `503` when metadata has not been refreshed; no synthetic instruments or unit

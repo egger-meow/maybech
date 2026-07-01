@@ -26,13 +26,14 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. The account risk envelope has no independent allowed-instrument set. A
-   mistaken strategy target edit can therefore authorize any otherwise valid
-   live SWAP, with no account-level boundary preventing an unexpected market.
-2. Notification delivery acknowledgements currently have no retention or
+1. Notification delivery acknowledgements currently have no retention or
    compaction policy. Long-running accounts can grow one row per delivered
    channel and lifecycle event indefinitely; eventual SQLite disk exhaustion
    could prevent new audits and trading-state writes.
+2. A successful manual notification test writes into the same channel health
+   row as lifecycle delivery. It can reset a queued event's failure/backoff and
+   make the dashboard look healthy even though the lifecycle backlog remains
+   blocked by that transport.
 3. The notification health page proves transport acceptance but has no
    independent scheduled canary. During a quiet trading period, expired LINE
    or SMTP credentials can remain displayed from an old success until the next

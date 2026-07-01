@@ -89,6 +89,7 @@ def _live_executor(client, tmp_path):
             max_order_notional_usd=Decimal("1000"),
             max_total_exposure_usd=Decimal("10000"),
             max_leverage=Decimal("5"),
+            allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
         )
     )
     store.set_entries_enabled(True)

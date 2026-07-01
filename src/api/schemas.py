@@ -96,6 +96,7 @@ class AccountRiskLimitsUpdate(BaseModel):
     max_order_notional_usd: float = Field(gt=0)
     max_total_exposure_usd: float = Field(gt=0)
     max_leverage: float = Field(gt=0, le=125)
+    allowed_instruments: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_envelope(self) -> "AccountRiskLimitsUpdate":
@@ -103,6 +104,12 @@ class AccountRiskLimitsUpdate(BaseModel):
             raise ValueError(
                 "max_order_notional_usd cannot exceed max_total_exposure_usd"
             )
+        normalized = list(dict.fromkeys(self.allowed_instruments))
+        if self.enabled and not normalized:
+            raise ValueError("allowed_instruments must not be empty when enabled")
+        if any(not item or not item.endswith("-SWAP") for item in normalized):
+            raise ValueError("allowed_instruments must contain OKX SWAP instrument ids")
+        self.allowed_instruments = normalized
         return self
 
 
@@ -111,6 +118,7 @@ class AccountRiskLimitsResponse(BaseModel):
     max_order_notional_usd: float
     max_total_exposure_usd: float
     max_leverage: float
+    allowed_instruments: list[str] = Field(default_factory=list)
     entries_enabled: bool = False
     created_at: str
     updated_at: str

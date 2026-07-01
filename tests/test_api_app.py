@@ -243,6 +243,19 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
 
     assert client.get("/risk/limits").status_code == 404
 
+    empty_allowlist = client.put(
+        "/risk/limits",
+        json={
+            "confirm": True,
+            "enabled": True,
+            "max_order_notional_usd": 100,
+            "max_total_exposure_usd": 500,
+            "max_leverage": 5,
+            "allowed_instruments": [],
+        },
+    )
+    assert empty_allowlist.status_code == 422
+
     rejected = client.put(
         "/risk/limits",
         json={
@@ -251,6 +264,7 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
     response = client.put(
@@ -261,6 +275,7 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
 
@@ -283,6 +298,7 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
             "max_order_notional_usd": 200,
             "max_total_exposure_usd": 1000,
             "max_leverage": 10,
+            "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
     assert stale.status_code == 409
@@ -298,6 +314,7 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
             "max_order_notional_usd": 150,
             "max_total_exposure_usd": 750,
             "max_leverage": 6,
+            "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
     assert updated.status_code == 200
@@ -318,6 +335,7 @@ def test_api_requires_confirmation_for_entry_enable_and_kill(monkeypatch, tmp_pa
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
 
@@ -356,6 +374,7 @@ def test_risk_limit_update_rolls_back_when_audit_write_fails(monkeypatch, tmp_pa
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
 
@@ -371,6 +390,7 @@ def test_risk_limit_update_requires_entries_disabled(monkeypatch, tmp_path):
             max_order_notional_usd=100,
             max_total_exposure_usd=500,
             max_leverage=5,
+            allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
         )
     )
     store.set_entries_enabled(True)
@@ -385,6 +405,7 @@ def test_risk_limit_update_requires_entries_disabled(monkeypatch, tmp_path):
             "max_order_notional_usd": 200,
             "max_total_exposure_usd": 1000,
             "max_leverage": 10,
+            "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
 

@@ -94,6 +94,10 @@ commit a durable `risk.limits_updated` before/after audit atomically with the
 new envelope. Existing envelopes also require an exact `expected_updated_at`;
 the comparison and write run under one immediate SQLite transaction, so a stale
 operator session receives `409` instead of overwriting a newer review.
+`allowed_instruments` is an explicit non-empty list whenever the envelope is
+enabled. Live preflight validates every allowlisted instrument against OKX and
+rejects enabled strategy targets outside the list; every entry approval repeats
+the exact membership check immediately before order intent/submission.
 
 `GET /notifications/health` returns only channel configuration booleans,
 service state, durable success/failure timestamps, bounded-backoff state, and

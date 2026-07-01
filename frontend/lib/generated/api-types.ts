@@ -15,6 +15,7 @@ export type AccountRiskLimitsResponse = {
   "max_order_notional_usd": number;
   "max_total_exposure_usd": number;
   "max_leverage": number;
+  "allowed_instruments"?: string[];
   "entries_enabled"?: boolean;
   "created_at": string;
   "updated_at": string;
@@ -27,6 +28,7 @@ export type AccountRiskLimitsUpdate = {
   "max_order_notional_usd": number;
   "max_total_exposure_usd": number;
   "max_leverage": number;
+  "allowed_instruments"?: string[];
 };
 
 export type AccountSnapshotResponse = {

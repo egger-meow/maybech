@@ -134,10 +134,18 @@ def run_live_preflight(
             for error in validate_strategy_for_execution(strategy, strategy_store)
         )
         for inst_id in strategy.target_instruments:
+            if risk_limits and inst_id not in risk_limits.allowed_instruments:
+                errors.append(
+                    f"strategy {strategy.id}: instrument {inst_id} is outside "
+                    "the account risk allowlist"
+                )
             instruments.add(inst_id)
             requested_size = order_size(strategy, inst_id)
             if requested_size is not None:
                 sizes_by_instrument.setdefault(inst_id, []).append(requested_size)
+
+    if risk_limits:
+        instruments.update(risk_limits.allowed_instruments)
 
     active_positions = position_store.list_active()
     for position in active_positions:

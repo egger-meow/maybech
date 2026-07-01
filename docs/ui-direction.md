@@ -36,6 +36,8 @@ rather than suggesting safe one-click concurrent operation.
 - Show the current enabled state, backend update time, and entry-gate state.
 - Keep unsaved values visibly distinct from the last backend response.
 - Validate notional, gross exposure, and leverage before submission.
+- Edit the account-level allowlist through the cached searchable SWAP selector;
+  stale or missing instrument metadata must disable selection honestly.
 - Disable mutation unless entries are confirmed off and the operator explicitly
   confirms the high-risk overwrite; successful saves state clearly that they do
   not arm orders or enable strategy entries.
