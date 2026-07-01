@@ -10,6 +10,7 @@ import type {
   ConfirmedPositionFillResponse,
   ExecutionFillIngestionStatusResponse,
   InstrumentMetadataListResponse,
+  InstrumentContractQuoteRequest,
   InstrumentSizeQuoteRequest,
   InstrumentSizeQuoteResponse,
   LogicalPositionCloseConditionCreate,
@@ -64,6 +65,7 @@ export type {
   ExecutionFillIngestionStatusResponse,
   InstrumentMetadataListResponse,
   InstrumentMetadataResponse,
+  InstrumentContractQuoteRequest,
   InstrumentSizeQuoteRequest,
   InstrumentSizeQuoteResponse,
   LogicalPositionUnitResponse as LogicalPositionUnit,
@@ -211,6 +213,15 @@ export const quoteInstrumentSize = (
 ): Promise<InstrumentSizeQuoteResponse> =>
   postData<InstrumentSizeQuoteResponse>(
     `/instruments/${encodeURIComponent(instId)}/size-quote`,
+    payload,
+  );
+
+export const quoteInstrumentContracts = (
+  instId: string,
+  payload: InstrumentContractQuoteRequest,
+): Promise<InstrumentSizeQuoteResponse> =>
+  postData<InstrumentSizeQuoteResponse>(
+    `/instruments/${encodeURIComponent(instId)}/contract-quote`,
     payload,
   );
 

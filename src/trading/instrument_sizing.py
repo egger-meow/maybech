@@ -124,3 +124,41 @@ class InstrumentSizer:
             entry_price=price,
             estimated_pnl_usdt=estimated_pnl,
         )
+
+    def quote_contracts(
+        self,
+        *,
+        api_quantity_contracts: object,
+        entry_price: object,
+        side: str,
+        rule_price: object | None = None,
+    ) -> SizeQuote:
+        contracts = _positive(api_quantity_contracts, field="api_quantity_contracts")
+        price = _positive(entry_price, field="entry_price")
+        if contracts < self.min_size or contracts % self.lot_size != 0:
+            raise ValueError("OKX contract quantity is below minSz or not lotSz-aligned")
+        contract_unit = self.contract_value * self.contract_multiplier
+        contract_ccy = self.metadata.contract_currency.upper()
+        base_ccy = self.base_currency.upper()
+        quote_currencies = {
+            self.metadata.quote_ccy.upper(),
+            self.metadata.settle_ccy.upper(),
+            "USDT",
+            "USDC",
+            "USD",
+        }
+        if contract_ccy == base_ccy:
+            display = contracts * contract_unit
+        elif contract_ccy and contract_ccy in quote_currencies:
+            display = contracts * contract_unit / price
+        else:
+            raise ValueError(
+                f"{self.metadata.inst_id} ctValCcy={contract_ccy or 'missing'} "
+                "cannot be mapped safely to operator-facing base quantity"
+            )
+        return self.quote(
+            display_quantity=display,
+            entry_price=price,
+            side=side,
+            rule_price=rule_price,
+        )

@@ -165,6 +165,13 @@ export type HealthResponse = {
   "running": boolean;
 };
 
+export type InstrumentContractQuoteRequest = {
+  "api_quantity_contracts": string;
+  "entry_price": string;
+  "side": "long" | "short";
+  "rule_price"?: string | null;
+};
+
 export type InstrumentMetadataListResponse = {
   "items": InstrumentMetadataResponse[];
   "refreshed_at": string;
@@ -702,6 +709,7 @@ export type ApiSchemas = {
   "ExternalPositionImportRequest": ExternalPositionImportRequest;
   "HTTPValidationError": HTTPValidationError;
   "HealthResponse": HealthResponse;
+  "InstrumentContractQuoteRequest": InstrumentContractQuoteRequest;
   "InstrumentMetadataListResponse": InstrumentMetadataListResponse;
   "InstrumentMetadataResponse": InstrumentMetadataResponse;
   "InstrumentSizeQuoteRequest": InstrumentSizeQuoteRequest;

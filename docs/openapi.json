@@ -885,6 +885,50 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "InstrumentContractQuoteRequest": {
+        "properties": {
+          "api_quantity_contracts": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Api Quantity Contracts",
+            "type": "string"
+          },
+          "entry_price": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entry Price",
+            "type": "string"
+          },
+          "rule_price": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Price"
+          },
+          "side": {
+            "enum": [
+              "long",
+              "short"
+            ],
+            "title": "Side",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_quantity_contracts",
+          "entry_price",
+          "side"
+        ],
+        "title": "InstrumentContractQuoteRequest",
+        "type": "object"
+      },
       "InstrumentMetadataListResponse": {
         "properties": {
           "items": {
@@ -4387,6 +4431,55 @@
           }
         },
         "summary": "Refresh Instruments"
+      }
+    },
+    "/instruments/{inst_id}/contract-quote": {
+      "post": {
+        "operationId": "quote_instrument_contracts_instruments__inst_id__contract_quote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inst_id",
+            "required": true,
+            "schema": {
+              "title": "Inst Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstrumentContractQuoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentSizeQuoteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quote Instrument Contracts"
       }
     },
     "/instruments/{inst_id}/size-quote": {

@@ -111,6 +111,13 @@ class InstrumentSizeQuoteRequest(BaseModel):
     rule_price: str | None = Field(default=None, min_length=1, max_length=64)
 
 
+class InstrumentContractQuoteRequest(BaseModel):
+    api_quantity_contracts: str = Field(min_length=1, max_length=64)
+    entry_price: str = Field(min_length=1, max_length=64)
+    side: Literal["long", "short"]
+    rule_price: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class InstrumentSizeQuoteResponse(BaseModel):
     inst_id: str
     display_quantity: str

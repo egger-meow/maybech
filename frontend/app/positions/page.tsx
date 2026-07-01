@@ -23,6 +23,7 @@ import {
   moveLogicalPositionToBreakEven,
   reduceLogicalPosition,
   quoteInstrumentSize,
+  quoteInstrumentContracts,
   updateLogicalPositionCloseCondition,
   validateSignal,
   type LogicalPositionChartResponse,
@@ -135,23 +136,26 @@ function PositionList({ positions, selectedId, onSelect }: { positions: LogicalP
     <aside className="position-list panel">
       <div className="panel-heading"><div><h2>邏輯部位單位</h2><p>{positions.length} 個獨立管理單位</p></div></div>
       <div className="position-list-items">
-        {positions.map((position) => {
-          const metadata = object(position.metadata);
-          const display = Number(metadata.operator_display_quantity);
-          const opened = position.opened_quantity ?? 0;
-          const remaining = position.remaining_quantity ?? 0;
-          const displayRemaining = display > 0 && opened > 0 ? display * remaining / opened : null;
-          return (
-          <button type="button" className={`position-list-item ${selectedId === position.id ? "selected" : ""}`} key={position.id} onClick={() => onSelect(position.id)}>
-            <span className={`side-mark ${position.side === "long" ? "long" : "short"}`} />
-            <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · {displayRemaining == null ? `API 剩餘 ${number(position.remaining_quantity)} 口` : `剩餘 ${number(displayRemaining)} ${String(metadata.operator_display_currency ?? "")} · API ${number(position.remaining_quantity)} 口`}</small><small className="mono">{position.id}</small></span>
-            <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span>{metadata.requires_manual_review === true && <span className="badge danger">需人工對帳</span>}<span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{position.status}</span></span>
-          </button>
-          );
-        })}
+        {positions.map((position) => <PositionListItem key={position.id} position={position} selected={selectedId === position.id} onSelect={onSelect} />)}
         {!positions.length && <div className="empty-state">目前沒有邏輯部位單位。</div>}
       </div>
     </aside>
+  );
+}
+
+function PositionListItem({ position, selected, onSelect }: { position: LogicalPositionUnit; selected: boolean; onSelect: (id: string) => void }) {
+  const metadata = object(position.metadata);
+  const remaining = position.remaining_quantity ?? 0;
+  const quote = useSWR(
+    remaining > 0 && position.entry_price > 0 ? ["position-display-quote", position.id, remaining, position.entry_price] : null,
+    () => quoteInstrumentContracts(position.inst_id, { api_quantity_contracts: String(remaining), entry_price: String(position.entry_price), side: position.side as "long" | "short", rule_price: null }),
+  );
+  return (
+    <button type="button" className={`position-list-item ${selected ? "selected" : ""}`} onClick={() => onSelect(position.id)}>
+      <span className={`side-mark ${position.side === "long" ? "long" : "short"}`} />
+      <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · {quote.data ? `剩餘 ${quote.data.display_quantity} ${quote.data.display_currency} · API ${quote.data.api_quantity_contracts} 口` : `API 剩餘 ${number(position.remaining_quantity)} 口（顯示幣量不可用）`}</small><small className="mono">{position.id}</small></span>
+      <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span>{metadata.requires_manual_review === true && <span className="badge danger">需人工對帳</span>}<span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{position.status}</span></span>
+    </button>
   );
 }
 
@@ -184,6 +188,11 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const ownedStop = Boolean(condition && condition.purpose === "stop_loss" && position.protection && ["active", "amending", "canceling"].includes(position.protection.status));
+  const rulePrice = !Array.isArray(expression.conditions) && Number(expression.value) > 0 ? String(expression.value) : "";
+  const ruleQuote = useSWR(
+    rulePrice && (position.remaining_quantity ?? 0) > 0 ? ["rule-pnl-quote", position.id, condition?.id ?? "new", position.remaining_quantity, rulePrice] : null,
+    () => quoteInstrumentContracts(position.inst_id, { api_quantity_contracts: String(position.remaining_quantity), entry_price: String(position.entry_price), side: position.side as "long" | "short", rule_price: rulePrice }),
+  );
   const change = (next: SignalExpression) => { setExpression(next); setDirty(true); };
   const save = async () => {
     setBusy(true); setError("");
@@ -217,6 +226,9 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
         <span className={dirty ? "dirty-note" : "saved-note"}>{dirty ? "尚未儲存" : "已儲存"}</span>
       </div>
       <ExpressionEditor value={expression} onChange={change} label={`${purposeLabel(purpose)}條件`} />
+      {ruleQuote.data && <div className="rule-pnl-estimate"><span>依剩餘 {ruleQuote.data.display_quantity} {ruleQuote.data.display_currency} 估算</span><strong className={Number(ruleQuote.data.estimated_pnl_usdt) < 0 ? "negative" : "positive"}>{ruleQuote.data.estimated_pnl_usdt} USDT</strong></div>}
+      {!rulePrice && <div className="inline-warning">此規則沒有單一絕對價位，無法顯示單值 USDT 損益；實際條件仍會完整評估。</div>}
+      {rulePrice && ruleQuote.error && <div className="inline-warning">缺少或無法解讀商品單位 metadata，USDT 損益估算不可用。</div>}
       {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
       <div className="form-actions">
         {onCancel && <button type="button" className="btn btn-outline" disabled={busy} onClick={onCancel}>取消</button>}
@@ -235,20 +247,28 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
   const [error, setError] = useState("");
   const currentPrice = chart.data?.overlays?.find((overlay) => overlay.kind === "current")?.price;
   const remaining = position.remaining_quantity ?? 0;
+  const positionQuote = useSWR(
+    remaining > 0 && position.entry_price > 0 ? ["position-detail-quote", position.id, remaining, position.entry_price] : null,
+    () => quoteInstrumentContracts(position.inst_id, { api_quantity_contracts: String(remaining), entry_price: String(position.entry_price), side: position.side as "long" | "short", rule_price: null }),
+  );
+  const reduceQuote = useSWR(
+    reduceQuantity && position.entry_price > 0 ? ["position-reduce-quote", position.id, reduceQuantity, position.entry_price] : null,
+    () => quoteInstrumentSize(position.inst_id, { display_quantity: reduceQuantity, entry_price: String(position.entry_price), side: position.side as "long" | "short", rule_price: null }),
+  );
   const direction = position.side === "short" ? -1 : 1;
   const pnlPct = currentPrice && position.entry_price ? direction * (currentPrice - position.entry_price) / position.entry_price * 100 : null;
   const okx = object(position.okx_net_position);
   const metadata = object(position.metadata);
   const command = async (name: string, action: () => Promise<unknown>) => { setBusyAction(name); setError(""); try { await action(); await refresh(); await chart.mutate(); } catch (caught) { setError(errorMessage(caught)); } finally { setBusyAction(""); } };
   const close = () => { if (!confirm(`平倉邏輯單位 ${position.id} 的全部剩餘數量 ${number(remaining)}？\n\n真實部位只會在 OKX 成交確認後標記為已平倉。`)) return; return command("close", () => closeLogicalPosition(position.id, { confirm: true, reason: "operator dashboard close" })); };
-  const reduce = () => { const quantity = Number(reduceQuantity); if (!(quantity > 0 && quantity < remaining)) { setError("減倉數量必須大於 0 且小於目前剩餘數量。"); return; } if (!confirm(`送出 ${number(quantity)} 的部分減倉請求？\n\n數量只會依 OKX 確認成交更新。`)) return; return command("reduce", () => reduceLogicalPosition(position.id, { confirm: true, quantity, reason: "operator dashboard reduce" })); };
+  const reduce = () => { const apiQuantity = Number(reduceQuote.data?.api_quantity_contracts); const displayQuantity = Number(reduceQuantity); const availableDisplay = Number(positionQuote.data?.display_quantity); if (!(apiQuantity > 0 && apiQuantity < remaining && displayQuantity > 0 && displayQuantity < availableDisplay)) { setError("減倉幣量必須大於 0、小於目前剩餘幣量，且能精確換算為 OKX lot size。"); return; } if (!confirm(`送出 ${reduceQuantity} ${positionQuote.data?.display_currency ?? ""}（OKX API ${reduceQuote.data?.api_quantity_contracts} 口）的部分減倉請求？\n\n數量只會依 OKX 確認成交更新。`)) return; return command("reduce", () => reduceLogicalPosition(position.id, { confirm: true, quantity: apiQuantity, reason: "operator dashboard reduce" })); };
   const protect = () => { if (!confirm("重新驗證或建立此單位的 OKX 停損保護？")) return; return command("protect", () => attachLogicalPositionProtection(position.id, { confirm: true })); };
   const breakEven = () => { const input = prompt("要鎖定多少獲利百分比？輸入 0 代表進場價，最大 5。", "0"); if (input === null) return; const pct = Number(input); if (!Number.isFinite(pct) || pct < 0 || pct > 5) { setError("保本鎖利百分比必須介於 0 到 5。"); return; } const stop = position.close_conditions?.find((condition) => condition.purpose === "stop_loss" && condition.enabled); if (!stop) { setError("找不到已啟用的停損條件。"); return; } if (!confirm(`將 OKX 保護停損移至進場價並鎖定 ${pct}%？`)) return; return command("break-even", () => moveLogicalPositionToBreakEven(position.id, { confirm: true, condition_id: stop.id, lock_in_pct: pct / 100, reason: "operator dashboard break-even" })); };
   return (
     <div className="position-detail">
       <section className="panel position-hero">
         <div className="position-title"><div><div className="status-row"><h2>{position.inst_id}</h2><span className={`badge ${position.side === "long" ? "success" : "danger"}`}>{position.side === "long" ? "做多 LONG" : "做空 SHORT"}</span><span className="badge info">{position.status}</span></div><p className="mono">Maybech 單位：{position.id}</p></div><div className="position-metric"><small>未實現損益估算</small><strong className={pnlPct != null && pnlPct >= 0 ? "positive" : "negative"}>{pnlPct == null ? "資料不足" : `${pnlPct >= 0 ? "+" : ""}${number(pnlPct, 2)}%`}</strong></div></div>
-        <div className="metric-grid"><div><small>進場價</small><strong>{number(position.entry_price)}</strong></div><div><small>目前價</small><strong>{number(currentPrice)}</strong></div><div><small>操作者幣量</small><strong>{String(metadata.operator_display_quantity ?? "資料不足")} {String(metadata.operator_display_currency ?? "")}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
+        <div className="metric-grid"><div><small>進場價</small><strong>{number(position.entry_price)}</strong></div><div><small>目前價</small><strong>{number(currentPrice)}</strong></div><div><small>剩餘操作者幣量</small><strong>{positionQuote.data ? `${positionQuote.data.display_quantity} ${positionQuote.data.display_currency}` : "資料不足"}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
       </section>
       {metadata.requires_manual_review === true && <div className="error-state"><AlertTriangle size={17} /> 此單位需要人工對帳：{String(metadata.reconciliation_review_reason ?? metadata.recovery_reason ?? "來源或數量尚未確認")}。系統不會猜測外部減倉應分配到哪一個邏輯單位。</div>}
 
@@ -275,7 +295,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
 
       <section className="panel danger-zone action-zone">
         <div><h2>減倉／平倉</h2><p>這些操作只針對目前邏輯單位。真實模式會先撤除並確認此單位的保護單，再送出 reduce-only 委託；本地數量只依 OKX 確認成交更新。</p></div>
-        <div className="reduce-control"><label className="field"><span>部分減倉數量</span><input type="number" min="0" max={remaining} step="any" value={reduceQuantity} onChange={(event) => setReduceQuantity(event.target.value)} /></label><button type="button" className="btn btn-danger" disabled={Boolean(busyAction) || position.status !== "open"} onClick={reduce}><TrendingDown size={16} /> {busyAction === "reduce" ? "等待確認…" : "確認部分減倉"}</button><button type="button" className="btn btn-danger" disabled={Boolean(busyAction) || position.status !== "open"} onClick={close}><XCircle size={16} /> {busyAction === "close" ? "等待確認…" : "確認全部平倉"}</button></div>
+        <div className="reduce-control"><label className="field"><span>部分減倉幣量（{positionQuote.data?.display_currency ?? "基礎幣"}）</span><input type="number" min="0" max={positionQuote.data?.display_quantity} step="any" value={reduceQuantity} onChange={(event) => setReduceQuantity(event.target.value)} />{reduceQuote.data && <small>OKX API：{reduceQuote.data.api_quantity_contracts} 口 · 約 {reduceQuote.data.estimated_notional_usdt} USDT</small>}{reduceQuote.error && <small className="negative">無法依 lot size 安全換算</small>}</label><button type="button" className="btn btn-danger" disabled={Boolean(busyAction) || position.status !== "open" || !reduceQuote.data} onClick={reduce}><TrendingDown size={16} /> {busyAction === "reduce" ? "等待確認…" : "確認部分減倉"}</button><button type="button" className="btn btn-danger" disabled={Boolean(busyAction) || position.status !== "open"} onClick={close}><XCircle size={16} /> {busyAction === "close" ? "等待確認…" : "確認全部平倉"}</button></div>
       </section>
       {error && <div className="error-state"><AlertTriangle size={17} /> {error}</div>}
 

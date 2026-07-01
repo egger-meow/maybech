@@ -71,6 +71,7 @@ from src.api.schemas import (
     HealthResponse,
     InstrumentMetadataListResponse,
     InstrumentMetadataResponse,
+    InstrumentContractQuoteRequest,
     InstrumentSizeQuoteRequest,
     InstrumentSizeQuoteResponse,
     LivePreflightResponse,
@@ -906,6 +907,31 @@ def create_app(
         try:
             quote = InstrumentSizer(metadata).quote(
                 display_quantity=payload.display_quantity,
+                entry_price=payload.entry_price,
+                side=payload.side,
+                rule_price=payload.rule_price,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return InstrumentSizeQuoteResponse(**quote.to_dict())
+
+    @app.post(
+        "/instruments/{inst_id}/contract-quote",
+        response_model=InstrumentSizeQuoteResponse,
+    )
+    def quote_instrument_contracts(
+        inst_id: str,
+        payload: InstrumentContractQuoteRequest,
+    ) -> InstrumentSizeQuoteResponse:
+        metadata = InstrumentMetadataStore().get(inst_id)
+        if metadata is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Cached OKX metadata for {inst_id} is unavailable",
+            )
+        try:
+            quote = InstrumentSizer(metadata).quote_contracts(
+                api_quantity_contracts=payload.api_quantity_contracts,
                 entry_price=payload.entry_price,
                 side=payload.side,
                 rule_price=payload.rule_price,

@@ -49,6 +49,12 @@ Required capabilities:
 - edit per-unit stop-loss, take-profit, trailing, and break-even conditions
 - request close/reduce for one logical unit
 - show current price, unrealized PnL estimate, distance to rules, and risk
+- show operator-facing base quantity first while retaining the derived OKX API
+  contract count; reduce input uses base quantity and is converted back through
+  cached metadata before confirmation
+- show side-aware estimated USDT loss/profit for a rule with one absolute price;
+  composite or non-price expressions must state that a single estimate is not
+  available
 - expose source strategy tag when a strategy created the unit
 - support manual position units with no strategy tag
 - create a Dry-run manual unit from a searchable cached instrument selector,
