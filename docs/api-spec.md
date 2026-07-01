@@ -277,6 +277,13 @@ The Position Management page has a logical-position contract now:
   `{ "confirm": true }`, retry or reconcile protection for an
   imported/recovered/failed unit against its persisted stop condition. The unit
   remains entry-blocking unless exact pending-algo verification succeeds.
+- `POST /positions/logical/{position_id}/adopt-recovery`: guided adoption for a
+  clear `source=recovery` exposure. A confirmed stop price must be on the loss
+  side of the current market. The backend rechecks balanced OKX quantity,
+  creates or updates exactly one stop-loss rule, and proves an independently
+  owned reduce-only OKX stop before clearing `requires_manual_review`.
+  Recovery units affected by an ambiguous external reduction are rejected
+  until their logical-unit allocation is reconciled explicitly.
 - `POST /positions/logical/{position_id}/protection/stop`: publish a confirmed
   stop edit. The request identifies the enabled stop-loss condition, supplies
   its replacement expression and reason, and requires `{ "confirm": true }`.

@@ -17,7 +17,7 @@ from src.trading.position_import import (
     PositionImportService,
     PositionRecoveryService,
 )
-from src.trading.position_protection import PositionProtectionError
+from src.trading.position_protection import PositionProtectionError, PositionProtectionService
 
 
 class ImportClient:
@@ -391,6 +391,67 @@ def test_startup_recovery_represents_existing_exchange_position(tmp_path):
     assert len(
         recovery.audit_store.list(event_type="position.recovered_from_exchange")
     ) == 1
+
+
+def test_operator_can_adopt_recovery_only_after_stop_is_proven(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    recovered = PositionRecoveryService(store).reconcile(_exchange_position("2"))[0]
+    client = ImportClient()
+
+    adopted = PositionProtectionService(client, store).adopt_recovered_position(
+        recovered.id,
+        stop_loss=Decimal("2900"),
+        reason="operator confirmed recovered exposure",
+    )
+
+    metadata = json.loads(adopted.metadata_json)
+    assert metadata["requires_manual_review"] is False
+    assert metadata["exchange_protection_verified"] is True
+    assert store.get_protection(recovered.id).status == "active"
+    conditions = store.list_close_conditions(recovered.id, enabled=True)
+    assert len(conditions) == 1
+    assert conditions[0].purpose == "stop_loss"
+    assert conditions[0].expression == {
+        "type": "price_below",
+        "symbol": "ETH-USDT-SWAP",
+        "value": 2900.0,
+    }
+    assert len(
+        PositionProtectionService(client, store).audit_store.list(
+            event_type="position.recovery_adopted"
+        )
+    ) == 1
+
+
+def test_recovery_adoption_rejects_wrong_side_stop(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    recovered = PositionRecoveryService(store).reconcile(_exchange_position("2"))[0]
+
+    with pytest.raises(PositionProtectionError, match="below the current market"):
+        PositionProtectionService(ImportClient(), store).adopt_recovered_position(
+            recovered.id,
+            stop_loss=Decimal("3200"),
+            reason="unsafe stop",
+        )
+
+    assert store.list_close_conditions(recovered.id) == []
+    assert json.loads(store.get(recovered.id).metadata_json)["requires_manual_review"] is True
+
+
+def test_recovery_adoption_does_not_clear_ambiguous_reduction_review(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    recovery = PositionRecoveryService(store)
+    recovered = recovery.reconcile(_exchange_position("2"))[0]
+    recovery.reconcile(_exchange_position("1"))
+
+    with pytest.raises(PositionProtectionError, match="ambiguous external reduction"):
+        PositionProtectionService(ImportClient(), store).adopt_recovered_position(
+            recovered.id,
+            stop_loss=Decimal("2900"),
+            reason="cannot assign external reduction",
+        )
+
+    assert json.loads(store.get(recovered.id).metadata_json)["requires_manual_review"] is True
 
 
 def test_external_size_increase_creates_only_clear_delta(tmp_path):

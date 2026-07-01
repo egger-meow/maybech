@@ -9,6 +9,7 @@ import InstrumentSelector from "@/components/InstrumentSelector";
 import RuntimeModeBanner from "@/components/RuntimeModeBanner";
 import {
   ApiError,
+  adoptRecoveredLogicalPosition,
   amendLogicalPositionStop,
   attachLogicalPositionProtection,
   closeLogicalPosition,
@@ -244,6 +245,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
   const chart = useSWR(["position-chart", position.id], () => getLogicalPositionChart(position.id, { bar: "1m", limit: 100 }), { refreshInterval: 15_000 });
   const [newRule, setNewRule] = useState(false);
   const [reduceQuantity, setReduceQuantity] = useState("");
+  const [recoveryStop, setRecoveryStop] = useState("");
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
   const currentPrice = chart.data?.overlays?.find((overlay) => overlay.kind === "current")?.price;
@@ -256,6 +258,17 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
     reduceQuantity && position.entry_price > 0 ? ["position-reduce-quote", position.id, reduceQuantity, position.entry_price] : null,
     () => quoteInstrumentSize(position.inst_id, { display_quantity: reduceQuantity, entry_price: String(position.entry_price), side: position.side as "long" | "short", rule_price: null }),
   );
+  const recoveryQuote = useSWR(
+    recoveryStop && remaining > 0 && position.entry_price > 0
+      ? ["recovery-adoption-quote", position.id, recoveryStop]
+      : null,
+    () => quoteInstrumentContracts(position.inst_id, {
+      api_quantity_contracts: String(remaining),
+      entry_price: String(position.entry_price),
+      side: position.side as "long" | "short",
+      rule_price: recoveryStop,
+    }),
+  );
   const direction = position.side === "short" ? -1 : 1;
   const pnlPct = currentPrice && position.entry_price ? direction * (currentPrice - position.entry_price) / position.entry_price * 100 : null;
   const okx = object(position.okx_net_position);
@@ -264,6 +277,16 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
   const close = () => { if (!confirm(`平倉邏輯單位 ${position.id} 的全部剩餘數量 ${number(remaining)}？\n\n真實部位只會在 OKX 成交確認後標記為已平倉。`)) return; return command("close", () => closeLogicalPosition(position.id, { confirm: true, reason: "operator dashboard close" })); };
   const reduce = () => { const apiQuantity = Number(reduceQuote.data?.api_quantity_contracts); const displayQuantity = Number(reduceQuantity); const availableDisplay = Number(positionQuote.data?.display_quantity); if (!(apiQuantity > 0 && apiQuantity < remaining && displayQuantity > 0 && displayQuantity < availableDisplay)) { setError("減倉幣量必須大於 0、小於目前剩餘幣量，且能精確換算為 OKX lot size。"); return; } if (!confirm(`送出 ${reduceQuantity} ${positionQuote.data?.display_currency ?? ""}（OKX API ${reduceQuote.data?.api_quantity_contracts} 口）的部分減倉請求？\n\n數量只會依 OKX 確認成交更新。`)) return; return command("reduce", () => reduceLogicalPosition(position.id, { confirm: true, quantity: apiQuantity, reason: "operator dashboard reduce" })); };
   const protect = () => { if (!confirm("重新驗證或建立此單位的 OKX 停損保護？")) return; return command("protect", () => attachLogicalPositionProtection(position.id, { confirm: true })); };
+  const adoptRecovery = () => {
+    const stopLoss = Number(recoveryStop);
+    if (!(stopLoss > 0)) { setError("請輸入有效的停損價格。"); return; }
+    if (!confirm(`採納這個外部部位，並在 OKX 建立 ${number(remaining)} 口、觸發價 ${recoveryStop} 的 reduce-only 停損？\n\n只有交易所回報保護單有效後，人工檢查狀態才會解除。`)) return;
+    return command("adopt-recovery", () => adoptRecoveredLogicalPosition(position.id, {
+      confirm: true,
+      stop_loss: stopLoss,
+      reason: "operator adopted recovered exposure in Position Management",
+    }));
+  };
   const breakEven = () => { const input = prompt("要鎖定多少獲利百分比？輸入 0 代表進場價，最大 5。", "0"); if (input === null) return; const pct = Number(input); if (!Number.isFinite(pct) || pct < 0 || pct > 5) { setError("保本鎖利百分比必須介於 0 到 5。"); return; } const stop = position.close_conditions?.find((condition) => condition.purpose === "stop_loss" && condition.enabled); if (!stop) { setError("找不到已啟用的停損條件。"); return; } if (!confirm(`將 OKX 保護停損移至進場價並鎖定 ${pct}%？`)) return; return command("break-even", () => moveLogicalPositionToBreakEven(position.id, { confirm: true, condition_id: stop.id, lock_in_pct: pct / 100, reason: "operator dashboard break-even" })); };
   return (
     <div className="position-detail">
@@ -272,6 +295,16 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
         <div className="metric-grid"><div><small>進場價</small><strong>{number(position.entry_price)}</strong></div><div><small>目前價</small><strong>{number(currentPrice)}</strong></div><div><small>剩餘操作者幣量</small><strong>{positionQuote.data ? `${positionQuote.data.display_quantity} ${positionQuote.data.display_currency}` : "資料不足"}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
       </section>
       {metadata.requires_manual_review === true && <div className="error-state"><AlertTriangle size={17} /> 此單位需要人工對帳：{String(metadata.reconciliation_review_reason ?? metadata.recovery_reason ?? "來源或數量尚未確認")}。系統不會猜測外部減倉應分配到哪一個邏輯單位。</div>}
+      {position.source === "recovery" && metadata.requires_manual_review === true && !metadata.reconciliation_review_reason && (
+        <section className="panel danger-zone">
+          <div className="panel-heading"><div><h2><ShieldAlert size={20} /> 採納外部部位</h2><p>先設定方向正確的底線停損。Maybech 會核對 OKX 淨數量、建立獨立保護單，再以交易所回報證明保護有效；任何一步失敗都不會解除人工檢查。</p></div><span className="badge danger">尚未受 Maybech 保護</span></div>
+          <div className="form-grid">
+            <label className="field"><span>目前市場價</span><input value={number(currentPrice)} disabled /></label>
+            <label className="field"><span>{position.side === "long" ? "多單停損（必須低於目前價）" : "空單停損（必須高於目前價）"}</span><input type="number" min="0" step="any" value={recoveryStop} onChange={(event) => setRecoveryStop(event.target.value)} placeholder={position.side === "long" ? "例如 2900" : "例如 3200"} />{recoveryQuote.data && <small>若觸發，依進場價估算損益：{recoveryQuote.data.estimated_pnl_usdt ?? "資料不足"} USDT</small>}{recoveryQuote.error && <small className="negative">無法依商品規格估算此停損</small>}</label>
+          </div>
+          <div className="form-actions"><button type="button" className="btn btn-danger" disabled={Boolean(busyAction) || !recoveryQuote.data || !currentPrice} onClick={adoptRecovery}><ShieldCheck size={16} /> {busyAction === "adopt-recovery" ? "等待 OKX 證明…" : "確認採納並建立停損"}</button></div>
+        </section>
+      )}
 
       <section className="distinction-grid">
         <article className="panel unit-card"><h3>Maybech 邏輯單位</h3><p>規則、數量、稽核與委託識別都屬於這一個進場單位。</p><dl><div><dt>Client Order ID</dt><dd className="mono">{position.client_order_id || "尚無"}</dd></div><div><dt>Exchange Order ID</dt><dd className="mono">{position.exchange_order_id || "尚無"}</dd></div></dl></article>

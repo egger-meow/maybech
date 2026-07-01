@@ -596,6 +596,12 @@ class PositionProtectionCommand(BaseModel):
     confirm: Literal[True]
 
 
+class PositionRecoveryAdoptionCommand(BaseModel):
+    confirm: Literal[True]
+    stop_loss: float = Field(gt=0)
+    reason: str = Field(default="operator adopted recovered position", min_length=1, max_length=256)
+
+
 class PositionStopAmendCommand(BaseModel):
     confirm: Literal[True]
     condition_id: str = Field(min_length=1, max_length=128)

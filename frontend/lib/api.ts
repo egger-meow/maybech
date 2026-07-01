@@ -30,6 +30,7 @@ import type {
   PositionBreakEvenCommand,
   PositionGroupResponse,
   PositionProtectionCommand,
+  PositionRecoveryAdoptionCommand,
   PositionStopAmendCommand,
   ExternalPositionImportRequest,
   RuntimeEventResponse,
@@ -85,6 +86,7 @@ export type {
   PositionBreakEvenCommand,
   PositionGroupResponse,
   PositionProtectionCommand,
+  PositionRecoveryAdoptionCommand,
   PositionStopAmendCommand,
   ExternalPositionImportRequest,
   PositionIntentResponse as PositionIntent,
@@ -395,6 +397,15 @@ export const attachLogicalPositionProtection = (
 ): Promise<LogicalPositionUnitResponse> =>
   postData<LogicalPositionUnitResponse>(
     `/positions/logical/${encodeURIComponent(positionId)}/protection`,
+    payload,
+  );
+
+export const adoptRecoveredLogicalPosition = (
+  positionId: string,
+  payload: PositionRecoveryAdoptionCommand,
+): Promise<LogicalPositionUnitResponse> =>
+  postData<LogicalPositionUnitResponse>(
+    `/positions/logical/${encodeURIComponent(positionId)}/adopt-recovery`,
     payload,
   );
 

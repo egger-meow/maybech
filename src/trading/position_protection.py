@@ -338,6 +338,134 @@ class PositionProtectionService:
                     raise
                 raise PositionProtectionError(str(exc)) from exc
 
+    def adopt_recovered_position(
+        self,
+        position_id: str,
+        *,
+        stop_loss: Decimal,
+        reason: str,
+    ) -> LogicalPositionRecord:
+        """Add a first stop, prove it at OKX, then clear recovery review."""
+        with ENTRY_EXECUTION_LOCK:
+            position = self.store.get(position_id)
+            if position is None:
+                raise PositionProtectionError("logical position not found")
+            if position.source != "recovery":
+                raise PositionProtectionError("only recovered positions use adoption")
+            try:
+                metadata = json.loads(position.metadata_json or "{}")
+            except json.JSONDecodeError:
+                metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if metadata.get("reconciliation_review_reason"):
+                raise PositionProtectionError(
+                    "ambiguous external reduction must be reconciled before adoption"
+                )
+            if metadata.get("requires_manual_review") is not True:
+                raise PositionProtectionError("recovered position does not require adoption")
+            try:
+                stop = Decimal(str(stop_loss))
+            except (InvalidOperation, ValueError) as exc:
+                raise PositionProtectionError("stop_loss must be numeric") from exc
+            if not stop.is_finite() or stop <= 0:
+                raise PositionProtectionError("stop_loss must be positive")
+            tickers = self.client.get_ticker(inst_id=position.inst_id)
+            if len(tickers) != 1:
+                raise PositionProtectionError(
+                    f"expected one ticker for {position.inst_id}, got {len(tickers)}"
+                )
+            try:
+                current = Decimal(str(tickers[0].get("last")))
+            except (InvalidOperation, ValueError) as exc:
+                raise PositionProtectionError("ticker last price is invalid") from exc
+            if not current.is_finite() or current <= 0:
+                raise PositionProtectionError("ticker last price must be positive")
+            if position.side == "long" and stop >= current:
+                raise PositionProtectionError(
+                    "long stop_loss must be below the current market price"
+                )
+            if position.side == "short" and stop <= current:
+                raise PositionProtectionError(
+                    "short stop_loss must be above the current market price"
+                )
+            expected_type = "price_below" if position.side == "long" else "price_above"
+            enabled_stops = [
+                item
+                for item in self.store.list_close_conditions(position.id, enabled=True)
+                if item.purpose == "stop_loss"
+            ]
+            if len(enabled_stops) > 1:
+                raise PositionProtectionError(
+                    "recovered position has multiple enabled stop_loss conditions"
+                )
+            expression = {
+                "type": expected_type,
+                "symbol": position.inst_id,
+                "value": float(stop),
+            }
+            if enabled_stops:
+                updated_condition = self.store.update_close_condition(
+                    position.id,
+                    enabled_stops[0].id,
+                    expression=expression,
+                )
+                if updated_condition is None:
+                    raise PositionProtectionError("could not update recovery stop_loss")
+            else:
+                created = self.store.create_close_condition(
+                    position_id=position.id,
+                    purpose="stop_loss",
+                    expression=expression,
+                    enabled=True,
+                    metadata={"source": "recovery_adoption"},
+                )
+                if created is None:
+                    raise PositionProtectionError("could not create recovery stop_loss")
+            self.audit_store.create(
+                type="position.recovery_adoption_requested",
+                source="position_protection",
+                payload={
+                    "position_id": position.id,
+                    "instrument": position.inst_id,
+                    "side": position.side,
+                    "quantity": position.remaining_quantity,
+                    "stop_loss": str(stop),
+                    "reason": reason,
+                },
+            )
+            protected = self._protect(position)
+            adopted_at = self._now()
+            self.audit_store.create(
+                type="position.recovery_adopted",
+                source="position_protection",
+                payload={
+                    "position_id": position.id,
+                    "instrument": position.inst_id,
+                    "side": position.side,
+                    "quantity": position.remaining_quantity,
+                    "stop_loss": str(stop),
+                    "reason": reason,
+                    "adopted_at": adopted_at,
+                    "protection": json.loads(protected.metadata_json).get(
+                        "exchange_protection", {}
+                    ),
+                },
+            )
+            adopted = self.store.merge_metadata(
+                position.id,
+                {
+                    "requires_manual_review": False,
+                    "recovery_adopted_at": adopted_at,
+                    "recovery_adoption_reason": reason,
+                },
+            )
+            if adopted is None:
+                raise PositionProtectionError(
+                    "logical position disappeared after recovery protection"
+                )
+            return adopted
+
     def _protect(self, position: LogicalPositionRecord) -> LogicalPositionRecord:
         if position.status not in {"open", "reducing", "closing"}:
             raise PositionProtectionError("logical position is not active")

@@ -26,14 +26,11 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Automatically recovered OKX units correctly block entries and request manual
-   review, but Position Management has no guided adoption flow to add a
-   side-correct stop and prove owned protection before clearing that review.
-2. Generic LINE cooldown is implemented and legacy price alerts are gone, but
+1. Generic LINE cooldown is implemented and legacy price alerts are gone, but
    lifecycle audit categories are not yet routed to LINE/Gmail. Phone/email
    monitoring therefore does not yet cover strategy, position, runtime-safety,
    and exchange/API failures end to end.
-3. Risk-limit diagnostics name every missing live field, but the dashboard has
+2. Risk-limit diagnostics name every missing live field, but the dashboard has
    no first-class editor for the persisted account envelope. Operators still
    need direct API access to configure per-order notional, total exposure,
    leverage, and allowed instruments before live preflight can pass.

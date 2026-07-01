@@ -93,6 +93,7 @@ from src.api.schemas import (
     PositionIntentResponse,
     PositionBreakEvenCommand,
     PositionProtectionCommand,
+    PositionRecoveryAdoptionCommand,
     PositionStopAmendCommand,
     PositionRuleResponse,
     RuleGroupResponse,
@@ -1976,6 +1977,38 @@ def create_app(
             position = PositionProtectionService(
                 OKXClient(), position_store
             ).protect(position_id)
+        except PositionProtectionError as exc:
+            status_code = 404 if str(exc) == "logical position not found" else 409
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        return _logical_position_response(
+            store=trade_store,
+            position_store=position_store,
+            position=position,
+            account_snapshot=runner.runtime.get_value("account.snapshot") or {},
+            intents=runner.runtime.get_value("position.intents") or [],
+            audit_events=runner.runtime.events.recent(limit=100),
+        )
+
+    @app.post(
+        "/positions/logical/{position_id}/adopt-recovery",
+        response_model=LogicalPositionUnitResponse,
+    )
+    def adopt_recovered_logical_position(
+        position_id: str,
+        payload: PositionRecoveryAdoptionCommand,
+    ) -> LogicalPositionUnitResponse:
+        trade_store = TradeStore()
+        position_store = LogicalPositionStore(trade_store.db_path)
+        try:
+            position = PositionProtectionService(
+                OKXClient(),
+                position_store,
+                AuditEventStore(trade_store.db_path),
+            ).adopt_recovered_position(
+                position_id,
+                stop_loss=Decimal(str(payload.stop_loss)),
+                reason=payload.reason,
+            )
         except PositionProtectionError as exc:
             status_code = 404 if str(exc) == "logical position not found" else 409
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc

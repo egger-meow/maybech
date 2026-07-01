@@ -64,6 +64,10 @@ Required capabilities:
   quantity, derived OKX contracts, notional, and stop PnL before confirmation
 - show owned protection state, stop level, protected quantity, algo identity,
   and triggered child-order identity without hiding failed/canceled states
+- guide clear recovery units through a red adoption panel with a side-correct
+  stop and estimated USDT impact; keep manual review visible until OKX proves
+  the exact independently owned protection, and never offer this shortcut for
+  ambiguous external reductions
 
 The page should make it obvious that "OKX position" and "Maybech logical
 position unit" are different concepts.

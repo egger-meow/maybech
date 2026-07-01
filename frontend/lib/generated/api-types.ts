@@ -434,6 +434,12 @@ export type PositionProtectionCommand = {
   "confirm": true;
 };
 
+export type PositionRecoveryAdoptionCommand = {
+  "confirm": true;
+  "stop_loss": number;
+  "reason"?: string;
+};
+
 export type PositionRuleCreate = {
   "target"?: string;
   "metric"?: "price" | "pnl_pct" | "velocity_1m" | "velocity_5m" | "velocity_10m";
@@ -740,6 +746,7 @@ export type ApiSchemas = {
   "PositionGroupResponse": PositionGroupResponse;
   "PositionIntentResponse": PositionIntentResponse;
   "PositionProtectionCommand": PositionProtectionCommand;
+  "PositionRecoveryAdoptionCommand": PositionRecoveryAdoptionCommand;
   "PositionRuleCreate": PositionRuleCreate;
   "PositionRuleResponse": PositionRuleResponse;
   "PositionStopAmendCommand": PositionStopAmendCommand;

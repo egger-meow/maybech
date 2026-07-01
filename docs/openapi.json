@@ -2521,6 +2521,33 @@
         "title": "PositionProtectionCommand",
         "type": "object"
       },
+      "PositionRecoveryAdoptionCommand": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "reason": {
+            "default": "operator adopted recovered position",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "stop_loss": {
+            "exclusiveMinimum": 0.0,
+            "title": "Stop Loss",
+            "type": "number"
+          }
+        },
+        "required": [
+          "confirm",
+          "stop_loss"
+        ],
+        "title": "PositionRecoveryAdoptionCommand",
+        "type": "object"
+      },
       "PositionRuleCreate": {
         "properties": {
           "metric": {
@@ -4905,6 +4932,55 @@
           }
         },
         "summary": "Get Logical Position"
+      }
+    },
+    "/positions/logical/{position_id}/adopt-recovery": {
+      "post": {
+        "operationId": "adopt_recovered_logical_position_positions_logical__position_id__adopt_recovery_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PositionRecoveryAdoptionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionUnitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Adopt Recovered Logical Position"
       }
     },
     "/positions/logical/{position_id}/allocations": {
