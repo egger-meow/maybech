@@ -489,6 +489,22 @@ class AuditEventStore:
                 "event_id = excluded.event_id, updated_at = excluded.updated_at",
                 (consumer, event.created_at, event.id, now),
             )
+            conn.execute(
+                "DELETE FROM notification_delivery_acknowledgements "
+                "WHERE consumer = ? AND event_id IN ("
+                "SELECT id FROM audit_events WHERE created_at < ? "
+                "OR (created_at = ? AND id <= ?))",
+                (consumer, event.created_at, event.created_at, event.id),
+            )
+
+    def notification_acknowledgement_count(self, consumer: str) -> int:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM notification_delivery_acknowledgements "
+                "WHERE consumer = ?",
+                (consumer,),
+            ).fetchone()
+        return int(row["count"] if row is not None else 0)
 
     def pending_delivery_count(self, consumer: str) -> int:
         with self._conn() as conn:

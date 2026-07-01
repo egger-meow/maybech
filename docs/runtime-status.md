@@ -299,6 +299,9 @@ resumes after the last fully handled event; a failed channel is retried without
 resending an already acknowledged sibling channel, and later events remain
 queued in order until the failed event succeeds. Failed transports use
 persistent exponential backoff from five seconds up to fifteen minutes. The
+cursor advance transaction deletes channel acknowledgements at or before the
+new cursor, so only confirmations still needed for an incomplete event remain.
+The durable audit events themselves are not deleted by this compaction. The
 Traditional Chinese Notification Management page reads
 `GET /notifications/health` and provides a separately confirmed real test
 action through `POST /notifications/test`; neither contract exposes secrets or

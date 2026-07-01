@@ -156,11 +156,34 @@ def test_lifecycle_retry_does_not_redeliver_acknowledged_channel(tmp_path):
     store.create(type="strategy.enabled", source="api", payload={"strategy_id": "a"})
 
     service.tick()
+    assert store.notification_acknowledgement_count("lifecycle_notifications") == 1
     service.email = RecordingNotifier()  # type: ignore[assignment]
     service.tick()
 
     assert len(line.messages) == 1
     assert len(service.email.messages) == 1  # type: ignore[attr-defined]
+    assert store.notification_acknowledgement_count("lifecycle_notifications") == 0
+
+
+def test_advancing_cursor_compacts_historical_channel_acknowledgements(tmp_path):
+    store = AuditEventStore(str(tmp_path / "trades.db"))
+    service = LifecycleNotificationService(
+        audit_store=store,
+        line=RecordingNotifier(),  # type: ignore[arg-type]
+        email=RecordingNotifier(),  # type: ignore[arg-type]
+    )
+    service.setup()
+    for index in range(25):
+        store.create(
+            type="strategy.enabled",
+            source="api",
+            payload={"strategy_id": f"strategy-{index}"},
+        )
+
+    service.tick()
+
+    assert store.pending_delivery_count("lifecycle_notifications") == 0
+    assert store.notification_acknowledgement_count("lifecycle_notifications") == 0
 
 
 def test_lifecycle_failure_persists_health_and_bounded_backoff(tmp_path):
