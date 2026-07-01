@@ -43,14 +43,55 @@ Items here may be useful, but they must not interrupt `Current Priorities` while
 
 Add work here only when it is not required to prevent uncontrolled behavior, excessive loss, incorrect live execution, broken operator control, unexpected state, or hidden safety threats.
 
-- Future Support／Resistance Analysis page: this is an operator research view,
-  not a standalone alert service. It may revisit peak/valley detection and draw
-  circles/markers plus level values over K-lines, but should combine them with
-  broader technical market evidence rather than treating one extrema algorithm
-  as authoritative. Design cached market fetches, incremental calculations,
-  explicit freshness, bounded CPU/API usage, and invalidation before rebuilding
-  any analyzer. Price logic used for trading must still enter the persisted
-  strategy/position expression model with evidence.
+- Future position-rule design and Support/Resistance research: this is part of the next big product phase for post-entry logical-position management, not a standalone alert service and not a reason to delay current live-safety blockers.
+
+  The goal is to design a coherent rule system for stop-loss, take-profit, break-even, optional trailing protection, and research-grade Support/Resistance evidence after a strategy opens a position or when the operator edits an existing logical position unit.
+
+  This work should eventually support both strategy default rules and per-logical-position overrides:
+
+  * initial stop-loss rules
+  * take-profit / stop-win rules
+  * break-even arming rules
+  * optional trailing stop / trailing take-profit rules
+  * manual-review rules when evidence conflicts or data is stale
+  * chart overlays for entry, current price, stop-loss, take-profit, break-even, and executed reduce/close markers
+    Stop-loss design should support at least two modes:
+
+  1. Fixed-loss stop mode:
+     the operator chooses a fixed acceptable loss amount for the unit, and the system derives or displays the stop level / distance clearly. This is fast and simple, but may ignore market structure.
+
+  2. Chart-anchored stop mode:
+     the operator chooses or the system proposes a stop near market structure, such as prior high / prior low, 2B invalidation level, recent swing level, or Support/Resistance level across an explicit timeframe. The position size should then be calculated from the fixed allowed loss at that stop level.
+
+     Example principle:
+     `position_value = allowed_loss / (abs(entry_price - stop_price) / entry_price)`
+
+     If BTC is 65,000, the selected long stop is 60,800, and allowed loss is 2,000 USDT, the system should derive the max position value from that distance instead of letting arbitrary size create arbitrary loss.
+     Break-even design should be first-class. After sufficient favorable movement, such as real PnL reaching a configured percent or price reaching a configured evidence level, the system may arm or move the stop-loss to a fee/slippage-adjusted break-even level. Break-even should protect the position so expected realized PnL is at least zero or slightly positive after fees and slippage, not blindly equal to raw entry price.
+
+  Take-profit / stop-win design should support multiple future styles:
+
+  * fixed percent from actual entry price
+  * fixed price level after entry is known
+  * chart/evidence target, such as next Support/Resistance, prior high/low, or operator-selected level
+  * staged reduce targets for partial exits
+  * trend-following mode where only part of the position is reduced and the rest is allowed to run
+    Trailing stop / trailing take-profit is useful but lower priority than initial stop-loss and break-even. It must be optional because aggressive trailing can close trend trades too early during normal volatility. If implemented, it should expose distance, activation threshold, timeframe, and evidence clearly.
+
+  (New page for market analysis, and data also related to above) Support/Resistance analysis should be treated as an evidence provider, not an authority. It may revisit peak/valley detection and draw circles, markers, and level values over K-lines, but it must combine extrema with broader technical market evidence such as timeframe, volume, recency, repeated touches, wick/body behavior, BTC regime, volatility, and invalidation distance. One extrema algorithm must not directly control trading.
+
+  Any market-data analyzer built for this must have:
+
+  * cached market fetches
+  * incremental calculations
+  * explicit freshness timestamps
+  * bounded CPU and API usage
+  * invalidation rules
+  * test coverage for stale data, missing candles, duplicated candles, and API failure
+  * visible UI state when evidence is stale, partial, or unavailable
+    Price logic used for actual trading must enter the persisted strategy / logical-position expression model with structured evidence. Research-only chart markers must not silently become live close rules.
+
+  This item may be promoted only after the current strategy-management and logical-position mutation APIs are safe, revision-protected, and tested. Until then, keep it as design guidance for the next phase rather than a build blocker.
 
 - Frontend polish, broad architecture cleanup, and unrelated refactors remain
   deferred until the backend execution finish line is proven.
