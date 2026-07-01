@@ -413,6 +413,47 @@ def test_risk_limit_update_requires_entries_disabled(monkeypatch, tmp_path):
     assert store.get().max_order_notional_usd == 100
 
 
+def test_risk_limit_update_cannot_orphan_enabled_strategy_target(monkeypatch, tmp_path):
+    store = AccountRiskStore(str(tmp_path / "trades.db"))
+    store.save(
+        AccountRiskLimits(
+            enabled=True,
+            max_order_notional_usd=100,
+            max_total_exposure_usd=500,
+            max_leverage=5,
+            allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
+        )
+    )
+    StrategyStore(store.db_path).create(
+        id="enabled-eth",
+        name="Enabled ETH",
+        enabled=True,
+        target_instruments=["ETH-USDT-SWAP"],
+    )
+    monkeypatch.setattr("src.api.app.AccountRiskStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.put(
+        "/risk/limits",
+        json={
+            "confirm": True,
+            "expected_updated_at": store.get().updated_at,
+            "enabled": True,
+            "max_order_notional_usd": 100,
+            "max_total_exposure_usd": 500,
+            "max_leverage": 5,
+            "allowed_instruments": ["BTC-USDT-SWAP"],
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["strategies"][0]["strategy_id"] == "enabled-eth"
+    assert store.get().allowed_instruments == (
+        "BTC-USDT-SWAP",
+        "ETH-USDT-SWAP",
+    )
+
+
 def test_api_imports_only_current_unexplained_position_gap(monkeypatch, tmp_path):
     trade_store = TradeStore(str(tmp_path / "trades.db"))
     position_store = LogicalPositionStore(trade_store.db_path)
@@ -1552,6 +1593,43 @@ def test_api_rejects_enable_when_strategy_signal_is_invalid(monkeypatch, tmp_pat
 
     assert response.status_code == 400
     assert "Strategy is not executable" in response.json()["detail"]["message"]
+
+
+def test_api_rejects_strategy_enable_outside_account_allowlist(monkeypatch, tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(
+        id="eth-breakout",
+        name="ETH Breakout",
+        enabled=False,
+        target_instruments=["ETH-USDT-SWAP"],
+        entry_signal={"type": "price_above", "symbol": "self", "value": 100},
+        default_rules={"close_conditions": [{
+            "purpose": "stop_loss",
+            "expression": {"type": "price_below", "symbol": "self", "value": 90},
+        }]},
+        metadata={
+            "position_side": "long",
+            "order_size_contracts": {"ETH-USDT-SWAP": "1"},
+            "max_entry_slippage_pct": "0.005",
+        },
+    )
+    AccountRiskStore(store.db_path).save(
+        AccountRiskLimits(
+            enabled=True,
+            max_order_notional_usd=100,
+            max_total_exposure_usd=500,
+            max_leverage=5,
+            allowed_instruments=("BTC-USDT-SWAP",),
+        )
+    )
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.post("/strategies/eth-breakout/enable")
+
+    assert response.status_code == 400
+    assert "outside account risk allowlist" in response.json()["detail"]["errors"][0]
+    assert store.get("eth-breakout").enabled is False
 
 
 def test_api_rolls_back_enabled_strategy_edit_when_it_makes_it_invalid(monkeypatch, tmp_path):

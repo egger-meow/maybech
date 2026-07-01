@@ -68,7 +68,9 @@ Frontends must use `active`; there is no `state` field.
   entries are enabled, rejects a stale `expected_updated_at`, and atomically
   writes before/after audit evidence. Its non-empty `allowed_instruments` is an
   account-level boundary checked by live preflight and every entry approval;
-  an enabled strategy cannot authorize a different SWAP by itself.
+  an enabled strategy cannot authorize a different SWAP by itself. Risk and
+  strategy mutations serialize on the entry lock: the risk API cannot orphan an
+  enabled strategy target, and strategy enable/edit cannot cross the boundary.
 - `GET /risk/entries` reports persisted and process-local entry state.
 - `GET /instruments` reads the SQLite-cached live OKX SWAP catalog. It returns
   `503` when metadata has not been refreshed; no synthetic instruments or unit

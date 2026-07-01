@@ -126,9 +126,9 @@ class AccountRiskLimits:
 class AccountRiskStore:
     """SQLite persistence for the single operator account risk envelope."""
 
-    def __init__(self, db_path: str | None = None) -> None:
+    def __init__(self, db_path: str | None = None, *, initialize: bool = True) -> None:
         self.db_path = db_path or settings.MAYBECH_DB_PATH
-        if not sqlite_read_only():
+        if initialize and not sqlite_read_only():
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
             self._init_db()
 
@@ -186,10 +186,20 @@ class AccountRiskStore:
             ).fetchone()
             return row, control
         if connection is not None:
-            row, control = read(connection)
+            try:
+                row, control = read(connection)
+            except sqlite3.OperationalError as exc:
+                if "no such table" not in str(exc):
+                    raise
+                return None
         else:
             with self._conn() as conn:
-                row, control = read(conn)
+                try:
+                    row, control = read(conn)
+                except sqlite3.OperationalError as exc:
+                    if "no such table" not in str(exc):
+                        raise
+                    return None
         if row is None:
             return None
         return AccountRiskLimits(

@@ -50,7 +50,8 @@ Required capabilities:
 
 - select one or more cached, currently tradable OKX instruments through a
   searchable combobox; typed search filters options but cannot submit an
-  arbitrary instrument id
+  arbitrary instrument id; when an account risk envelope exists, only its
+  allowlisted instruments are offered and persisted mismatches are shown inline
 
 - list strategies with enabled state, target instrument, side, readiness, and
   latest decision

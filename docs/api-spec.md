@@ -98,6 +98,10 @@ operator session receives `409` instead of overwriting a newer review.
 enabled. Live preflight validates every allowlisted instrument against OKX and
 rejects enabled strategy targets outside the list; every entry approval repeats
 the exact membership check immediately before order intent/submission.
+Risk-envelope and strategy mutations share the entry execution lock. Removing a
+target still used by an enabled strategy returns `409`; enabling or editing an
+enabled strategy outside the current account allowlist is rejected before the
+definition and audit transaction commits.
 
 `GET /notifications/health` returns only channel configuration booleans,
 service state, durable success/failure timestamps, bounded-backoff state, and

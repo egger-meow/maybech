@@ -26,17 +26,16 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. A successful manual notification test writes into the same channel health
-   row as lifecycle delivery. It can reset a queued event's failure/backoff and
-   make the dashboard look healthy even though the lifecycle backlog remains
-   blocked by that transport.
-2. Notification health retains only the latest failure fields per channel. A
-   later success erases the failure class and consecutive count, leaving no
-   durable attempt history for diagnosing intermittent monitoring outages.
-3. The notification health page proves transport acceptance but has no
-   independent scheduled canary. During a quiet trading period, expired LINE
-   or SMTP credentials can remain displayed from an old success until the next
-   lifecycle event or manual test exposes the failure.
+1. `POST /strategies/{strategy_id}/enable` has no typed confirmation body. A
+   mistaken or replayed POST can mark a strategy live-eligible without the API
+   proving that the caller explicitly confirmed this dangerous transition.
+2. Strategy definition updates have no revision or expected-update token. A
+   stale Strategy Management tab can overwrite a newer signal, target, sizing,
+   delay, or default-rule review without detecting the conflict.
+3. Logical-position close-condition updates have no revision token. Concurrent
+   operator tabs can silently overwrite non-protective exit, trailing,
+   break-even, or manual-review rule edits and leave different behavior than
+   the most recent operator expected.
 
 ## Non-Blocking / Later
 
@@ -62,3 +61,7 @@ Add work here only when it is not required to prevent uncontrolled behavior, exc
 - Backtesting is documented as a future Strategy Management capability, but no
   current backtest engine exists in `src/`; do not expose a fake API or block
   live position management on rebuilding that research subsystem.
+- Notification delivery is intentionally basic: configured LINE/Gmail sends,
+  bounded retry, backlog, and last health are sufficient for now. Canary
+  probes, full attempt history, and manual-test health isolation are deferred
+  unless notification reliability becomes an explicit product priority.

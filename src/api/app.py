@@ -499,7 +499,18 @@ def _record_definition_audit(
 
 
 def _strategy_validation_errors(strategy: StrategyRecord, store: StrategyStore) -> list[str]:
-    return validate_strategy_for_execution(strategy, store)
+    errors = validate_strategy_for_execution(strategy, store)
+    risk_limits = AccountRiskStore(store.db_path, initialize=False).get()
+    if risk_limits is not None:
+        outside = sorted(
+            set(strategy.target_instruments) - set(risk_limits.allowed_instruments)
+        )
+        if outside:
+            errors.append(
+                "strategy targets outside account risk allowlist: "
+                + ", ".join(outside)
+            )
+    return errors
 
 
 def _as_float(value: object) -> float | None:
@@ -964,7 +975,8 @@ def create_app(
     ) -> AccountRiskLimitsResponse:
         store = AccountRiskStore()
         audit_store = AuditEventStore(store.db_path)
-        with store.transaction() as connection:
+        strategy_store = StrategyStore(store.db_path)
+        with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
             before = store.get(connection=connection)
             if before is not None and payload.expected_updated_at != before.updated_at:
                 raise HTTPException(
@@ -978,6 +990,29 @@ def create_app(
                 raise HTTPException(
                     status_code=409,
                     detail="Disable strategy entries before changing account risk limits",
+                )
+            allowed_instruments = set(payload.allowed_instruments)
+            conflicting_strategies = [
+                {
+                    "strategy_id": strategy.id,
+                    "strategy_name": strategy.name,
+                    "instruments": sorted(
+                        set(strategy.target_instruments) - allowed_instruments
+                    ),
+                }
+                for strategy in strategy_store.list(enabled=True)
+                if set(strategy.target_instruments) - allowed_instruments
+            ]
+            if conflicting_strategies:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": (
+                            "Disable or retarget enabled strategies before removing "
+                            "their instruments from the account risk allowlist"
+                        ),
+                        "strategies": conflicting_strategies,
+                    },
                 )
             saved = store.save(
                 AccountRiskLimits(
@@ -1409,7 +1444,7 @@ def create_app(
     def create_strategy(payload: StrategyCreate) -> StrategySummaryResponse:
         store = StrategyStore()
         audit_store = AuditEventStore(store.db_path)
-        with store.transaction() as connection:
+        with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
             if payload.id and store.get(payload.id) is not None:
                 raise HTTPException(status_code=409, detail="Strategy id already exists")
             strategy = store.create(
@@ -1480,7 +1515,7 @@ def create_app(
     def update_strategy(strategy_id: str, payload: StrategyUpdate) -> StrategySummaryResponse:
         store = StrategyStore()
         audit_store = AuditEventStore(store.db_path)
-        with store.transaction() as connection:
+        with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
             previous = store.get(strategy_id)
             if previous is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")
@@ -1525,7 +1560,7 @@ def create_app(
     def enable_strategy(strategy_id: str) -> StrategySummaryResponse:
         store = StrategyStore()
         audit_store = AuditEventStore(store.db_path)
-        with store.transaction() as connection:
+        with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
             strategy = store.get(strategy_id)
             if strategy is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")

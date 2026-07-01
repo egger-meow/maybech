@@ -78,6 +78,7 @@ export default function RuntimeModeBanner() {
   const entryState = entries.data
     ? entries.data.entries_enabled && entries.data.process_entry_enabled ? "已啟用" : "已停用"
     : failure(entries.error);
+  const allowedInstruments = risk.data?.allowed_instruments ?? [];
 
   const diagnostics: DiagnosticCard[] = [
     {
@@ -102,6 +103,7 @@ export default function RuntimeModeBanner() {
       { label: "單筆名目金額上限", state: "missing", detail: "缺少 max_order_notional_usd" },
       { label: "帳戶總曝險上限", state: "missing", detail: "缺少 max_total_exposure_usd" },
       { label: "最大槓桿", state: "missing", detail: "缺少 max_leverage" },
+      { label: "帳戶允許商品", state: "missing", detail: "缺少 allowed_instruments" },
       { label: "風險上限啟用狀態", state: "missing", detail: "風險 envelope 尚未建立並啟用" },
     );
   } else if (risk.data) {
@@ -109,6 +111,7 @@ export default function RuntimeModeBanner() {
       { label: "單筆名目金額上限", state: "ready", detail: `${risk.data.max_order_notional_usd} USD` },
       { label: "帳戶總曝險上限", state: "ready", detail: `${risk.data.max_total_exposure_usd} USD` },
       { label: "最大槓桿", state: "ready", detail: `${risk.data.max_leverage}×` },
+      { label: "帳戶允許商品", state: allowedInstruments.length ? "ready" : "missing", detail: allowedInstruments.length ? allowedInstruments.join("、") : "allowlist 為空，實盤進場會被封鎖" },
       { label: "風險上限啟用狀態", state: risk.data.enabled ? "ready" : "missing", detail: risk.data.enabled ? "已啟用" : "已建立但 enabled=false" },
     );
   } else {
@@ -116,11 +119,12 @@ export default function RuntimeModeBanner() {
       { label: "單筆名目金額上限", state: "unchecked", detail: "風險 API 尚未回應" },
       { label: "帳戶總曝險上限", state: "unchecked", detail: "風險 API 尚未回應" },
       { label: "最大槓桿", state: "unchecked", detail: "風險 API 尚未回應" },
+      { label: "帳戶允許商品", state: "unchecked", detail: "風險 API 尚未回應" },
       { label: "風險上限啟用狀態", state: "unchecked", detail: "風險 API 尚未回應" },
     );
   }
   requirements.push({
-    label: "OKX 商品 metadata／允許商品",
+    label: "OKX 商品 metadata",
     state: instruments.data?.items.length && !instruments.data.stale ? "ready" : "missing",
     detail: instruments.data?.items.length ? instruments.data.stale ? `商品快取已過期（${formatTime(instruments.data.refreshed_at)}）` : `${instruments.data.items.length} 個可交易 SWAP 已快取` : "商品快取缺失，策略與手動開倉不能選商品",
   });
@@ -136,7 +140,9 @@ export default function RuntimeModeBanner() {
       return rule.purpose === "stop_loss" && rule.enabled !== false && expression.type === expectedStop;
     });
     const missingSizes = (strategy.target_instruments ?? []).filter((item) => !(Number(sizes[item]) > 0));
+    const outsideAllowlist = (strategy.target_instruments ?? []).filter((item) => !allowedInstruments.includes(item));
     requirements.push(
+      { label: `${strategy.name}／帳戶商品邊界`, state: risk.data && !outsideAllowlist.length ? "ready" : "missing", detail: !risk.data ? "風險 envelope 尚未讀取" : outsideAllowlist.length ? `超出 allowlist：${outsideAllowlist.join("、")}` : "所有策略商品均在帳戶 allowlist" },
       { label: `${strategy.name}／委託口數`, state: Boolean(strategy.target_instruments?.length) && !missingSizes.length ? "ready" : "missing", detail: missingSizes.length ? `缺少：${missingSizes.join("、")}` : strategy.target_instruments?.length ? "每個商品已有 OKX 口數" : "沒有 target instrument" },
       { label: `${strategy.name}／最大滑價`, state: slippage > 0 && slippage <= .05 ? "ready" : "missing", detail: slippage > 0 && slippage <= .05 ? `${slippage * 100}%` : "max_entry_slippage_pct 必須大於 0 且不超過 5%" },
       { label: `${strategy.name}／保護停損`, state: hasStop ? "ready" : "missing", detail: hasStop ? `已有方向正確的 ${expectedStop}` : `缺少已啟用的 ${expectedStop} stop_loss` },
@@ -161,7 +167,7 @@ export default function RuntimeModeBanner() {
         <span>委託：{preflight.data ? preflight.data.armed ? "已武裝" : "已解除" : "未知"}</span>
         <span>進場：{entries.data ? entryState : "未知"}</span>
       </div>
-      {mode === "dry" && risk.error instanceof ApiError && risk.error.status === 404 && <div className="mode-notice">風險上限尚未建立；明確缺少：單筆名目金額上限、帳戶總曝險上限、最大槓桿及啟用狀態。Dry-run 可繼續使用，實盤啟動會被封鎖。</div>}
+      {mode === "dry" && risk.error instanceof ApiError && risk.error.status === 404 && <div className="mode-notice">風險上限尚未建立；明確缺少：單筆名目金額上限、帳戶總曝險上限、最大槓桿、允許商品及啟用狀態。Dry-run 可繼續使用，實盤啟動會被封鎖。</div>}
       <details className="mode-requirements">
         <summary>實盤啟動條件逐項檢查</summary>
         <div className="mode-requirements-grid">

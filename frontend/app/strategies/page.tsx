@@ -15,6 +15,7 @@ import {
   deleteStrategySignal,
   disableStrategy,
   enableStrategy,
+  getRiskLimits,
   listPersistedStrategyDecisions,
   listInstruments,
   listStrategies,
@@ -175,7 +176,7 @@ function ChildSignal({ strategyId, signal, onSaved }: { strategyId: string; sign
   );
 }
 
-function StrategyEditor({ strategy, onSaved, catalog, catalogStale }: { strategy?: StrategySummary; onSaved: (selectedId?: string) => Promise<unknown>; catalog: InstrumentMetadataResponse[]; catalogStale: boolean }) {
+function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstruments }: { strategy?: StrategySummary; onSaved: (selectedId?: string) => Promise<unknown>; catalog: InstrumentMetadataResponse[]; catalogStale: boolean; allowedInstruments?: string[] }) {
   const [draft, setDraft] = useState<Draft>(() => strategy ? draftFrom(strategy) : blankDraft());
   const [dirty, setDirty] = useState(!strategy);
   const [busy, setBusy] = useState(false);
@@ -183,12 +184,19 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale }: { strategy
   const [newSignal, setNewSignal] = useState(false);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => { setDraft((current) => ({ ...current, [key]: value })); setDirty(true); };
   const instruments = draft.instruments;
+  const selectableCatalog = allowedInstruments
+    ? catalog.filter((item) => allowedInstruments.includes(item.inst_id))
+    : catalog;
+  const outsideAllowlist = allowedInstruments
+    ? instruments.filter((item) => !allowedInstruments.includes(item))
+    : [];
 
   const save = async () => {
     setBusy(true); setError("");
     try {
       if (!draft.name.trim()) throw new Error("請輸入策略名稱。");
       if (!instruments.length) throw new Error("至少需要一個交易商品。");
+      if (outsideAllowlist.length) throw new Error(`商品超出帳戶風險 allowlist：${outsideAllowlist.join("、")}`);
       const executionDelaySeconds = Number(draft.executionDelaySeconds);
       if (!Number.isInteger(executionDelaySeconds) || executionDelaySeconds < 0 || executionDelaySeconds > 86400) throw new Error("執行延遲必須是 0 到 86400 秒的整數。");
       const expressions = [draft.entrySignal, ...draft.closeRules.map((rule) => rule.expression)];
@@ -239,7 +247,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale }: { strategy
       <div className="form-grid">
         <label className="field"><span>策略名稱</span><input value={draft.name} onChange={(event) => set("name", event.target.value)} /></label>
         <label className="field"><span>方向</span><select value={draft.side} onChange={(event) => set("side", event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
-        <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} /></div>
+        <div className="field full"><span>交易商品</span><InstrumentSelector instruments={selectableCatalog} stale={catalogStale} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} />{allowedInstruments ? <small>只顯示帳戶風險上限允許的 {allowedInstruments.length} 個商品。</small> : <div className="inline-warning">帳戶風險 allowlist 尚未建立；策略可先儲存為停用，但實盤不能通過 preflight。</div>}{outsideAllowlist.length > 0 && <div className="error-state">目前策略超出帳戶 allowlist：{outsideAllowlist.join("、")}。請移除商品或先至「風險上限」調整邊界。</div>}</div>
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
         <label className="field"><span>訊號成立後執行延遲</span><span className="input-with-suffix"><input type="number" min="0" max="86400" step="1" value={draft.executionDelaySeconds} onChange={(event) => set("executionDelaySeconds", event.target.value)} /><small>秒</small></span><small>{Number(draft.executionDelaySeconds) > 0 ? "到期後會重新驗證訊號與風險；失效即取消。" : "0 秒＝停用延遲，沿用立即執行。"}</small></label>
         <div className="field full"><span>每個商品的操作者幣量</span><div className="contract-size-grid">{instruments.map((instrument) => <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><label><small>換算參考價格（USDT）</small><input type="number" min="0" step="any" value={draft.referencePrices[instrument] ?? ""} onChange={(event) => set("referencePrices", { ...draft.referencePrices, [instrument]: event.target.value })} /></label><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={draft.referencePrices[instrument] ?? ""} side={draft.side} /></div>)}</div></div>
@@ -264,7 +272,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale }: { strategy
       {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
       <div className="form-actions">
         <span className={dirty ? "dirty-note" : "saved-note"}>{dirty ? "有尚未儲存的變更" : <><Check size={15} /> 已儲存</>}</span>
-        {strategy && <button type="button" className={strategy.enabled ? "btn btn-outline" : "btn btn-danger"} disabled={busy || dirty} onClick={toggle}><Power size={15} /> {strategy.enabled ? "停用策略" : "啟用策略"}</button>}
+        {strategy && <button type="button" className={strategy.enabled ? "btn btn-outline" : "btn btn-danger"} disabled={busy || dirty || (!strategy.enabled && outsideAllowlist.length > 0)} onClick={toggle}><Power size={15} /> {strategy.enabled ? "停用策略" : "啟用策略"}</button>}
         <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={save}><Save size={16} /> {busy ? "儲存中…" : "儲存策略"}</button>
       </div>
 
@@ -289,6 +297,7 @@ function Decisions({ strategyId }: { strategyId: string }) {
 export default function StrategiesPage() {
   const { data: strategies, error, mutate, isLoading } = useSWR("strategies", listStrategies, { refreshInterval: 10_000 });
   const catalog = useSWR("instrument-metadata", listInstruments);
+  const risk = useSWR("risk-limits", getRiskLimits, { refreshInterval: 10_000 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const selected = strategies?.find((strategy) => strategy.id === selectedId) ?? strategies?.[0];
@@ -302,7 +311,7 @@ export default function StrategiesPage() {
       {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> OKX 商品快取已過期（最近更新：{new Date(catalog.data.refreshed_at).toLocaleString("zh-TW")}）。換算與新選擇已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>立即更新</button></div>}
       {error && <div className="error-state">策略 API 無法使用。畫面不會用假資料替代，所有操作已停用。</div>}
       {isLoading && <div className="loading-state">正在讀取策略…</div>}
-      {!error && strategies && <div className="strategy-workspace"><StrategyList strategies={strategies} selectedId={creating ? null : selected?.id ?? null} onSelect={(id) => { setSelectedId(id); setCreating(false); }} onCreate={() => setCreating(true)} /><div className="strategy-main">{creating ? <StrategyEditor key="new" onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} /> : selected ? <><StrategyEditor key={`${selected.id}-${selected.updated_at}`} strategy={selected} onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} /><Decisions strategyId={selected.id} /></> : <div className="panel empty-state">建立第一個策略，開始定義進場訊號與預設部位規則。</div>}</div></div>}
+      {!error && strategies && <div className="strategy-workspace"><StrategyList strategies={strategies} selectedId={creating ? null : selected?.id ?? null} onSelect={(id) => { setSelectedId(id); setCreating(false); }} onCreate={() => setCreating(true)} /><div className="strategy-main">{creating ? <StrategyEditor key="new" onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} /> : selected ? <><StrategyEditor key={`${selected.id}-${selected.updated_at}`} strategy={selected} onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} /><Decisions strategyId={selected.id} /></> : <div className="panel empty-state">建立第一個策略，開始定義進場訊號與預設部位規則。</div>}</div></div>}
     </div>
   );
 }
