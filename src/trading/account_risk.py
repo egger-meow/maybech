@@ -154,14 +154,24 @@ class AccountRiskStore:
         finally:
             conn.close()
 
-    def get(self) -> AccountRiskLimits | None:
-        with self._conn() as conn:
+    def get(
+        self,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> AccountRiskLimits | None:
+        def read(conn: sqlite3.Connection) -> tuple[sqlite3.Row | None, sqlite3.Row | None]:
             row = conn.execute(
                 "SELECT * FROM account_risk_limits WHERE id = 'account'"
             ).fetchone()
             control = conn.execute(
                 "SELECT entries_enabled FROM entry_control WHERE id = 'account'"
             ).fetchone()
+            return row, control
+        if connection is not None:
+            row, control = read(connection)
+        else:
+            with self._conn() as conn:
+                row, control = read(conn)
         if row is None:
             return None
         return AccountRiskLimits(
@@ -185,6 +195,7 @@ class AccountRiskStore:
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Connection, None, None]:
         with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             yield conn
 
     def save(

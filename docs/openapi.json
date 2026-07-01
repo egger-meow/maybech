@@ -113,6 +113,17 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "expected_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Updated At"
+          },
           "max_leverage": {
             "exclusiveMinimum": 0.0,
             "maximum": 125.0,

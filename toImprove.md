@@ -26,17 +26,17 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Risk-limit writes have no revision or expected-update token. Two operator
-   sessions can edit the same envelope and a stale tab can silently overwrite a
-   newer reviewed limit, changing live-account behavior from the expectation of
-   the operator who saved most recently.
-2. The account risk envelope has no independent allowed-instrument set. A
+1. The account risk envelope has no independent allowed-instrument set. A
    mistaken strategy target edit can therefore authorize any otherwise valid
    live SWAP, with no account-level boundary preventing an unexpected market.
-3. Notification delivery acknowledgements currently have no retention or
+2. Notification delivery acknowledgements currently have no retention or
    compaction policy. Long-running accounts can grow one row per delivered
    channel and lifecycle event indefinitely; eventual SQLite disk exhaustion
    could prevent new audits and trading-state writes.
+3. The notification health page proves transport acceptance but has no
+   independent scheduled canary. During a quiet trading period, expired LINE
+   or SMTP credentials can remain displayed from an old success until the next
+   lifecycle event or manual test exposes the failure.
 
 ## Non-Blocking / Later
 

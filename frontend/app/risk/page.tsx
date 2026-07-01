@@ -100,6 +100,7 @@ export default function RiskLimitsPage() {
     try {
       const next = await updateRiskLimits({
         confirm: true,
+        expected_updated_at: saved?.updated_at ?? null,
         enabled: form.enabled,
         max_order_notional_usd: Number(form.maxOrder),
         max_total_exposure_usd: Number(form.maxExposure),
@@ -110,10 +111,18 @@ export default function RiskLimitsPage() {
       setConfirmed(false);
       setNotice("風險上限已儲存，before／after 稽核證據也已寫入。此動作不會開啟進場閘門。");
     } catch (reason) {
-      const detail = reason instanceof ApiError && typeof reason.info === "object" && reason.info
-        ? String((reason.info as { detail?: unknown }).detail ?? "")
-        : "";
-      setError(detail || "儲存失敗；畫面保留未儲存內容，後端原值未被假設為已更新。");
+      const info = reason instanceof ApiError && typeof reason.info === "object" && reason.info
+        ? reason.info as { detail?: string | { message?: string; current_updated_at?: string } }
+        : null;
+      if (reason instanceof ApiError && reason.status === 409 && typeof info?.detail === "object") {
+        const current = info.detail.current_updated_at
+          ? new Date(info.detail.current_updated_at).toLocaleString("zh-TW")
+          : "未知";
+        setError(`後端風險上限已被其他工作階段更新（${current}）。目前表單保留未儲存內容；請重新讀取並逐項核對後再送出。`);
+      } else {
+        const detail = typeof info?.detail === "string" ? info.detail : "";
+        setError(detail || "儲存失敗；畫面保留未儲存內容，後端原值未被假設為已更新。");
+      }
     } finally {
       setSaving(false);
     }

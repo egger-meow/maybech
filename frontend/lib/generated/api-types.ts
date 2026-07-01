@@ -22,6 +22,7 @@ export type AccountRiskLimitsResponse = {
 
 export type AccountRiskLimitsUpdate = {
   "confirm": true;
+  "expected_updated_at"?: string | null;
   "enabled": boolean;
   "max_order_notional_usd": number;
   "max_total_exposure_usd": number;

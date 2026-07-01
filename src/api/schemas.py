@@ -91,6 +91,7 @@ class RuntimeCapabilitiesResponse(BaseModel):
 
 class AccountRiskLimitsUpdate(BaseModel):
     confirm: Literal[True]
+    expected_updated_at: str | None = None
     enabled: bool
     max_order_notional_usd: float = Field(gt=0)
     max_total_exposure_usd: float = Field(gt=0)

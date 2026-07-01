@@ -91,7 +91,9 @@ startup additionally requires `--allow-remote`; a token never replaces TLS.
 The order limit cannot exceed the total exposure limit; all numeric limits must
 be positive. Mutations are rejected while strategy entries are enabled and
 commit a durable `risk.limits_updated` before/after audit atomically with the
-new envelope.
+new envelope. Existing envelopes also require an exact `expected_updated_at`;
+the comparison and write run under one immediate SQLite transaction, so a stale
+operator session receives `409` instead of overwriting a newer review.
 
 `GET /notifications/health` returns only channel configuration booleans,
 service state, durable success/failure timestamps, bounded-backoff state, and

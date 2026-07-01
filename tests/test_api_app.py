@@ -274,6 +274,35 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
     assert audits[0].payload["before"] is None
     assert audits[0].payload["after"]["max_total_exposure_usd"] == 500
 
+    stale = client.put(
+        "/risk/limits",
+        json={
+            "confirm": True,
+            "expected_updated_at": "stale-version",
+            "enabled": True,
+            "max_order_notional_usd": 200,
+            "max_total_exposure_usd": 1000,
+            "max_leverage": 10,
+        },
+    )
+    assert stale.status_code == 409
+    assert client.get("/risk/limits").json() == response.json()
+
+    current_version = response.json()["updated_at"]
+    updated = client.put(
+        "/risk/limits",
+        json={
+            "confirm": True,
+            "expected_updated_at": current_version,
+            "enabled": True,
+            "max_order_notional_usd": 150,
+            "max_total_exposure_usd": 750,
+            "max_leverage": 6,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["max_order_notional_usd"] == 150
+
 
 def test_api_requires_confirmation_for_entry_enable_and_kill(monkeypatch, tmp_path):
     store = AccountRiskStore(str(tmp_path / "trades.db"))

@@ -964,13 +964,21 @@ def create_app(
     ) -> AccountRiskLimitsResponse:
         store = AccountRiskStore()
         audit_store = AuditEventStore(store.db_path)
-        before = store.get()
-        if before is not None and before.entries_enabled:
-            raise HTTPException(
-                status_code=409,
-                detail="Disable strategy entries before changing account risk limits",
-            )
         with store.transaction() as connection:
+            before = store.get(connection=connection)
+            if before is not None and payload.expected_updated_at != before.updated_at:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Account risk limits changed since they were loaded",
+                        "current_updated_at": before.updated_at,
+                    },
+                )
+            if before is not None and before.entries_enabled:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Disable strategy entries before changing account risk limits",
+                )
             saved = store.save(
                 AccountRiskLimits(
                     enabled=payload.enabled,
