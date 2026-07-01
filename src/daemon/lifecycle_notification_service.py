@@ -93,6 +93,7 @@ class LifecycleNotificationService(DaemonService):
 
     name = "lifecycle_notifications"
     interval = 2.0
+    _consumer = "lifecycle_notifications"
 
     def __init__(
         self,
@@ -105,26 +106,18 @@ class LifecycleNotificationService(DaemonService):
         self.audit_store = audit_store
         self.line = line or LineBotNotifier()
         self.email = email or EmailNotifier()
-        self._seen_ids: set[str] = set()
         self._unsubscribe: Callable[[], None] | None = None
 
     def setup(self) -> None:
-        self._seen_ids = {
-            event.id for event in self.audit_store.list(limit=500)
-        }
+        self.audit_store.initialize_delivery_cursor(self._consumer)
         if self.runtime is not None:
             self._unsubscribe = self.runtime.events.subscribe(self._on_runtime_event)
 
     def tick(self) -> None:
-        events = self.audit_store.list(limit=500)
-        for event in reversed(events):
-            if event.id in self._seen_ids:
-                continue
-            self._seen_ids.add(event.id)
-            self._deliver(event.type, event.payload)
-        if len(self._seen_ids) > 2000:
-            current = {event.id for event in events}
-            self._seen_ids.intersection_update(current)
+        for event in self.audit_store.list_after_delivery_cursor(self._consumer):
+            if not self._deliver(event):
+                break
+            self.audit_store.advance_delivery_cursor(self._consumer, event)
 
     def teardown(self) -> None:
         if self._unsubscribe is not None:
@@ -142,14 +135,32 @@ class LifecycleNotificationService(DaemonService):
                 created_at=event.created_at.isoformat(),
             )
 
-    def _deliver(self, event_type: str, payload: dict[str, Any]) -> None:
+    def _deliver(self, event: AuditEventRecord) -> bool:
+        event_type = event.type
+        payload = event.payload
         category = (
             "執行環境／安全失敗"
             if event_type == "runtime.safety_failure"
             else classify_lifecycle_event(event_type, payload)
         )
         if category is None:
-            return
+            return True
         message = format_lifecycle_message(category, event_type, payload)
-        self.line.send(message)
-        self.email.send(f"Maybech｜{category}", message)
+        acknowledged = self.audit_store.acknowledged_delivery_channels(
+            self._consumer, event.id
+        )
+        channels = (
+            ("line", self.line, (message,)),
+            ("email", self.email, (f"Maybech｜{category}", message)),
+        )
+        delivered = True
+        for channel, notifier, args in channels:
+            if channel in acknowledged or getattr(notifier, "enabled", True) is False:
+                continue
+            if notifier.send(*args):
+                self.audit_store.acknowledge_delivery_channel(
+                    self._consumer, event.id, channel
+                )
+            else:
+                delivered = False
+        return delivered

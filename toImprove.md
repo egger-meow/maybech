@@ -26,17 +26,20 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Lifecycle notifications route current audits, but their delivery cursor is
-   process-local. A notifier outage or restart can therefore miss lifecycle
-   events written while delivery was unavailable instead of resuming from a
-   durable acknowledged cursor.
-2. LINE/Gmail transport failures currently remain in process logs only. The
+1. LINE/Gmail transport failures currently remain in process logs only. The
    dashboard has no persisted delivery health or failed-delivery evidence, so
    an operator can incorrectly assume phone/email monitoring is functioning.
-3. Risk-limit diagnostics name every missing live field, but the dashboard has
+   Add a first-class LINE/Gmail management page with channel readiness,
+   persisted delivery health, backlog/failure evidence, and an explicit test
+   action; never expose stored credentials in API responses or the browser.
+2. Risk-limit diagnostics name every missing live field, but the dashboard has
    no first-class editor for the persisted account envelope. Operators still
    need direct API access to configure per-order notional, total exposure,
    leverage, and allowed instruments before live preflight can pass.
+3. Lifecycle delivery retries currently run at the daemon's fixed two-second
+   polling interval. A prolonged LINE or SMTP outage can repeatedly hammer the
+   failed transport and fill process logs instead of using persisted bounded
+   exponential backoff while keeping the queued event visible to the operator.
 
 ## Non-Blocking / Later
 

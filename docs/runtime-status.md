@@ -288,7 +288,11 @@ Market-regime and close-rule evaluation noise is excluded. LINE and Gmail both
 suppress equivalent normalized messages for
 `NOTIFICATION_COOLDOWN_SECONDS` (default 300), and formatted content is limited
 to operator identifiers, result, reason, and evidence fields; credentials and
-raw payloads are never included.
+raw payloads are never included. The audit consumer stores its acknowledged
+event cursor and per-channel acknowledgements in SQLite. A restart therefore
+resumes after the last fully handled event; a failed channel is retried without
+resending an already acknowledged sibling channel, and later events remain
+queued in order until the failed event succeeds.
 
 ## Safety Notes
 

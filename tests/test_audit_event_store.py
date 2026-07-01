@@ -8,7 +8,7 @@ from src.trading.sqlite_schema import configure_connection, initialize_schema
 def test_audit_event_store_records_schema_version(tmp_path):
     store = AuditEventStore(str(tmp_path / "audit.db"))
 
-    assert store.applied_schema_versions() == [1, 2]
+    assert store.applied_schema_versions() == [1, 2, 3]
 
 
 def test_audit_event_store_migrates_version_one_database(tmp_path):
@@ -44,7 +44,7 @@ def test_audit_event_store_migrates_version_one_database(tmp_path):
     finally:
         conn.close()
     assert {"strategy_id", "correlation_id"} <= columns
-    assert store.applied_schema_versions() == [1, 2]
+    assert store.applied_schema_versions() == [1, 2, 3]
 
 
 def test_audit_event_store_saves_and_filters_events(tmp_path):

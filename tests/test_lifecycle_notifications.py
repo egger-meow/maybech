@@ -18,6 +18,12 @@ class RecordingNotifier:
         return True
 
 
+class FailingNotifier(RecordingNotifier):
+    def send(self, *parts: str) -> bool:
+        self.messages.append(parts)
+        return False
+
+
 def test_lifecycle_service_delivers_only_new_supported_audits(tmp_path):
     store = AuditEventStore(str(tmp_path / "trades.db"))
     store.create(
@@ -81,6 +87,76 @@ def test_runtime_service_error_routes_as_safety_failure(tmp_path):
         event_type="runtime.safety_failure"
     )) == 1
     assert store_events[0].source == "account"
+
+
+def test_lifecycle_cursor_resumes_events_written_during_restart(tmp_path):
+    store = AuditEventStore(str(tmp_path / "trades.db"))
+    first = LifecycleNotificationService(
+        audit_store=store,
+        line=RecordingNotifier(),  # type: ignore[arg-type]
+        email=RecordingNotifier(),  # type: ignore[arg-type]
+    )
+    first.setup()
+    store.create(type="strategy.enabled", source="api", payload={"strategy_id": "a"})
+    first.tick()
+    first.teardown()
+    store.create(type="strategy.disabled", source="api", payload={"strategy_id": "a"})
+
+    line = RecordingNotifier()
+    restarted = LifecycleNotificationService(
+        audit_store=AuditEventStore(store.db_path),
+        line=line,  # type: ignore[arg-type]
+        email=RecordingNotifier(),  # type: ignore[arg-type]
+    )
+    restarted.setup()
+    restarted.tick()
+
+    assert len(line.messages) == 1
+    assert "策略已停用" in line.messages[0][0]
+
+
+def test_lifecycle_cursor_retries_failure_before_later_events(tmp_path):
+    store = AuditEventStore(str(tmp_path / "trades.db"))
+    line = FailingNotifier()
+    service = LifecycleNotificationService(
+        audit_store=store,
+        line=line,  # type: ignore[arg-type]
+        email=RecordingNotifier(),  # type: ignore[arg-type]
+    )
+    service.setup()
+    store.create(type="strategy.enabled", source="api", payload={"strategy_id": "a"})
+    store.create(type="strategy.disabled", source="api", payload={"strategy_id": "b"})
+
+    service.tick()
+    assert len(line.messages) == 1
+
+    replacement = RecordingNotifier()
+    service.line = replacement  # type: ignore[assignment]
+    service.tick()
+
+    assert len(replacement.messages) == 2
+    assert "策略已啟用" in replacement.messages[0][0]
+    assert "策略已停用" in replacement.messages[1][0]
+
+
+def test_lifecycle_retry_does_not_redeliver_acknowledged_channel(tmp_path):
+    store = AuditEventStore(str(tmp_path / "trades.db"))
+    line = RecordingNotifier()
+    email = FailingNotifier()
+    service = LifecycleNotificationService(
+        audit_store=store,
+        line=line,  # type: ignore[arg-type]
+        email=email,  # type: ignore[arg-type]
+    )
+    service.setup()
+    store.create(type="strategy.enabled", source="api", payload={"strategy_id": "a"})
+
+    service.tick()
+    service.email = RecordingNotifier()  # type: ignore[assignment]
+    service.tick()
+
+    assert len(line.messages) == 1
+    assert len(service.email.messages) == 1  # type: ignore[attr-defined]
 
 
 def test_category_mapping_covers_confirmed_position_lifecycle():

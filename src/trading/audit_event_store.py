@@ -23,7 +23,7 @@ from src.trading.sqlite_schema import (
 
 
 _SCHEMA_COMPONENT = "audit_events"
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 _SCHEMA = """
@@ -54,6 +54,24 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_strategy
     ON audit_events(strategy_id);
 CREATE INDEX IF NOT EXISTS idx_audit_events_correlation
     ON audit_events(correlation_id);
+"""
+
+_SCHEMA_V3_NOTIFICATIONS = """
+CREATE TABLE IF NOT EXISTS notification_delivery_cursors (
+    consumer         TEXT PRIMARY KEY,
+    event_created_at TEXT NOT NULL,
+    event_id         TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notification_delivery_acknowledgements (
+    consumer        TEXT NOT NULL,
+    event_id        TEXT NOT NULL,
+    channel         TEXT NOT NULL,
+    acknowledged_at TEXT NOT NULL,
+    PRIMARY KEY (consumer, event_id, channel),
+    FOREIGN KEY (event_id) REFERENCES audit_events(id) ON DELETE CASCADE
+);
 """
 
 
@@ -161,10 +179,13 @@ class AuditEventStore:
                 component=_SCHEMA_COMPONENT,
                 version=1,
             )
-            if _SCHEMA_VERSION not in applied_schema_versions(
+            if 2 not in applied_schema_versions(
                 conn, component=_SCHEMA_COMPONENT
             ):
                 self._migrate_v2(conn)
+            versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
+            if 3 not in versions:
+                self._migrate_v3(conn)
 
     @staticmethod
     def _migrate_v2(conn: sqlite3.Connection) -> None:
@@ -182,6 +203,11 @@ class AuditEventStore:
             )
         conn.executescript(_SCHEMA_V2_INDEXES)
         record_schema_version(conn, component=_SCHEMA_COMPONENT, version=2)
+
+    @staticmethod
+    def _migrate_v3(conn: sqlite3.Connection) -> None:
+        conn.executescript(_SCHEMA_V3_NOTIFICATIONS)
+        record_schema_version(conn, component=_SCHEMA_COMPONENT, version=3)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -339,3 +365,104 @@ class AuditEventStore:
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
         return [AuditEventRecord.from_row(row) for row in rows]
+
+    def initialize_delivery_cursor(self, consumer: str) -> tuple[str, str] | None:
+        """Create a first-run cursor at the newest event without overwriting one."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT event_created_at, event_id FROM notification_delivery_cursors "
+                "WHERE consumer = ?",
+                (consumer,),
+            ).fetchone()
+            if row is not None:
+                return str(row["event_created_at"]), str(row["event_id"])
+            latest = conn.execute(
+                "SELECT created_at, id FROM audit_events "
+                "ORDER BY created_at DESC, id DESC LIMIT 1"
+            ).fetchone()
+            if latest is None:
+                return None
+            cursor = (str(latest["created_at"]), str(latest["id"]))
+            conn.execute(
+                "INSERT INTO notification_delivery_cursors "
+                "(consumer, event_created_at, event_id, updated_at) VALUES (?, ?, ?, ?)",
+                (consumer, cursor[0], cursor[1], now),
+            )
+            return cursor
+
+    def list_after_delivery_cursor(
+        self,
+        consumer: str,
+        *,
+        limit: int = 500,
+    ) -> list[AuditEventRecord]:
+        """Return events after the acknowledged cursor in deterministic order."""
+        with self._conn() as conn:
+            cursor = conn.execute(
+                "SELECT event_created_at, event_id FROM notification_delivery_cursors "
+                "WHERE consumer = ?",
+                (consumer,),
+            ).fetchone()
+            if cursor is None:
+                rows = conn.execute(
+                    "SELECT * FROM audit_events ORDER BY created_at ASC, id ASC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM audit_events "
+                    "WHERE created_at > ? OR (created_at = ? AND id > ?) "
+                    "ORDER BY created_at ASC, id ASC LIMIT ?",
+                    (
+                        cursor["event_created_at"],
+                        cursor["event_created_at"],
+                        cursor["event_id"],
+                        limit,
+                    ),
+                ).fetchall()
+        return [AuditEventRecord.from_row(row) for row in rows]
+
+    def acknowledge_delivery_channel(
+        self,
+        consumer: str,
+        event_id: str,
+        channel: str,
+    ) -> None:
+        acknowledged_at = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO notification_delivery_acknowledgements "
+                "(consumer, event_id, channel, acknowledged_at) VALUES (?, ?, ?, ?)",
+                (consumer, event_id, channel, acknowledged_at),
+            )
+
+    def acknowledged_delivery_channels(
+        self,
+        consumer: str,
+        event_id: str,
+    ) -> set[str]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT channel FROM notification_delivery_acknowledgements "
+                "WHERE consumer = ? AND event_id = ?",
+                (consumer, event_id),
+            ).fetchall()
+        return {str(row["channel"]) for row in rows}
+
+    def advance_delivery_cursor(
+        self,
+        consumer: str,
+        event: AuditEventRecord,
+    ) -> None:
+        """Advance only after the caller has acknowledged every required channel."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO notification_delivery_cursors "
+                "(consumer, event_created_at, event_id, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(consumer) DO UPDATE SET "
+                "event_created_at = excluded.event_created_at, "
+                "event_id = excluded.event_id, updated_at = excluded.updated_at",
+                (consumer, event.created_at, event.id, now),
+            )
