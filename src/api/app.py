@@ -1520,6 +1520,14 @@ def create_app(
             previous = store.get(strategy_id)
             if previous is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")
+            if payload.expected_updated_at != previous.updated_at:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Strategy changed since it was loaded",
+                        "current_updated_at": previous.updated_at,
+                    },
+                )
             strategy = store.update(
                 strategy_id,
                 name=payload.name,

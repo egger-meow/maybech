@@ -90,6 +90,9 @@ Frontends must use `active`; there is no `state` field.
 - `GET /strategies` returns typed persisted strategy summaries, including
   runtime service status, signal parameters,
   target instruments, default rule parameters, and latest decisions.
+- `PATCH /strategies/{strategy_id}` uses `expected_updated_at` as an optimistic
+  concurrency boundary. A stale browser keeps its draft but cannot overwrite a
+  newer strategy definition or its atomic mutation audit.
 - `POST /strategies/{strategy_id}/enable` requires a typed `confirm=true` and
   the exact reviewed `expected_updated_at`. Create/PATCH cannot enable a
   strategy, and stale confirmations fail instead of enabling an unseen edit.

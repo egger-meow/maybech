@@ -1535,7 +1535,7 @@ def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):
     )
     updated = client.patch(
         "/strategies/breakout",
-        json={"target_instruments": ["ETH-USDT-SWAP", "SOL-USDT-SWAP"], "execution_delay_seconds": 30},
+        json={"expected_updated_at": created.json()["updated_at"], "target_instruments": ["ETH-USDT-SWAP", "SOL-USDT-SWAP"], "execution_delay_seconds": 30},
     )
 
     assert created.status_code == 201
@@ -1546,6 +1546,13 @@ def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):
     assert created.json()["execution_delay_seconds"] == 15
     assert updated.json()["execution_delay_seconds"] == 30
     assert store.get("breakout").enabled is False
+
+    stale = client.patch(
+        "/strategies/breakout",
+        json={"expected_updated_at": "stale-version", "name": "Overwrite"},
+    )
+    assert stale.status_code == 409
+    assert store.get("breakout").name == "Breakout"
 
 
 def test_api_enables_and_disables_persisted_strategy(monkeypatch, tmp_path):
@@ -1569,7 +1576,7 @@ def test_api_enables_and_disables_persisted_strategy(monkeypatch, tmp_path):
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
 
-    patch_bypass = client.patch("/strategies/breakout", json={"enabled": True})
+    patch_bypass = client.patch("/strategies/breakout", json={"expected_updated_at": store.get("breakout").updated_at, "enabled": True})
     current_version = store.get("breakout").updated_at
     unconfirmed = client.post("/strategies/breakout/enable", json={"confirm": False, "expected_updated_at": current_version})
     stale = client.post("/strategies/breakout/enable", json={"confirm": True, "expected_updated_at": "stale"})
@@ -1660,7 +1667,7 @@ def test_api_rolls_back_enabled_strategy_edit_when_it_makes_it_invalid(monkeypat
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
 
-    response = client.patch("/strategies/breakout", json={"default_rules": {}})
+    response = client.patch("/strategies/breakout", json={"expected_updated_at": store.get("breakout").updated_at, "default_rules": {}})
 
     assert response.status_code == 400
     assert store.get("breakout").enabled is True
@@ -1793,7 +1800,7 @@ def test_strategy_mutation_rolls_back_when_audit_insert_fails(monkeypatch, tmp_p
     )
     client = TestClient(create_app(DaemonRunner()), raise_server_exceptions=False)
 
-    response = client.patch("/strategies/breakout", json={"name": "After"})
+    response = client.patch("/strategies/breakout", json={"expected_updated_at": store.get("breakout").updated_at, "name": "After"})
 
     assert response.status_code == 500
     assert store.get("breakout").name == "Before"

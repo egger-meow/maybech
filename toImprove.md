@@ -26,16 +26,16 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Strategy definition updates have no revision or expected-update token. A
-   stale Strategy Management tab can overwrite a newer signal, target, sizing,
-   delay, or default-rule review without detecting the conflict.
-2. Child strategy-signal updates have no revision token. A stale editor can
+1. Child strategy-signal updates have no revision token. A stale editor can
    overwrite a newer entry, filter, or copied-exit expression and silently
    change the behavior of an enabled strategy.
-3. Logical-position close-condition updates have no revision token. Concurrent
+2. Logical-position close-condition updates have no revision token. Concurrent
    operator tabs can silently overwrite non-protective exit, trailing,
    break-even, or manual-review rule edits and leave different behavior than
    the most recent operator expected.
+3. Logical-position close-condition deletion has neither explicit confirmation
+   nor a revision check. A stale or accidental DELETE can remove a software
+   exit rule that another operator still expects to manage the live unit.
 
 ## Non-Blocking / Later
 

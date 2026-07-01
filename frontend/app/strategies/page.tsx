@@ -95,6 +95,7 @@ function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     const detail = object(error.info).detail;
     if (typeof detail === "string") return detail;
+    if (error.status === 409 && object(detail).current_updated_at) return `後端策略已在 ${new Date(String(object(detail).current_updated_at)).toLocaleString("zh-TW")} 更新。草稿尚未送出；請重新整理並核對後再儲存。`;
     const message = object(detail).message;
     if (typeof message === "string") return message;
   }
@@ -196,6 +197,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
     try {
       if (!draft.name.trim()) throw new Error("請輸入策略名稱。");
       if (!instruments.length) throw new Error("至少需要一個交易商品。");
+      if (strategy && !strategy.updated_at) throw new Error("策略版本時間缺失，無法安全儲存。請重新整理。");
       if (outsideAllowlist.length) throw new Error(`商品超出帳戶風險 allowlist：${outsideAllowlist.join("、")}`);
       const executionDelaySeconds = Number(draft.executionDelaySeconds);
       if (!Number.isInteger(executionDelaySeconds) || executionDelaySeconds < 0 || executionDelaySeconds > 86400) throw new Error("執行延遲必須是 0 到 86400 秒的整數。");
@@ -219,7 +221,9 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         execution_delay_seconds: executionDelaySeconds,
         metadata: { ...object(strategy?.metadata), position_side: draft.side, order_size_contracts: sizes, order_display_quantities: draft.displayQuantities, sizing_reference_prices: draft.referencePrices, max_entry_slippage_pct: String(Number(draft.slippagePercent) / 100) },
       };
-      const saved = strategy ? await updateStrategy(strategy.id, payload) : await createStrategy({ ...payload, enabled: false });
+      const saved = strategy
+        ? await updateStrategy(strategy.id, { ...payload, expected_updated_at: strategy.updated_at! })
+        : await createStrategy({ ...payload, enabled: false });
       setDirty(false); await onSaved(saved.id);
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   };

@@ -3976,6 +3976,11 @@
             ],
             "title": "Execution Delay Seconds"
           },
+          "expected_updated_at": {
+            "minLength": 1,
+            "title": "Expected Updated At",
+            "type": "string"
+          },
           "kind": {
             "anyOf": [
               {
@@ -4025,6 +4030,9 @@
             "title": "Target Instruments"
           }
         },
+        "required": [
+          "expected_updated_at"
+        ],
         "title": "StrategyUpdate",
         "type": "object"
       },

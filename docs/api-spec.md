@@ -187,7 +187,8 @@ The Strategy Management page has a persisted strategy definition contract now:
 - `POST /strategies`: create a strategy with entry signal expression and
   default position rules.
 - `PATCH /strategies/{strategy_id}`: edit strategy metadata, signal expression,
-  risk filters, and default position rules.
+  risk filters, and default position rules. It requires the exact
+  `expected_updated_at`; stale writes return `409` without changing the record.
 - `POST /strategies/{strategy_id}/enable`: with `confirm=true` and the exact
   `expected_updated_at`, mark the reviewed persisted strategy enabled.
 - `POST /strategies/{strategy_id}/disable`: mark a persisted strategy disabled.

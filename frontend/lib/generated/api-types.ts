@@ -681,6 +681,7 @@ export type StrategySummaryResponse = {
 };
 
 export type StrategyUpdate = {
+  "expected_updated_at": string;
   "name"?: string | null;
   "kind"?: string | null;
   "enabled"?: boolean | null;

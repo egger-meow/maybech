@@ -691,6 +691,7 @@ class StrategyCreate(BaseModel):
 
 
 class StrategyUpdate(BaseModel):
+    expected_updated_at: str = Field(min_length=1)
     name: str | None = None
     kind: str | None = None
     enabled: bool | None = None

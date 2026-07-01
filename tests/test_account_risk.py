@@ -1,4 +1,5 @@
 from decimal import Decimal
+import sqlite3
 
 import pytest
 
@@ -13,6 +14,7 @@ from src.trading.logical_position_store import (
     LogicalPositionRecord,
     LogicalPositionStore,
 )
+from src.trading.sqlite_schema import configure_connection, initialize_schema, record_schema_version
 
 
 class RiskClient:
@@ -125,6 +127,52 @@ def test_account_risk_store_persists_one_versioned_envelope(tmp_path):
     assert limits.allowed_instruments == ("BTC-USDT-SWAP", "ETH-USDT-SWAP")
     assert limits.entries_enabled is True
     assert store.applied_schema_versions() == [1, 2, 3]
+
+
+def test_account_risk_store_migrates_v2_envelope_to_instrument_allowlist(tmp_path):
+    db_path = str(tmp_path / "risk-v2.db")
+    conn = sqlite3.connect(db_path)
+    try:
+        configure_connection(conn)
+        initialize_schema(
+            conn,
+            schema_sql="""
+                CREATE TABLE account_risk_limits (
+                    id TEXT PRIMARY KEY CHECK (id = 'account'),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    max_order_notional_usd TEXT NOT NULL,
+                    max_total_exposure_usd TEXT NOT NULL,
+                    max_leverage TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+            """,
+            component="account_risk",
+            version=1,
+        )
+        conn.execute(
+            """CREATE TABLE entry_control (
+                id TEXT PRIMARY KEY CHECK (id = 'account'),
+                entries_enabled INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO account_risk_limits
+               VALUES ('account', 0, '100', '500', '5', 'before', 'before')"""
+        )
+        conn.execute("INSERT INTO entry_control VALUES ('account', 0, 'before')")
+        record_schema_version(conn, component="account_risk", version=2)
+        conn.commit()
+    finally:
+        conn.close()
+
+    store = AccountRiskStore(db_path)
+    migrated = store.get()
+
+    assert store.applied_schema_versions() == [1, 2, 3]
+    assert migrated is not None
+    assert migrated.allowed_instruments == ()
 
 
 def test_entry_approval_blocks_instrument_outside_account_allowlist(tmp_path):
