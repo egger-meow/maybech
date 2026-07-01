@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ActivitySquare, BellRing, Briefcase, History, LayoutDashboard, Settings2 } from "lucide-react";
+import { ActivitySquare, BellRing, Briefcase, History, LayoutDashboard, Settings2, ShieldCheck } from "lucide-react";
 
 import ThemeToggle from "./ThemeToggle";
 
@@ -10,6 +10,7 @@ const links = [
   { href: "/", label: "總覽", icon: LayoutDashboard },
   { href: "/strategies", label: "策略管理", icon: Settings2 },
   { href: "/positions", label: "部位管理", icon: Briefcase },
+  { href: "/risk", label: "風險上限", icon: ShieldCheck },
   { href: "/history", label: "交易紀錄", icon: History },
   { href: "/events", label: "事件稽核", icon: ActivitySquare },
   { href: "/notifications", label: "通知管理", icon: BellRing },

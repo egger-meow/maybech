@@ -30,6 +30,16 @@ rather than suggesting safe one-click concurrent operation.
 - Require a visible confirmation before a real test message is sent.
 - Never return or render tokens, passwords, user IDs, or destination addresses.
 
+## Risk Limits Page
+
+- First-class Traditional Chinese editor for the persisted account envelope.
+- Show the current enabled state, backend update time, and entry-gate state.
+- Keep unsaved values visibly distinct from the last backend response.
+- Validate notional, gross exposure, and leverage before submission.
+- Disable mutation unless entries are confirmed off and the operator explicitly
+  confirms the high-risk overwrite; successful saves state clearly that they do
+  not arm orders or enable strategy entries.
+
 ## Strategy Management Page
 
 Purpose: manage pre-position plans.

@@ -3,6 +3,7 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:800
 import type {
   AccountSnapshotResponse,
   AccountRiskLimitsResponse,
+  AccountRiskLimitsUpdate,
   EntryControlResponse,
   AuditEventResponse,
   BTCRegimeResponse,
@@ -61,6 +62,7 @@ import type {
 export type {
   AccountSnapshotResponse as AccountSnapshot,
   AccountRiskLimitsResponse,
+  AccountRiskLimitsUpdate,
   EntryControlResponse,
   AuditEventResponse,
   BTCRegimeResponse as BtcRegime,
@@ -181,6 +183,19 @@ export const patchData = async <T = unknown>(url: string, data?: unknown): Promi
   return res.json();
 };
 
+export const putData = async <T = unknown>(url: string, data?: unknown): Promise<T> => {
+  const res = await fetch(apiUrl(url), {
+    method: "PUT",
+    headers: requestHeaders(true),
+    body: data ? JSON.stringify(data) : undefined,
+  });
+  if (!res.ok) {
+    const info = await res.json().catch(() => null);
+    throw new ApiError(`PUT ${url} failed`, res.status, info);
+  }
+  return res.json();
+};
+
 export const deleteData = async <T = unknown>(url: string): Promise<T> => {
   const res = await fetch(apiUrl(url), {
     method: "DELETE",
@@ -215,6 +230,11 @@ export const sendNotificationTest = (
 
 export const getRiskLimits = (): Promise<AccountRiskLimitsResponse> =>
   fetcher<AccountRiskLimitsResponse>("/risk/limits");
+
+export const updateRiskLimits = (
+  payload: AccountRiskLimitsUpdate,
+): Promise<AccountRiskLimitsResponse> =>
+  putData<AccountRiskLimitsResponse>("/risk/limits", payload);
 
 export const getEntryControl = (): Promise<EntryControlResponse> =>
   fetcher<EntryControlResponse>("/risk/entries");
