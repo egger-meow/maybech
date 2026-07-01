@@ -17,6 +17,7 @@ capability moves from planned to partial or complete.
 | API-backed daemon runtime | Partial | `uv run python -m src.runtime api` starts FastAPI with daemon services; `run_api.py` remains a compatibility wrapper. |
 | Headless daemon runtime | Partial | `uv run python -m src.runtime services` runs services without UI; `run_services.py` remains a compatibility wrapper. |
 | Runtime events | Partial | `/events` and `/ws/events` provide the live in-memory stream; position-manager evaluations and close attempts are durable through `AuditEventStore` and `GET /audit/events`. Broader event persistence and retention are not built. |
+| Notification scope and cooldown | Partial | The legacy support/resistance and standalone fluctuation alert daemon, configs, calculations, LINE formatters, and tests are removed. Generic LINE delivery suppresses equivalent messages using configurable `NOTIFICATION_COOLDOWN_SECONDS`. Lifecycle category routing to LINE/Gmail remains future work and is documented. |
 | Account snapshot | Partial | Current API exposes account summary, positions, and orders snapshots. |
 | BTC regime state | Partial | `BTCRegimeService` publishes regime state and `/market/btc-regime` exposes the latest snapshot. |
 | Strategy decisions | Partial | Runtime snapshots remain for compatibility; every evaluated setup is also persisted with a correlation id, policy evidence, execution result, and order/trade/position references. `GET /strategies/{strategy_id}/decisions` provides filtered restart-safe history. |

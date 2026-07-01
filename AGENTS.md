@@ -47,7 +47,7 @@ Recent history follows Conventional Commit prefixes such as `feat:`, `fix:`, and
 
 ## Security & Configuration Tips
 
-Create local secrets from `.env.example` and never commit `.env`. Treat OKX API keys, LINE tokens, and notification targets as sensitive. Review strategy records in SQLite and changes to `src/config/notificator_config.json` carefully because they can alter live trading or alert behavior. Strategy instruments, signals, close rules, and contract sizing do not belong in `.env`.
+Create local secrets from `.env.example` and never commit `.env`. Treat OKX API keys, LINE tokens, and notification targets as sensitive. Review strategy records in SQLite and notification delivery changes carefully because they can alter live trading or alert behavior. Strategy instruments, signals, close rules, and contract sizing do not belong in `.env`.
 
 ## Agent Operating Notes
 

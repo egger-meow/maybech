@@ -198,5 +198,7 @@ kept focused on active runtime/operator variables, including
 `MAYBECH_ARM_ORDERS`, `MAYBECH_DB_PATH`, and `NEXT_PUBLIC_API_URL`. A
 source-derived test rejects missing and obsolete entries.
 Treat OKX API keys, LINE tokens, SMTP credentials, and notification targets as
-sensitive. Keep the API bound to localhost unless authentication, TLS, and a
-private access path are configured.
+sensitive. Notification transports are reserved for strategy, position,
+runtime-safety, and exchange/API lifecycle events; standalone support/resistance
+price alerts are removed. Keep the API bound to localhost unless authentication,
+TLS, and a private access path are configured.

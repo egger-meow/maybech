@@ -271,6 +271,20 @@ policy, ingestion, and account-risk checks. Invalidated or blocked actions
 cancel without submission and persist the reason. Pending actions survive
 restart; disabling or deleting a strategy cancels them.
 
+## Notification Scope
+
+Standalone market-price alerts have been removed. Maybech no longer calculates
+support/resistance levels or emits independent rapid-price alerts. Price and
+volume conditions belong only inside persisted strategy/position expressions.
+
+The remaining LINE transport is generic and suppresses equivalent messages for
+`NOTIFICATION_COOLDOWN_SECONDS` (default 300). Supported notification scope is
+limited to strategy created/enabled/disabled, entry submitted/executed/blocked,
+position opened/reduced/closed, manual review, execution failure,
+runtime/safety failure, and exchange/API failure. Future Gmail/LINE lifecycle
+delivery should include strategy id/name, instrument, side, display/API size,
+result, reason, and evidence, and must never include API secrets.
+
 ## Safety Notes
 
 - Importing `src.exchange.client` never arms orders. Every runtime factory

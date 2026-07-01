@@ -21,7 +21,7 @@ tagged with the creating strategy, so rules can be managed independently.
 The current codebase is a good Python MVP:
 
 - `src/daemon/` already separates background services from the UI.
-- `StrategyService` and `NotificatorService` can run continuously.
+- Strategy, account, reconciliation, position, and fill services can run continuously.
 - `frontend/` provides the browser dashboard for control and inspection.
 - OKX order placement has safety guards through dry-run and explicit arming.
 

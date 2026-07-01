@@ -100,8 +100,8 @@ class Settings:
     LINE_CHANNEL_SECRET: str = field(default_factory=lambda: _get("LINE_CHANNEL_SECRET"))
     LINE_USER_ID: str = field(default_factory=lambda: _get("LINE_USER_ID"))
 
-    NOTIFICATOR_ENABLED: bool = field(
-        default_factory=lambda: _get("NOTIFICATOR_ENABLED", "1") == "1"
+    NOTIFICATION_COOLDOWN_SECONDS: int = field(
+        default_factory=lambda: _get_int("NOTIFICATION_COOLDOWN_SECONDS", 300)
     )
 
     # Notifications — Email

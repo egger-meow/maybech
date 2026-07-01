@@ -24,6 +24,9 @@ Production credentials use `OKX_API_KEY`, `OKX_API_SECRET`, and
 production credentials. Never copy real values into `.env.example` or docs.
 Trading instruments, timeframe, signals, default close rules, and contract
 counts are strategy data in SQLite; they are intentionally absent from `.env`.
+`NOTIFICATION_COOLDOWN_SECONDS` controls duplicate suppression for generic LINE
+lifecycle messages and defaults to 300. There is no standalone market-price
+alert service; price logic belongs in persisted strategy/position expressions.
 
 ## Guarded Path To Real Money
 

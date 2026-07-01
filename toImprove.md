@@ -26,21 +26,31 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. The legacy support/resistance notificator path is still registered and can
-   emit standalone price alerts outside strategy/position lifecycle scope. It
-   must be removed before notification behavior matches the product contract.
-2. Instrument metadata has an explicit refresh API but no automatic daily
+1. Instrument metadata has an explicit refresh API but no automatic daily
    refresh or stale-cache indicator. Long-running operators can otherwise size
    against outdated lot(since even new added inst we will mostly not trade, so even outdated like a week is okay), minimum, tick, or contract-value data.
-3. Automatically recovered OKX units correctly block entries and request manual
+2. Automatically recovered OKX units correctly block entries and request manual
    review, but Position Management has no guided adoption flow to add a
    side-correct stop and prove owned protection before clearing that review.
+3. Generic LINE cooldown is implemented and legacy price alerts are gone, but
+   lifecycle audit categories are not yet routed to LINE/Gmail. Phone/email
+   monitoring therefore does not yet cover strategy, position, runtime-safety,
+   and exchange/API failures end to end.
 
 ## Non-Blocking / Later
 
 Items here may be useful, but they must not interrupt `Current Priorities` while real-money safety blockers still exist.
 
 Add work here only when it is not required to prevent uncontrolled behavior, excessive loss, incorrect live execution, broken operator control, unexpected state, or hidden safety threats.
+
+- Future Support／Resistance Analysis page: this is an operator research view,
+  not a standalone alert service. It may revisit peak/valley detection and draw
+  circles/markers plus level values over K-lines, but should combine them with
+  broader technical market evidence rather than treating one extrema algorithm
+  as authoritative. Design cached market fetches, incremental calculations,
+  explicit freshness, bounded CPU/API usage, and invalidation before rebuilding
+  any analyzer. Price logic used for trading must still enter the persisted
+  strategy/position expression model with evidence.
 
 - Frontend polish, broad architecture cleanup, and unrelated refactors remain
   deferred until the backend execution finish line is proven.

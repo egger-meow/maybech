@@ -33,6 +33,8 @@ No webhook server is needed for push-only notifications.
 """
 
 import logging
+import re
+import time
 from linebot.v3.messaging import MessagingApi, ApiClient, Configuration, PushMessageRequest, TextMessage
 
 from src.config.settings import settings
@@ -44,6 +46,8 @@ class LineBotNotifier:
     """Sends push notifications via LINE Messaging API."""
 
     def __init__(self) -> None:
+        self.cooldown_seconds = max(0, settings.NOTIFICATION_COOLDOWN_SECONDS)
+        self._sent_at: dict[str, float] = {}
         self.enabled = bool(
             settings.LINE_CHANNEL_ACCESS_TOKEN
             and settings.LINE_CHANNEL_SECRET
@@ -69,99 +73,23 @@ class LineBotNotifier:
         if not self.enabled:
             return False
 
+        fingerprint = re.sub(r"\s+", " ", message.strip()).casefold()
+        now = time.monotonic()
+        last_sent = self._sent_at.get(fingerprint)
+        if last_sent is not None and now - last_sent < self.cooldown_seconds:
+            logger.info("Equivalent LINE notification suppressed by cooldown.")
+            return False
+
         try:
             request = PushMessageRequest(
                 to=self._user_id,
                 messages=[TextMessage(text=message)]
             )
             self._api.push_message(request)
+            self._sent_at[fingerprint] = now
             logger.info("LINE message sent successfully.")
             return True
         except Exception as e:
             # Avoid logging the sensitive tokens/ID which might be in the exception repr
             logger.error(f"Failed to send LINE message: {e}")
             return False
-
-    def send_trade_alert(self, inst_id: str, direction: str, entry: float, sl: float, tp: float) -> bool:
-        """Send a formatted trade alert message in Traditional Chinese."""
-        direction_tw = "多 (Long)" if direction.upper() == "LONG" else "空 (Short)"
-        msg = (
-            f"🔔 交易訊號通知\n"
-            f"交易對: {inst_id}\n"
-            f"方向: {direction_tw}\n"
-            f"進場價: {entry:,.2f}\n"
-            f"止損: {sl:,.2f} | 止盈: {tp:,.2f}"
-        )
-        return self.send(msg)
-
-    def send_level_alert(self, 
-                         inst_id: str, 
-                         timeframe: str, 
-                         price: float, 
-                         kind: str, 
-                         distance: float,
-                         level_price: float,
-                         significance: float,
-                         count: int,
-                         purity: float) -> bool:
-        """Send an enhanced price proximity alert in Traditional Chinese."""
-        # Mapping kind to Trad. Chinese
-        kind_map = {
-            "peak": "壓力位 (Resistance)",
-            "valley": "支撐位 (Support)",
-            "mixed": "壓力/支撐(混合)區"
-        }
-        kind_tw = kind_map.get(kind, kind)
-        icon = "📈" if kind == "peak" else "📉" if kind == "valley" else "⚖️"
-
-        # Significance level mapping
-        if significance >= 0.8:
-            sig_tw = "極高 (Very High)"
-        elif significance >= 0.6:
-            sig_tw = "高 (High)"
-        elif significance >= 0.4:
-            sig_tw = "中 (Medium)"
-        else:
-            sig_tw = "低 (Low)"
-
-        msg = (
-            f"{icon} 價格預警: {inst_id} ({timeframe})\n"
-            f"當前價格正接近重要的 {kind_tw}\n\n"
-            f"📍 當前價格: ${price:,.2f}\n"
-            f"🎯 目標位: ${level_price:,.2f}\n"
-            f"📏 距離: ${distance:,.2f}\n"
-            f"📊 重要性: {sig_tw} ({significance:.2f})\n"
-            f"🔢 確認次數: {count}\n"
-            f"✨ 純度: {purity:.1%}"
-        )
-        return self.send(msg)
-
-    def send_fluctuation_alert(self, 
-                             inst_id: str, 
-                             minutes: int, 
-                             pct_change: float, 
-                             threshold: float, 
-                             direction: str, 
-                             start_price: float, 
-                             end_price: float) -> bool:
-        """Send a rapid price fluctuation alert in Traditional Chinese."""
-        direction_tw = "急漲 (Surge) 🚀" if direction == "up" else "急跌 (Plunge) 💥"
-        
-        msg = (
-            f"⚠️ 價格劇烈波動預警: {inst_id}\n"
-            f"觸發條件: {minutes} 分鐘內波動超過 {threshold}%\n\n"
-            f"方向: {direction_tw}\n"
-            f"實際幅寬: {pct_change:+.2f}%\n"
-            f"起始價格: ${start_price:,.2f}\n"
-            f"當前價格: ${end_price:,.2f}"
-        )
-        return self.send(msg)
-
-    def send_performance_update(self, win_rate: float, total_return: float) -> bool:
-        """Send a periodic performance summary in Traditional Chinese."""
-        msg = (
-            f"📊 績效更新報告\n"
-            f"勝率: {win_rate:.1%}\n"
-            f"總投報率: {total_return:.2%}"
-        )
-        return self.send(msg)

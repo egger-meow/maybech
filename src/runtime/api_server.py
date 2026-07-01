@@ -41,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-strategy",
         action="store_true",
-        help="Run API with notificator only",
+        help="Run monitoring and position services without strategy execution",
     )
     return parser
 
