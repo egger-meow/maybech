@@ -868,15 +868,17 @@ def create_app(
 
     @app.get("/instruments", response_model=InstrumentMetadataListResponse)
     def list_instruments() -> InstrumentMetadataListResponse:
-        records = InstrumentMetadataStore().list(inst_type="SWAP")
+        store = InstrumentMetadataStore()
+        records = store.list(inst_type="SWAP")
         if not records:
             raise HTTPException(
                 status_code=503,
                 detail="OKX instrument metadata cache is empty; refresh is required",
             )
+        cache = store.cache_status(inst_type="SWAP")
         return InstrumentMetadataListResponse(
             items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
-            refreshed_at=max(record.updated_at for record in records),
+            **cache,
         )
 
     @app.post("/instruments/refresh", response_model=InstrumentMetadataListResponse)
@@ -891,9 +893,10 @@ def create_app(
                 status_code=502,
                 detail=f"OKX instrument metadata refresh failed: {exc}",
             ) from exc
+        cache = InstrumentMetadataStore().cache_status(inst_type="SWAP")
         return InstrumentMetadataListResponse(
             items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
-            refreshed_at=max(record.updated_at for record in records),
+            **cache,
         )
 
     @app.post(
@@ -909,6 +912,11 @@ def create_app(
             raise HTTPException(
                 status_code=404,
                 detail=f"Cached OKX metadata for {inst_id} is unavailable",
+            )
+        if InstrumentMetadataStore().cache_status(inst_type="SWAP")["stale"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Cached OKX instrument metadata is stale; refresh is required",
             )
         try:
             quote = InstrumentSizer(metadata).quote(
@@ -934,6 +942,11 @@ def create_app(
             raise HTTPException(
                 status_code=404,
                 detail=f"Cached OKX metadata for {inst_id} is unavailable",
+            )
+        if InstrumentMetadataStore().cache_status(inst_type="SWAP")["stale"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Cached OKX instrument metadata is stale; refresh is required",
             )
         try:
             quote = InstrumentSizer(metadata).quote_contracts(
@@ -1704,6 +1717,11 @@ def create_app(
             raise HTTPException(
                 status_code=404,
                 detail=f"Cached OKX metadata for {payload.inst_id} is unavailable",
+            )
+        if metadata_store.cache_status(inst_type="SWAP")["stale"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Cached OKX instrument metadata is stale; refresh is required",
             )
         try:
             quote = InstrumentSizer(metadata).quote(

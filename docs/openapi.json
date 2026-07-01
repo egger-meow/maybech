@@ -938,14 +938,24 @@
             "title": "Items",
             "type": "array"
           },
+          "refresh_due_at": {
+            "title": "Refresh Due At",
+            "type": "string"
+          },
           "refreshed_at": {
             "title": "Refreshed At",
             "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
           }
         },
         "required": [
           "items",
-          "refreshed_at"
+          "refreshed_at",
+          "refresh_due_at",
+          "stale"
         ],
         "title": "InstrumentMetadataListResponse",
         "type": "object"

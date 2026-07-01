@@ -175,6 +175,8 @@ export type InstrumentContractQuoteRequest = {
 export type InstrumentMetadataListResponse = {
   "items": InstrumentMetadataResponse[];
   "refreshed_at": string;
+  "refresh_due_at": string;
+  "stale": boolean;
 };
 
 export type InstrumentMetadataResponse = {

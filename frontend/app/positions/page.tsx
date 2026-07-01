@@ -24,6 +24,7 @@ import {
   reduceLogicalPosition,
   quoteInstrumentSize,
   quoteInstrumentContracts,
+  refreshInstruments,
   updateLogicalPositionCloseCondition,
   validateSignal,
   type LogicalPositionChartResponse,
@@ -62,7 +63,7 @@ function stale(timestamp?: string): boolean {
   return !Number.isFinite(age) || age > 120_000;
 }
 
-function ManualOpenForm({ catalog, onCreated }: { catalog: InstrumentMetadataResponse[]; onCreated: (positionId: string) => Promise<unknown> }) {
+function ManualOpenForm({ catalog, catalogStale, onCreated }: { catalog: InstrumentMetadataResponse[]; catalogStale: boolean; onCreated: (positionId: string) => Promise<unknown> }) {
   const preflight = useSWR("runtime-preflight", getLivePreflight);
   const [instrument, setInstrument] = useState("");
   const [side, setSide] = useState<"long" | "short">("long");
@@ -116,7 +117,7 @@ function ManualOpenForm({ catalog, onCreated }: { catalog: InstrumentMetadataRes
     <section className="panel manual-open-panel">
       <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以目前價格預填限價；你仍可修改。此版本只允許 Dry-run 建立，不會送出真實委託。</p></div><span className={`badge ${dryRun ? "success" : "danger"}`}>{dryRun ? "Dry-run 可用" : "非 Dry-run 已封鎖"}</span></div>
       <div className="form-grid">
-        <div className="field full"><span>OKX 交易商品</span><InstrumentSelector instruments={catalog} value={instrument ? [instrument] : []} onChange={selectInstrument} /></div>
+        <div className="field full"><span>OKX 交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} value={instrument ? [instrument] : []} onChange={selectInstrument} /></div>
         <label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
         <label className="field"><span>操作者幣量（{instrument.split("-")[0] || "基礎幣"}）</span><input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>
         <label className="field"><span>進場限價（預填目前價）</span><input type="number" min="0" step="any" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} /></label>
@@ -311,12 +312,14 @@ export default function PositionsPage() {
   const managedPositions = (data ?? []).filter((position) => activeStatuses.has(position.status));
   const selected = managedPositions.find((position) => position.id === selectedId) ?? managedPositions[0];
   const created = async (positionId: string) => { await mutate(); setSelectedId(positionId); };
+  const refreshCatalog = async () => { await refreshInstruments(); await catalog.mutate(); };
   return (
     <div className="page-stack">
       <header className="page-header"><div><h1>部位管理</h1><p>逐一管理 Maybech 邏輯部位單位，並與 OKX 合併後的淨部位分開檢視。</p></div></header>
       <RuntimeModeBanner />
-      <ManualOpenForm catalog={catalog.data?.items ?? []} onCreated={created} />
+      <ManualOpenForm catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} onCreated={created} />
       {catalog.error && <div className="error-state">OKX 商品快取無法使用，手動建立已停用；畫面不會提供硬編碼商品。</div>}
+      {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> OKX 商品快取已過期，數量換算與手動建立已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>立即更新商品資料</button></div>}
       {error && <div className="error-state">邏輯部位 API 無法使用。畫面不會使用假資料，所有交易操作已停用。</div>}
       {isLoading && <div className="loading-state">正在讀取邏輯部位…</div>}
       {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={`${selected.id}-${selected.updated_at}`} position={selected} refresh={mutate} /> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}

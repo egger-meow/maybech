@@ -26,16 +26,17 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Instrument metadata has an explicit refresh API but no automatic daily
-   refresh or stale-cache indicator. Long-running operators can otherwise size
-   against outdated lot(since even new added inst we will mostly not trade, so even outdated like a week is okay), minimum, tick, or contract-value data.
-2. Automatically recovered OKX units correctly block entries and request manual
+1. Automatically recovered OKX units correctly block entries and request manual
    review, but Position Management has no guided adoption flow to add a
    side-correct stop and prove owned protection before clearing that review.
-3. Generic LINE cooldown is implemented and legacy price alerts are gone, but
+2. Generic LINE cooldown is implemented and legacy price alerts are gone, but
    lifecycle audit categories are not yet routed to LINE/Gmail. Phone/email
    monitoring therefore does not yet cover strategy, position, runtime-safety,
    and exchange/API failures end to end.
+3. Risk-limit diagnostics name every missing live field, but the dashboard has
+   no first-class editor for the persisted account envelope. Operators still
+   need direct API access to configure per-order notional, total exposure,
+   leverage, and allowed instruments before live preflight can pass.
 
 ## Non-Blocking / Later
 

@@ -67,8 +67,11 @@ Frontends must use `active`; there is no `state` field.
 - `GET /risk/entries` reports persisted and process-local entry state.
 - `GET /instruments` reads the SQLite-cached live OKX SWAP catalog. It returns
   `503` when metadata has not been refreshed; no synthetic instruments or unit
-  defaults are returned. `POST /instruments/refresh` replaces that cache from
-  the OKX public API.
+  defaults are returned. The account service refreshes it from the OKX public
+  API at startup and whenever the cache reaches 24 hours old.
+  `POST /instruments/refresh` remains available for an explicit operator
+  refresh. The response exposes freshness, and stale metadata blocks sizing and
+  manual-open mutations.
 - `POST /instruments/{inst_id}/size-quote` maps a base-asset display quantity to
   an exact OKX API contract count and estimated USDT notional. Ambiguous
   contract currency and invalid lot/minimum alignment fail closed.

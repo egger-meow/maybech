@@ -55,12 +55,13 @@ function NumberField({ label, value, onChange, suffix }: { label: string; value:
   );
 }
 
-function Node({ expression, onChange, onRemove, depth, instruments }: {
+function Node({ expression, onChange, onRemove, depth, instruments, catalogStale }: {
   expression: SignalExpression;
   onChange: (next: SignalExpression) => void;
   onRemove?: () => void;
   depth: number;
   instruments: InstrumentMetadataResponse[];
+  catalogStale: boolean;
 }) {
   if (isComposite(expression)) {
     const items = conditions(expression);
@@ -88,7 +89,7 @@ function Node({ expression, onChange, onRemove, depth, instruments }: {
           {items.map((item, index) => (
             <div className="expression-child" key={index}>
               {index > 0 && <span className="operator-chip">{op.toUpperCase()}</span>}
-              <Node expression={item} onChange={(next) => updateItem(index, next)} onRemove={() => removeItem(index)} depth={depth + 1} instruments={instruments} />
+              <Node expression={item} onChange={(next) => updateItem(index, next)} onRemove={() => removeItem(index)} depth={depth + 1} instruments={instruments} catalogStale={catalogStale} />
             </div>
           ))}
         </div>
@@ -114,6 +115,7 @@ function Node({ expression, onChange, onRemove, depth, instruments }: {
         <span>市場</span>
         <InstrumentSelector
           instruments={instruments}
+          stale={catalogStale}
           includeSelf
           value={[asText(expression.symbol, "self")]}
           onChange={(next) => set("symbol", next[0] ?? "self")}
@@ -158,7 +160,7 @@ export default function ExpressionEditor({ value, onChange, label = "規則運�
         {!isComposite(safeValue) && <button type="button" className="btn btn-outline" onClick={() => onChange({ op: "and", conditions: [safeValue, defaultPrimitive()] })}><Brackets size={15} /> 加入 AND／OR</button>}
       </div>
       {catalog.error && <div className="inline-warning">商品資料尚未快取；請先更新 OKX 商品資料，規則目標目前只能使用 self。</div>}
-      <Node expression={safeValue} onChange={onChange} depth={0} instruments={catalog.data?.items ?? []} />
+      <Node expression={safeValue} onChange={onChange} depth={0} instruments={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} />
     </div>
   );
 }

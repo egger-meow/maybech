@@ -12,6 +12,7 @@ type Props = {
   includeSelf?: boolean;
   multiple?: boolean;
   disabled?: boolean;
+  stale?: boolean;
   placeholder?: string;
 };
 
@@ -22,6 +23,7 @@ export default function InstrumentSelector({
   includeSelf = false,
   multiple = false,
   disabled = false,
+  stale = false,
   placeholder = "輸入 BTC、ETH 或 USDT 搜尋",
 }: Props) {
   const [query, setQuery] = useState("");
@@ -67,7 +69,7 @@ export default function InstrumentSelector({
           role="combobox"
           aria-expanded={open}
           aria-controls={optionsId}
-          disabled={disabled}
+          disabled={disabled || stale}
           value={query}
           placeholder={!multiple && value[0] ? value[0] : placeholder}
           onFocus={() => setOpen(true)}
@@ -98,6 +100,7 @@ export default function InstrumentSelector({
           </div>
         )}
       </div>
+      {stale && <div className="inline-warning">OKX 商品資料已過期，更新完成前不能選擇或換算。</div>}
     </div>
   );
 }

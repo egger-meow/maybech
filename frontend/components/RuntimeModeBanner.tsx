@@ -121,8 +121,8 @@ export default function RuntimeModeBanner() {
   }
   requirements.push({
     label: "OKX 商品 metadata／允許商品",
-    state: instruments.data?.items.length ? "ready" : "missing",
-    detail: instruments.data?.items.length ? `${instruments.data.items.length} 個可交易 SWAP 已快取` : "商品快取缺失，策略與手動開倉不能選商品",
+    state: instruments.data?.items.length && !instruments.data.stale ? "ready" : "missing",
+    detail: instruments.data?.items.length ? instruments.data.stale ? `商品快取已過期（${formatTime(instruments.data.refreshed_at)}）` : `${instruments.data.items.length} 個可交易 SWAP 已快取` : "商品快取缺失，策略與手動開倉不能選商品",
   });
   for (const strategy of strategies.data?.filter((item) => item.enabled) ?? []) {
     const metadata = object(strategy.metadata);

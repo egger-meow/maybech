@@ -6,6 +6,7 @@ from src.daemon.service import DaemonService
 from src.exchange.client import OKXClient
 from src.monitor.dashboard import Dashboard
 from src.trading.logical_position_store import LogicalPositionStore
+from src.trading.instrument_metadata import InstrumentMetadataStore
 from src.trading.position_import import PositionRecoveryService
 from src.utils.logger import setup_logger
 
@@ -24,17 +25,20 @@ class AccountSnapshotService(DaemonService):
         self.client = None
         self.dashboard = None
         self.position_store = position_store or LogicalPositionStore()
+        self.instrument_store = InstrumentMetadataStore(self.position_store.db_path)
         self.recovery = PositionRecoveryService(self.position_store)
 
     def setup(self) -> None:
         self.client = OKXClient()
         self.dashboard = Dashboard(self.client)
+        self.instrument_store.refresh_if_stale(self.client)
         logger.info("AccountSnapshotService setup complete.")
 
     def tick(self) -> None:
         if self.dashboard is None:
             raise RuntimeError("AccountSnapshotService is not set up")
 
+        self.instrument_store.refresh_if_stale(self.client)
         snapshot = {
             "summary": self.dashboard.get_account_summary(),
             "positions": self.dashboard.get_open_positions(),

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Generator, Iterable
@@ -151,3 +151,40 @@ class InstrumentMetadataStore:
                 (inst_id.strip().upper(),),
             ).fetchone()
         return InstrumentMetadata(**dict(row)) if row is not None else None
+
+    def cache_status(
+        self,
+        *,
+        inst_type: str = "SWAP",
+        max_age: timedelta = timedelta(days=1),
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        records = self.list(inst_type=inst_type, tradable_only=False)
+        if not records:
+            return {"stale": True, "refreshed_at": "", "refresh_due_at": ""}
+        refreshed_at = max(record.updated_at for record in records)
+        refreshed = datetime.fromisoformat(refreshed_at)
+        if refreshed.tzinfo is None:
+            refreshed = refreshed.replace(tzinfo=timezone.utc)
+        due = refreshed + max_age
+        current = now or datetime.now(timezone.utc)
+        return {
+            "stale": current >= due,
+            "refreshed_at": refreshed_at,
+            "refresh_due_at": due.isoformat(),
+        }
+
+    def refresh_if_stale(
+        self,
+        client: Any,
+        *,
+        inst_type: str = "SWAP",
+        max_age: timedelta = timedelta(days=1),
+        now: datetime | None = None,
+    ) -> list[InstrumentMetadata]:
+        if self.cache_status(inst_type=inst_type, max_age=max_age, now=now)["stale"]:
+            return self.replace_type(
+                inst_type,
+                client.get_instruments(inst_type=inst_type),
+            )
+        return self.list(inst_type=inst_type)

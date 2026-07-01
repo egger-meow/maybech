@@ -1,7 +1,10 @@
 from fastapi.testclient import TestClient
+from datetime import datetime, timedelta, timezone
 
 from src.api.app import create_app
 from src.daemon.service import DaemonRunner
+from src.daemon.account_service import AccountSnapshotService
+from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.instrument_metadata import InstrumentMetadataStore
 from src.trading.instrument_sizing import InstrumentSizer
 
@@ -55,6 +58,71 @@ def test_instrument_cache_rejects_incomplete_metadata_without_losing_cache(tmp_p
         raise AssertionError("incomplete metadata must fail visibly")
 
     assert [item.inst_id for item in store.list()] == ["ETH-USDT-SWAP"]
+
+
+def test_instrument_cache_refreshes_only_when_daily_ttl_expires(tmp_path):
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+
+    class Client:
+        calls = 0
+
+        def get_instruments(self, *, inst_type):
+            self.calls += 1
+            return [_instrument()]
+
+    client = Client()
+    first = store.refresh_if_stale(client)
+    refreshed = datetime.fromisoformat(first[0].updated_at)
+    fresh = store.refresh_if_stale(
+        client,
+        now=refreshed + timedelta(hours=23),
+    )
+    stale = store.refresh_if_stale(
+        client,
+        now=refreshed + timedelta(days=1, seconds=1),
+    )
+
+    assert client.calls == 2
+    assert fresh[0].inst_id == "ETH-USDT-SWAP"
+    assert stale[0].inst_id == "ETH-USDT-SWAP"
+    assert store.cache_status(now=datetime.now(timezone.utc))["refresh_due_at"]
+
+
+def test_account_service_automatically_populates_instrument_cache(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "trades.db")
+
+    class Client:
+        calls = 0
+
+        def get_instruments(self, *, inst_type):
+            self.calls += 1
+            return [_instrument()]
+
+    class Dashboard:
+        def __init__(self, client):
+            self.client = client
+
+        def get_account_summary(self):
+            return {}
+
+        def get_open_positions(self):
+            return []
+
+        def get_recent_trades(self, *, limit):
+            return []
+
+    client = Client()
+    monkeypatch.setattr("src.daemon.account_service.OKXClient", lambda: client)
+    monkeypatch.setattr("src.daemon.account_service.Dashboard", Dashboard)
+    service = AccountSnapshotService(
+        position_store=LogicalPositionStore(db_path),
+    )
+
+    service.setup()
+    service.tick()
+
+    assert client.calls == 1
+    assert InstrumentMetadataStore(db_path).list()[0].inst_id == "ETH-USDT-SWAP"
 
 
 def test_instrument_api_exposes_cache_and_refresh_contract(monkeypatch, tmp_path):

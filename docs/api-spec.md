@@ -93,7 +93,10 @@ metadata used by operator selectors and sizing conversion. An empty cache is a
 visible `503`, never a hardcoded fallback. `POST /instruments/refresh` replaces
 the SWAP cache atomically from the OKX public instruments API and returns the
 same typed list contract. Records include contract value/currency, settlement
-currency, lot/min/tick sizes, precision, state, and refresh time.
+currency, lot/min/tick sizes, precision, state, refresh time, next refresh time,
+and an explicit stale flag. The daemon refreshes the public catalog at startup
+and before account ticks when the newest record is at least 24 hours old.
+Sizing and manual-open mutations fail closed while the cache is stale.
 `POST /instruments/{inst_id}/size-quote` converts an operator-facing base-asset
 quantity into an exact OKX contract count from cached `ctVal`, `ctValCcy`,
 `ctMult`, `lotSz`, and `minSz`. It also returns estimated USDT notional and an

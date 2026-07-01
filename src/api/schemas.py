@@ -102,6 +102,8 @@ class InstrumentMetadataResponse(BaseModel):
 class InstrumentMetadataListResponse(BaseModel):
     items: list[InstrumentMetadataResponse]
     refreshed_at: str
+    refresh_due_at: str
+    stale: bool
 
 
 class InstrumentSizeQuoteRequest(BaseModel):
