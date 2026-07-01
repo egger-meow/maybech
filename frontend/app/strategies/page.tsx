@@ -36,6 +36,7 @@ type Draft = {
   displayQuantities: Record<string, string>;
   referencePrices: Record<string, string>;
   slippagePercent: string;
+  executionDelaySeconds: string;
   entrySignal: SignalExpression;
   closeRules: CloseRule[];
 };
@@ -47,6 +48,7 @@ const blankDraft = (): Draft => ({
   displayQuantities: {},
   referencePrices: {},
   slippagePercent: "0.5",
+  executionDelaySeconds: "0",
   entrySignal: { type: "price_above", symbol: "self", value: 0 },
   closeRules: [
     { purpose: "stop_loss", enabled: true, expression: { type: "price_below", symbol: "self", value: 0 } },
@@ -82,6 +84,7 @@ function draftFrom(strategy: StrategySummary): Draft {
     displayQuantities: Object.fromEntries((strategy.target_instruments ?? []).map((instrument) => [instrument, String(displayQuantities[instrument] ?? "")])),
     referencePrices: Object.fromEntries((strategy.target_instruments ?? []).map((instrument) => [instrument, String(referencePrices[instrument] ?? "")])),
     slippagePercent: String(Number(metadata.max_entry_slippage_pct ?? .005) * 100),
+    executionDelaySeconds: String(strategy.execution_delay_seconds ?? 0),
     entrySignal: object(strategy.entry_signal),
     closeRules: rulesFrom(strategy),
   };
@@ -186,6 +189,8 @@ function StrategyEditor({ strategy, onSaved, catalog }: { strategy?: StrategySum
     try {
       if (!draft.name.trim()) throw new Error("請輸入策略名稱。");
       if (!instruments.length) throw new Error("至少需要一個交易商品。");
+      const executionDelaySeconds = Number(draft.executionDelaySeconds);
+      if (!Number.isInteger(executionDelaySeconds) || executionDelaySeconds < 0 || executionDelaySeconds > 86400) throw new Error("執行延遲必須是 0 到 86400 秒的整數。");
       const expressions = [draft.entrySignal, ...draft.closeRules.map((rule) => rule.expression)];
       const validated = await Promise.all(expressions.map((expression) => validateSignal({ expression })));
       const invalid = validated.find((result) => !result.valid);
@@ -203,6 +208,7 @@ function StrategyEditor({ strategy, onSaved, catalog }: { strategy?: StrategySum
         target_instruments: instruments,
         entry_signal: validated[0].normalized ?? draft.entrySignal,
         default_rules: { close_conditions: draft.closeRules.map((rule, index) => ({ ...rule, expression: validated[index + 1].normalized ?? rule.expression })) },
+        execution_delay_seconds: executionDelaySeconds,
         metadata: { ...object(strategy?.metadata), position_side: draft.side, order_size_contracts: sizes, order_display_quantities: draft.displayQuantities, sizing_reference_prices: draft.referencePrices, max_entry_slippage_pct: String(Number(draft.slippagePercent) / 100) },
       };
       const saved = strategy ? await updateStrategy(strategy.id, payload) : await createStrategy({ ...payload, enabled: false });
@@ -228,16 +234,19 @@ function StrategyEditor({ strategy, onSaved, catalog }: { strategy?: StrategySum
     <section className="strategy-editor panel">
       <div className="panel-heading">
         <div><h2>{strategy ? strategy.name : "建立新策略"}</h2><p>{strategy ? <span className="mono">{strategy.id}</span> : "新策略一律以停用狀態建立"}</p></div>
-        {strategy && <div className="status-row"><span className={`badge ${strategy.enabled ? "success" : "warning"}`}>{strategy.enabled ? "已啟用" : "已停用"}</span><span className={`badge ${strategy.readiness === "ready" ? "success" : "warning"}`}>{strategy.readiness ?? "unknown"}</span></div>}
+        {strategy && <div className="status-row"><span className={`badge ${strategy.enabled ? "success" : "warning"}`}>{strategy.enabled ? "已啟用" : "已停用"}</span><span className={`badge ${strategy.readiness === "ready" ? "success" : "warning"}`}>{strategy.readiness ?? "unknown"}</span>{Boolean(strategy.runtime?.pending_executions?.length) && <span className="badge warning">等待執行 {strategy.runtime?.pending_executions?.length ?? 0}</span>}</div>}
       </div>
       <div className="form-grid">
         <label className="field"><span>策略名稱</span><input value={draft.name} onChange={(event) => set("name", event.target.value)} /></label>
         <label className="field"><span>方向</span><select value={draft.side} onChange={(event) => set("side", event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
         <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} /></div>
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
+        <label className="field"><span>訊號成立後執行延遲</span><span className="input-with-suffix"><input type="number" min="0" max="86400" step="1" value={draft.executionDelaySeconds} onChange={(event) => set("executionDelaySeconds", event.target.value)} /><small>秒</small></span><small>{Number(draft.executionDelaySeconds) > 0 ? "到期後會重新驗證訊號與風險；失效即取消。" : "0 秒＝停用延遲，沿用立即執行。"}</small></label>
         <div className="field full"><span>每個商品的操作者幣量</span><div className="contract-size-grid">{instruments.map((instrument) => <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><label><small>換算參考價格（USDT）</small><input type="number" min="0" step="any" value={draft.referencePrices[instrument] ?? ""} onChange={(event) => set("referencePrices", { ...draft.referencePrices, [instrument]: event.target.value })} /></label><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={draft.referencePrices[instrument] ?? ""} side={draft.side} /></div>)}</div></div>
         <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" /></div>
       </div>
+
+      {strategy?.runtime?.pending_executions?.length ? <div className="pending-execution-list">{strategy.runtime.pending_executions.map((pending) => <article key={String(pending.correlation_id)}><span className="badge warning">等待重新驗證</span><strong>{String(pending.inst_id)}</strong><small>預定：{new Date(String(pending.due_at)).toLocaleString("zh-TW")}</small><small className="mono">{String(pending.correlation_id)}</small></article>)}</div> : null}
 
       <div className="section-divider"><div><h3>預設部位規則</h3><p>每次進場都會複製一份至新的 Maybech 邏輯部位，不會共用同一筆規則。</p></div><button type="button" className="btn btn-outline" onClick={() => set("closeRules", [...draft.closeRules, { purpose: "exit", enabled: true, expression: { type: "price_below", symbol: "self", value: 0 } }])}><CirclePlus size={15} /> 新增規則</button></div>
       <div className="rule-stack">

@@ -1,4 +1,5 @@
 import threading
+import json
 
 import pandas as pd
 
@@ -7,7 +8,7 @@ from src.daemon.strategy_service import StrategyService
 from src.trading.account_risk import AccountRiskStore
 from src.trading.entry_control import EntryControlManager
 from src.trading.signal_engine import SignalEvaluationResult
-from src.trading.strategy_store import StrategyStore
+from src.trading.strategy_store import PendingStrategyExecution, StrategyStore
 from src.trading.trade_store import TradeStore
 
 
@@ -20,6 +21,9 @@ class FakeExecutor:
 
     def approve_entry(self, **kwargs):
         return FakeRiskApproval(kwargs)
+
+    def check_entry_risk(self, **kwargs):
+        return self.approve_entry(**kwargs)
 
     def execute(self, **kwargs):
         self.calls.append(kwargs)
@@ -164,6 +168,104 @@ def _process(service, strategy, *, btc_regime=None):
         },
         observed_at="2026-06-27T12:00:00+08:00",
     )
+
+
+def _due_pending(strategy_id: str, *, correlation_id: str = "delay-correlation") -> PendingStrategyExecution:
+    return PendingStrategyExecution(
+        correlation_id=correlation_id,
+        strategy_id=strategy_id,
+        inst_id="ETH-USDT-SWAP",
+        triggered_at="2026-06-27T11:59:00+00:00",
+        due_at="2026-06-27T12:00:00+00:00",
+        evidence_json=json.dumps({"initial_match": True}),
+    )
+
+
+def _prepare_delayed_service(service: StrategyService) -> DaemonRunner:
+    service.candle_manager = FakeCandleManager()
+    runner = DaemonRunner()
+    runner.register(service)
+    runner.runtime.set_value(
+        "market.btc_regime",
+        {"direction": "bullish", "strength": "normal", "impulse": "up", "price": 100000},
+    )
+    return runner
+
+
+def test_delayed_execution_revalidates_then_executes_after_restart(tmp_path):
+    service, strategy = _service(tmp_path)
+    service.strategy_store.update(strategy.id, execution_delay_seconds=30)
+    service.strategy_store.schedule_pending_execution(_due_pending(strategy.id))
+    restarted = StrategyService(
+        dry_run=True,
+        trade_store=TradeStore(service.trade_store.db_path),
+        strategy_store=StrategyStore(service.trade_store.db_path),
+    )
+    restarted.executor = FakeExecutor({"ordId": "delayed-order", "maybechRequestedSize": "1"})
+    _prepare_delayed_service(restarted)
+    current = restarted.strategy_store.get(strategy.id)
+    status = {"errors": [], "signals": []}
+
+    restarted._process_due_executions(current, "2026-07-01T00:01:00+00:00", status)
+
+    assert len(restarted.executor.calls) == 1
+    assert restarted.strategy_store.list_pending_executions() == []
+    assert len(restarted.position_store.list(status="open")) == 1
+    assert restarted.audit_store.list_strategy_decisions(strategy_id=strategy.id)[0].correlation_id == "delay-correlation"
+    assert len(restarted.audit_store.list(event_type="strategy.execution_delay_completed")) == 1
+
+
+def test_delayed_execution_cancels_when_signal_no_longer_matches(tmp_path):
+    service, strategy = _service(tmp_path)
+    service.executor = FakeExecutor({"ordId": "must-not-run"})
+    _prepare_delayed_service(service)
+    service.strategy_store.schedule_pending_execution(_due_pending(strategy.id))
+    strategy = service.strategy_store.update(
+        strategy.id,
+        entry_signal={"type": "price_above", "symbol": "self", "value": 120},
+    )
+    status = {"errors": [], "signals": []}
+
+    service._process_due_executions(strategy, "2026-07-01T00:01:00+00:00", status)
+
+    assert service.executor.calls == []
+    assert service.strategy_store.list_pending_executions() == []
+    event = service.audit_store.list(event_type="strategy.execution_delay_canceled")[0]
+    assert "no longer matches" in event.payload["reason"]
+
+
+def test_delayed_execution_rechecks_risk_before_submission(tmp_path):
+    service, strategy = _service(tmp_path)
+    service.executor = BlockingRiskExecutor({"ordId": "must-not-run"})
+    _prepare_delayed_service(service)
+    service.strategy_store.schedule_pending_execution(_due_pending(strategy.id))
+    status = {"errors": [], "signals": []}
+
+    service._process_due_executions(strategy, "2026-07-01T00:01:00+00:00", status)
+
+    assert service.executor.calls == []
+    assert service.strategy_store.list_pending_executions() == []
+    decision = service.audit_store.list_strategy_decisions(strategy_id=strategy.id)[0]
+    assert decision.payload["execution_status"] == "risk_blocked"
+
+
+def test_delayed_execution_requires_initial_risk_check_before_pending(tmp_path):
+    service, strategy = _service(tmp_path)
+    strategy = service.strategy_store.update(strategy.id, execution_delay_seconds=30)
+    service.executor = BlockingRiskExecutor({"ordId": "must-not-run"})
+
+    service._schedule_delayed_execution(
+        strategy=strategy,
+        pair="ETH-USDT-SWAP",
+        evaluation=_evaluation(),
+        observed_at="2026-07-01T00:00:00+00:00",
+        entry_price=110,
+        btc_regime={"direction": "bullish", "strength": "normal", "impulse": "up"},
+    )
+
+    assert service.strategy_store.list_pending_executions() == []
+    event = service.audit_store.list(event_type="strategy.execution_delay_blocked")[0]
+    assert "initial risk check blocked" in event.payload["reason"]
 
 
 def test_strategy_service_persists_generic_dry_run_and_default_close_conditions(tmp_path):

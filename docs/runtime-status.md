@@ -263,6 +263,14 @@ and persists match state so a continuously true signal creates only one entry,
 including across restarts. Every new logical unit receives its own copy of the
 strategy's default close conditions.
 
+`execution_delay_seconds` defaults to `0`, preserving immediate execution.
+When positive, a signal edge must first pass current policy and risk checks,
+then creates a SQLite pending action and audit event.
+At its due time the daemon rebuilds market context and reruns signal, BTC
+policy, ingestion, and account-risk checks. Invalidated or blocked actions
+cancel without submission and persist the reason. Pending actions survive
+restart; disabling or deleting a strategy cancels them.
+
 ## Safety Notes
 
 - Importing `src.exchange.client` never arms orders. Every runtime factory

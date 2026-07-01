@@ -29,13 +29,12 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 1. The legacy support/resistance notificator path is still registered and can
    emit standalone price alerts outside strategy/position lifecycle scope. It
    must be removed before notification behavior matches the product contract.
-2. Optional strategy execution delay is not implemented. Without persisted
-   pending state, final signal/risk revalidation, cancellation evidence, and
-   restart-safe behavior, exposing a delay control would mislead operators
-   about when an order can actually be submitted.
-3. Instrument metadata has an explicit refresh API but no automatic daily
+2. Instrument metadata has an explicit refresh API but no automatic daily
    refresh or stale-cache indicator. Long-running operators can otherwise size
    against outdated lot(since even new added inst we will mostly not trade, so even outdated like a week is okay), minimum, tick, or contract-value data.
+3. Automatically recovered OKX units correctly block entries and request manual
+   review, but Position Management has no guided adoption flow to add a
+   side-correct stop and prove owned protection before clearing that review.
 
 ## Non-Blocking / Later
 

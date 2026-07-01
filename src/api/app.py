@@ -438,6 +438,7 @@ def _strategy_summary(
         entry_signal=strategy.entry_signal,
         default_rules=strategy.default_rules,
         metadata=strategy.metadata,
+        execution_delay_seconds=strategy.execution_delay_seconds,
         signal_expressions=[
             _signal_expression_response(expression)
             for expression in store.list_signal_expressions(strategy.id)
@@ -448,6 +449,10 @@ def _strategy_summary(
             service=service,
             dry_run=getattr(strategy_service, "dry_run", None),
             latest_decisions=[StrategyDecisionResponse(**decision) for decision in latest_decisions],
+            pending_executions=[
+                pending.to_dict()
+                for pending in store.list_pending_executions(strategy_id=strategy.id)
+            ],
         ),
     )
 
@@ -466,6 +471,7 @@ def _strategy_definition_payload(strategy: StrategyRecord) -> dict:
         "entry_signal": strategy.entry_signal,
         "default_rules": strategy.default_rules,
         "metadata": strategy.metadata,
+        "execution_delay_seconds": strategy.execution_delay_seconds,
         "created_at": strategy.created_at,
         "updated_at": strategy.updated_at,
     }
@@ -1267,6 +1273,7 @@ def create_app(
                 entry_signal=payload.entry_signal,
                 default_rules=payload.default_rules,
                 metadata=payload.metadata,
+                execution_delay_seconds=payload.execution_delay_seconds,
             )
             if payload.enabled:
                 validation_errors = _strategy_validation_errors(strategy, store)
@@ -1338,6 +1345,7 @@ def create_app(
                 entry_signal=payload.entry_signal,
                 default_rules=payload.default_rules,
                 metadata=payload.metadata,
+                execution_delay_seconds=payload.execution_delay_seconds,
             )
             if strategy is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")

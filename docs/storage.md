@@ -40,9 +40,11 @@ close order links plus deferred allocation state. Version 6 adds one
 `logical_position_protections` owner record per unit, with unique OKX algo,
 algo-client, and triggered child-order identities plus explicit lifecycle
 state. `audit_events` is at version 2,
-`strategies` is at version 3, `account_risk` is at version 2 after adding the
+`strategies` is at version 4, `account_risk` is at version 2 after adding the
 default-disabled entry-control singleton, and `trade_store` and
 `execution_cursors` are at version 1. `instrument_metadata` is at version 1.
+Strategy version 4 adds `execution_delay_seconds` and restart-safe
+`strategy_pending_executions`.
 Future changes should add explicit migration steps instead of editing existing
 schema assumptions in place.
 

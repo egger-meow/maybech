@@ -77,6 +77,26 @@ class Executor:
             dry_run=True,
         )
 
+    def check_entry_risk(
+        self,
+        *,
+        inst_id: str,
+        requested_size: object,
+        entry_price: object,
+    ) -> EntryRiskApproval:
+        """Run current entry risk checks without issuing a submission approval."""
+        if not self.dry_run:
+            return self.risk_guard.approve_entry(
+                inst_id=inst_id,
+                requested_size=requested_size,
+                entry_price=entry_price,
+            )
+        return self.approve_entry(
+            inst_id=inst_id,
+            requested_size=requested_size,
+            entry_price=entry_price,
+        )
+
     def execute(
         self,
         *,

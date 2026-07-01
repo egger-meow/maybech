@@ -1,10 +1,10 @@
-from src.trading.strategy_store import StrategyRecord, StrategyStore
+from src.trading.strategy_store import PendingStrategyExecution, StrategyRecord, StrategyStore
 
 
 def test_strategy_store_records_schema_version(tmp_path):
     store = StrategyStore(str(tmp_path / "strategies.db"))
 
-    assert store.applied_schema_versions() == [1, 2, 3]
+    assert store.applied_schema_versions() == [1, 2, 3, 4]
 
 
 def test_strategy_store_creates_updates_and_lists_records(tmp_path):
@@ -82,7 +82,7 @@ def test_strategy_store_v3_migration_removes_legacy_momentum_records(tmp_path):
     migrated = StrategyStore(store.db_path)
 
     assert migrated.get("legacy-momentum") is None
-    assert migrated.applied_schema_versions() == [1, 2, 3]
+    assert migrated.applied_schema_versions() == [1, 2, 3, 4]
 
 
 def test_strategy_store_signal_expressions_follow_parent_strategy(tmp_path):
@@ -155,3 +155,31 @@ def test_strategy_store_delete_cascades_signal_expressions(tmp_path):
     assert store.delete("strategy-a") is True
     assert store.get("strategy-a") is None
     assert store.get_signal_expression("strategy-a", created.id) is None
+
+
+def test_strategy_store_persists_delay_and_pending_execution(tmp_path):
+    db_path = str(tmp_path / "strategies.db")
+    store = StrategyStore(db_path)
+    created = store.create(
+        id="strategy-a",
+        name="Strategy A",
+        execution_delay_seconds=30,
+    )
+    pending = PendingStrategyExecution(
+        correlation_id="delay-a",
+        strategy_id=created.id,
+        inst_id="ETH-USDT-SWAP",
+        triggered_at="2026-07-01T00:00:00+00:00",
+        due_at="2026-07-01T00:00:30+00:00",
+        evidence_json='{"matched":true}',
+    )
+
+    assert created.execution_delay_seconds == 30
+    assert store.schedule_pending_execution(pending) is True
+    assert store.schedule_pending_execution(pending) is False
+    reopened = StrategyStore(db_path)
+    assert reopened.get(created.id).execution_delay_seconds == 30
+    assert reopened.list_pending_executions()[0].evidence == {"matched": True}
+    assert reopened.list_pending_executions(due_at="2026-07-01T00:00:29+00:00") == []
+    assert len(reopened.list_pending_executions(due_at="2026-07-01T00:00:30+00:00")) == 1
+    assert reopened.delete_pending_execution("delay-a") is True

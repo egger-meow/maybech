@@ -33,6 +33,8 @@ Required capabilities:
 - run backtests or display latest backtest pass/fail state
 - inspect recent decisions with signal evidence and action result
 - clearly separate disabled, ready, dry-run active, and live armed states
+- configure execution delay as disabled/0 seconds or an explicit number of
+  seconds, and show restart-safe pending actions with due time and correlation id
 
 ## Position Management Page
 

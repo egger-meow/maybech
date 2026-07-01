@@ -3191,6 +3191,13 @@
             "title": "Entry Signal",
             "type": "object"
           },
+          "execution_delay_seconds": {
+            "default": 0,
+            "maximum": 86400.0,
+            "minimum": 0.0,
+            "title": "Execution Delay Seconds",
+            "type": "integer"
+          },
           "id": {
             "anyOf": [
               {
@@ -3520,6 +3527,14 @@
             "title": "Latest Decisions",
             "type": "array"
           },
+          "pending_executions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Pending Executions",
+            "type": "array"
+          },
           "service": {
             "anyOf": [
               {
@@ -3560,6 +3575,11 @@
             "additionalProperties": true,
             "title": "Entry Signal",
             "type": "object"
+          },
+          "execution_delay_seconds": {
+            "default": 0,
+            "title": "Execution Delay Seconds",
+            "type": "integer"
           },
           "id": {
             "title": "Id",
@@ -3663,6 +3683,19 @@
               }
             ],
             "title": "Entry Signal"
+          },
+          "execution_delay_seconds": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Delay Seconds"
           },
           "kind": {
             "anyOf": [

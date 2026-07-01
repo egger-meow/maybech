@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -37,7 +37,7 @@ from src.trading.strategy_runtime import (
     resolve_self_symbol,
     validate_strategy_for_execution,
 )
-from src.trading.strategy_store import StrategyRecord, StrategyStore
+from src.trading.strategy_store import PendingStrategyExecution, StrategyRecord, StrategyStore
 from src.trading.trade_store import TradeRecord, TradeStore
 from src.utils.logger import setup_logger
 
@@ -101,6 +101,8 @@ class StrategyService(DaemonService):
         if not self.dry_run:
             self._retry_emergency_closes(status)
 
+        self._cancel_disabled_pending()
+
         if not self.dry_run and not self._execution_ingestion_ready():
             message = (
                 "Live entries blocked until REST execution catch-up is current "
@@ -121,6 +123,7 @@ class StrategyService(DaemonService):
                 logger.error(message)
                 status["errors"].append(message)
                 continue
+            self._process_due_executions(strategy, observed_at, status)
             self._evaluate_strategy(strategy, observed_at, status)
 
         if self.runtime is not None:
@@ -161,6 +164,20 @@ class StrategyService(DaemonService):
                 if not should_trigger:
                     continue
                 entry_price = float(context["prices"][pair])
+                if strategy.execution_delay_seconds > 0:
+                    self._schedule_delayed_execution(
+                        strategy=strategy,
+                        pair=pair,
+                        evaluation=evaluation,
+                        observed_at=observed_at,
+                        entry_price=entry_price,
+                        btc_regime=(
+                            self.runtime.get_value("market.btc_regime")
+                            if self.runtime is not None
+                            else None
+                        ),
+                    )
+                    continue
                 signal_entry = self._process_match(
                     strategy=strategy,
                     pair=pair,
@@ -229,6 +246,225 @@ class StrategyService(DaemonService):
             raise ValueError(f"No current price available for {pair}")
         return context
 
+    def _schedule_delayed_execution(
+        self,
+        *,
+        strategy: StrategyRecord,
+        pair: str,
+        evaluation: SignalEvaluationResult,
+        observed_at: str,
+        entry_price: float,
+        btc_regime: dict[str, Any] | None,
+    ) -> None:
+        side = position_side(strategy)
+        policy = self.action_policy.evaluate(
+            pair=pair,
+            position_side=side,
+            btc_regime=btc_regime,
+        )
+        if not policy.allowed:
+            self._audit_delay_block(
+                strategy=strategy,
+                pair=pair,
+                reason=f"initial policy check blocked: {policy.reason}",
+                evidence=evaluation.evidence,
+            )
+            return
+        try:
+            check_risk = getattr(self.executor, "check_entry_risk")
+            check_risk(
+                inst_id=pair,
+                requested_size=order_size(strategy, pair) or "",
+                entry_price=entry_limit_price(strategy, entry_price),
+            )
+        except Exception as exc:
+            self._audit_delay_block(
+                strategy=strategy,
+                pair=pair,
+                reason=f"initial risk check blocked: {exc}",
+                evidence=evaluation.evidence,
+            )
+            return
+        now = datetime.now(timezone.utc)
+        pending = PendingStrategyExecution(
+            correlation_id=uuid4().hex,
+            strategy_id=strategy.id,
+            inst_id=pair,
+            triggered_at=observed_at,
+            due_at=(now + timedelta(seconds=strategy.execution_delay_seconds)).isoformat(),
+            evidence_json=json.dumps(evaluation.evidence, separators=(",", ":"), sort_keys=True),
+        )
+        with self.strategy_store.transaction() as connection:
+            if not self.strategy_store.schedule_pending_execution(pending):
+                return
+            self.audit_store.create(
+                type="strategy.execution_delay_pending",
+                source=self.name,
+                payload={
+                    **pending.to_dict(),
+                    "delay_seconds": strategy.execution_delay_seconds,
+                    "execution_status": "pending_delay",
+                },
+                connection=connection,
+            )
+        self.publish_event(
+            "strategy.execution_delay_pending",
+            {
+                **pending.to_dict(),
+                "delay_seconds": strategy.execution_delay_seconds,
+            },
+        )
+
+    def _audit_delay_block(
+        self,
+        *,
+        strategy: StrategyRecord,
+        pair: str,
+        reason: str,
+        evidence: dict[str, Any],
+    ) -> None:
+        payload = {
+            "strategy_id": strategy.id,
+            "pair": pair,
+            "reason": reason,
+            "evidence": evidence,
+            "execution_status": "delay_blocked",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.audit_store.create(
+            type="strategy.execution_delay_blocked",
+            source=self.name,
+            payload=payload,
+        )
+        self.publish_event("strategy.execution_delay_blocked", payload)
+
+    def _process_due_executions(
+        self,
+        strategy: StrategyRecord,
+        observed_at: str,
+        status: dict[str, Any],
+    ) -> None:
+        due = self.strategy_store.list_pending_executions(
+            strategy_id=strategy.id,
+            due_at=datetime.now(timezone.utc).isoformat(),
+        )
+        for pending in due:
+            try:
+                existing = self.position_store.get_by_client_order_id(
+                    pending.correlation_id
+                )
+                if existing is not None:
+                    self._finish_delayed_execution(
+                        pending,
+                        event_type="strategy.execution_delay_recovered",
+                        reason="existing logical-position intent proves submission was already processed",
+                    )
+                    continue
+                expression = compose_entry_expression(strategy, self.strategy_store)
+                resolved = resolve_self_symbol(expression, pending.inst_id)
+                context = self._build_signal_context(strategy, pending.inst_id, resolved)
+                evaluation = self.signal_engine.evaluate(resolved, context=context)
+                self.strategy_store.record_evaluation(
+                    strategy.id,
+                    pending.inst_id,
+                    matched=evaluation.matched if evaluation.valid else False,
+                )
+                if not evaluation.valid or not evaluation.matched:
+                    reason = (
+                        "; ".join(evaluation.errors)
+                        if not evaluation.valid
+                        else "signal no longer matches at execution time"
+                    )
+                    self._finish_delayed_execution(
+                        pending,
+                        event_type="strategy.execution_delay_canceled",
+                        reason=reason,
+                        evidence=evaluation.evidence,
+                    )
+                    continue
+                self.publish_event(
+                    "strategy.execution_delay_revalidated",
+                    {
+                        "strategy_id": strategy.id,
+                        "pair": pending.inst_id,
+                        "correlation_id": pending.correlation_id,
+                        "evidence": evaluation.evidence,
+                    },
+                )
+                signal_entry = self._process_match(
+                    strategy=strategy,
+                    pair=pending.inst_id,
+                    side=position_side(strategy),
+                    entry_price=float(context["prices"][pending.inst_id]),
+                    requested_size=order_size(strategy, pending.inst_id) or "",
+                    evaluation=evaluation,
+                    btc_regime=(
+                        self.runtime.get_value("market.btc_regime")
+                        if self.runtime is not None
+                        else None
+                    ),
+                    observed_at=observed_at,
+                    decision_id=pending.correlation_id,
+                )
+                self._finish_delayed_execution(
+                    pending,
+                    event_type="strategy.execution_delay_completed",
+                    reason=(
+                        "revalidation passed and execution lifecycle completed"
+                        if signal_entry is not None
+                        else "revalidation passed but policy or risk blocked execution"
+                    ),
+                    evidence=evaluation.evidence,
+                )
+                if signal_entry is not None:
+                    self.signals_history.append(signal_entry)
+                    status["signals"] = self.signals_history[-10:]
+            except Exception as exc:
+                logger.exception(
+                    "Delayed execution failed for %s/%s",
+                    strategy.id,
+                    pending.inst_id,
+                )
+                status["errors"].append(
+                    f"{strategy.id}/{pending.inst_id} delayed execution: {exc}"
+                )
+
+    def _finish_delayed_execution(
+        self,
+        pending: PendingStrategyExecution,
+        *,
+        event_type: str,
+        reason: str,
+        evidence: dict[str, Any] | None = None,
+    ) -> None:
+        payload = {
+            **pending.to_dict(),
+            "reason": reason,
+            "evidence": evidence or {},
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with self.strategy_store.transaction() as connection:
+            if not self.strategy_store.delete_pending_execution(pending.correlation_id):
+                return
+            self.audit_store.create(
+                type=event_type,
+                source=self.name,
+                payload=payload,
+                connection=connection,
+            )
+        self.publish_event(event_type, payload)
+
+    def _cancel_disabled_pending(self) -> None:
+        for pending in self.strategy_store.list_pending_executions():
+            strategy = self.strategy_store.get(pending.strategy_id)
+            if strategy is not None and strategy.enabled:
+                continue
+            self._finish_delayed_execution(
+                pending,
+                event_type="strategy.execution_delay_canceled",
+                reason="strategy was disabled or deleted before execution",
+            )
+
     def _process_match(
         self,
         *,
@@ -240,6 +476,7 @@ class StrategyService(DaemonService):
         evaluation: SignalEvaluationResult,
         btc_regime: dict[str, Any] | None,
         observed_at: str,
+        decision_id: str | None = None,
     ) -> dict[str, Any] | None:
         if self.executor is None:
             raise RuntimeError("Executor is required")
@@ -256,6 +493,7 @@ class StrategyService(DaemonService):
                 evaluation=evaluation,
                 btc_regime=btc_regime,
                 observed_at=observed_at,
+                decision_id=decision_id,
             )
 
     def _process_match_locked(
@@ -269,6 +507,7 @@ class StrategyService(DaemonService):
         evaluation: SignalEvaluationResult,
         btc_regime: dict[str, Any] | None,
         observed_at: str,
+        decision_id: str | None = None,
     ) -> dict[str, Any] | None:
         if self.executor is None:
             raise RuntimeError("Executor is required")
@@ -278,7 +517,7 @@ class StrategyService(DaemonService):
             position_side=side,
             btc_regime=btc_regime,
         )
-        decision_id = uuid4().hex
+        decision_id = decision_id or uuid4().hex
         decision_entry: dict[str, Any] = {
             **decision.to_dict(),
             "id": decision_id,

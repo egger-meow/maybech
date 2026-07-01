@@ -188,6 +188,10 @@ An executable strategy uses this persisted shape:
 - `metadata.candle_bar`: candle interval, defaulting to `1m`
 - `metadata.order_size_contracts`: positive OKX contract counts keyed by target
 - `metadata.max_entry_slippage_pct`: positive decimal fraction up to `0.05`;
+- `execution_delay_seconds`: `0` for immediate execution, or up to `86400`.
+  Positive delays require initial policy/risk approval before persisting a
+  pending action, then rerun signal, policy, and risk checks at the due time
+  before any submission.
   sets the worst acceptable FOK limit price and risk-check price
 - `default_rules.close_conditions`: enabled close-condition objects copied to
   every logical position unit created by the strategy

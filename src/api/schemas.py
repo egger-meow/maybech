@@ -355,6 +355,7 @@ class StrategyRuntimeResponse(BaseModel):
     service: ServiceStatusResponse | None = None
     dry_run: bool | None = None
     latest_decisions: list[StrategyDecisionResponse] = Field(default_factory=list)
+    pending_executions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SignalExpressionCreate(BaseModel):
@@ -626,6 +627,7 @@ class StrategyCreate(BaseModel):
     entry_signal: dict[str, Any] = Field(default_factory=dict)
     default_rules: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    execution_delay_seconds: int = Field(default=0, ge=0, le=86400)
 
 
 class StrategyUpdate(BaseModel):
@@ -636,6 +638,7 @@ class StrategyUpdate(BaseModel):
     entry_signal: dict[str, Any] | None = None
     default_rules: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
+    execution_delay_seconds: int | None = Field(default=None, ge=0, le=86400)
 
 
 class StrategySummaryResponse(BaseModel):
@@ -648,6 +651,7 @@ class StrategySummaryResponse(BaseModel):
     entry_signal: dict[str, Any] = Field(default_factory=dict)
     default_rules: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    execution_delay_seconds: int = 0
     signal_expressions: list[SignalExpressionResponse] = Field(default_factory=list)
     created_at: str | None = None
     updated_at: str | None = None

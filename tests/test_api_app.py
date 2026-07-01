@@ -1278,6 +1278,7 @@ def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):
             "name": "Breakout",
             "kind": "signal",
             "enabled": False,
+            "execution_delay_seconds": 15,
             "target_instruments": ["ETH-USDT-SWAP"],
             "entry_signal": {"type": "price_above", "symbol": "self", "value": 3000},
             "default_rules": {"close_conditions": [{
@@ -1294,7 +1295,7 @@ def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):
     )
     updated = client.patch(
         "/strategies/breakout",
-        json={"target_instruments": ["ETH-USDT-SWAP", "SOL-USDT-SWAP"]},
+        json={"target_instruments": ["ETH-USDT-SWAP", "SOL-USDT-SWAP"], "execution_delay_seconds": 30},
     )
 
     assert created.status_code == 201
@@ -1302,6 +1303,8 @@ def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):
     assert updated.status_code == 200
     assert updated.json()["enabled"] is False
     assert updated.json()["target_instruments"] == ["ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+    assert created.json()["execution_delay_seconds"] == 15
+    assert updated.json()["execution_delay_seconds"] == 30
     assert store.get("breakout").enabled is False
 
 

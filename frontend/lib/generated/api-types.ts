@@ -577,6 +577,7 @@ export type StrategyCreate = {
   "entry_signal"?: Record<string, unknown>;
   "default_rules"?: Record<string, unknown>;
   "metadata"?: Record<string, unknown>;
+  "execution_delay_seconds"?: number;
 };
 
 export type StrategyDecisionResponse = {
@@ -610,6 +611,7 @@ export type StrategyRuntimeResponse = {
   "service"?: ServiceStatusResponse | null;
   "dry_run"?: boolean | null;
   "latest_decisions"?: StrategyDecisionResponse[];
+  "pending_executions"?: Record<string, unknown>[];
 };
 
 export type StrategySummaryResponse = {
@@ -622,6 +624,7 @@ export type StrategySummaryResponse = {
   "entry_signal"?: Record<string, unknown>;
   "default_rules"?: Record<string, unknown>;
   "metadata"?: Record<string, unknown>;
+  "execution_delay_seconds"?: number;
   "signal_expressions"?: SignalExpressionResponse[];
   "created_at"?: string | null;
   "updated_at"?: string | null;
@@ -636,6 +639,7 @@ export type StrategyUpdate = {
   "entry_signal"?: Record<string, unknown> | null;
   "default_rules"?: Record<string, unknown> | null;
   "metadata"?: Record<string, unknown> | null;
+  "execution_delay_seconds"?: number | null;
 };
 
 export type TradeDetailResponse = {

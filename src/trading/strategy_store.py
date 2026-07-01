@@ -22,7 +22,7 @@ from src.trading.sqlite_schema import (
 
 
 _SCHEMA_COMPONENT = "strategies"
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 _SCHEMA = """
@@ -71,6 +71,20 @@ WHERE kind = 'momentum'
    OR json_extract(entry_signal_json, '$.type') = 'volume_price_gap';
 """
 
+_SCHEMA_V4 = """
+CREATE TABLE strategy_pending_executions (
+    correlation_id TEXT PRIMARY KEY,
+    strategy_id     TEXT NOT NULL,
+    inst_id         TEXT NOT NULL,
+    triggered_at    TEXT NOT NULL,
+    due_at          TEXT NOT NULL,
+    evidence_json   TEXT NOT NULL DEFAULT '{}',
+    UNIQUE (strategy_id, inst_id),
+    FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_strategy_pending_due ON strategy_pending_executions(due_at);
+"""
+
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), sort_keys=True)
@@ -95,6 +109,7 @@ class StrategyRecord:
         "entry_signal_json",
         "default_rules_json",
         "metadata_json",
+        "execution_delay_seconds",
         "created_at",
         "updated_at",
     )
@@ -110,6 +125,7 @@ class StrategyRecord:
         entry_signal_json: str = "{}",
         default_rules_json: str = "{}",
         metadata_json: str = "{}",
+        execution_delay_seconds: int = 0,
         created_at: str = "",
         updated_at: str = "",
     ) -> None:
@@ -122,6 +138,7 @@ class StrategyRecord:
         self.entry_signal_json = entry_signal_json
         self.default_rules_json = default_rules_json
         self.metadata_json = metadata_json
+        self.execution_delay_seconds = max(0, int(execution_delay_seconds))
         self.created_at = created_at or now
         self.updated_at = updated_at or now
 
@@ -195,6 +212,44 @@ class SignalExpressionRecord:
         return value if isinstance(value, dict) else {}
 
 
+class PendingStrategyExecution:
+    __slots__ = (
+        "correlation_id",
+        "strategy_id",
+        "inst_id",
+        "triggered_at",
+        "due_at",
+        "evidence_json",
+    )
+
+    def __init__(self, *, correlation_id: str, strategy_id: str, inst_id: str, triggered_at: str, due_at: str, evidence_json: str = "{}") -> None:
+        self.correlation_id = correlation_id
+        self.strategy_id = strategy_id
+        self.inst_id = inst_id
+        self.triggered_at = triggered_at
+        self.due_at = due_at
+        self.evidence_json = evidence_json
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "PendingStrategyExecution":
+        return cls(**{key: row[key] for key in row.keys()})
+
+    @property
+    def evidence(self) -> dict[str, Any]:
+        value = _json_loads(self.evidence_json, {})
+        return value if isinstance(value, dict) else {}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "correlation_id": self.correlation_id,
+            "strategy_id": self.strategy_id,
+            "inst_id": self.inst_id,
+            "triggered_at": self.triggered_at,
+            "due_at": self.due_at,
+            "evidence": self.evidence,
+        }
+
+
 class StrategyStore:
     """SQLite-backed strategy and signal-expression persistence."""
 
@@ -221,13 +276,25 @@ class StrategyStore:
                     component=_SCHEMA_COMPONENT,
                     version=2,
                 )
-            if _SCHEMA_VERSION not in versions:
+            if 3 not in versions:
                 conn.executescript(_SCHEMA_V3)
                 record_schema_version(
                     conn,
                     component=_SCHEMA_COMPONENT,
-                    version=_SCHEMA_VERSION,
+                    version=3,
                 )
+            if 4 not in versions:
+                columns = {
+                    str(row["name"])
+                    for row in conn.execute("PRAGMA table_info(strategies)").fetchall()
+                }
+                if "execution_delay_seconds" not in columns:
+                    conn.execute(
+                        "ALTER TABLE strategies ADD COLUMN execution_delay_seconds "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                conn.executescript(_SCHEMA_V4)
+                record_schema_version(conn, component=_SCHEMA_COMPONENT, version=4)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -296,8 +363,8 @@ class StrategyStore:
                 """INSERT INTO strategies
                    (id, name, kind, enabled, target_instruments_json,
                     entry_signal_json, default_rules_json, metadata_json,
-                    created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    execution_delay_seconds, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     kind = excluded.kind,
@@ -306,6 +373,7 @@ class StrategyStore:
                     entry_signal_json = excluded.entry_signal_json,
                     default_rules_json = excluded.default_rules_json,
                     metadata_json = excluded.metadata_json,
+                    execution_delay_seconds = excluded.execution_delay_seconds,
                     created_at = excluded.created_at,
                     updated_at = excluded.updated_at""",
                 (
@@ -317,6 +385,7 @@ class StrategyStore:
                     strategy.entry_signal_json,
                     strategy.default_rules_json,
                     strategy.metadata_json,
+                    strategy.execution_delay_seconds,
                     strategy.created_at,
                     strategy.updated_at,
                 ),
@@ -334,7 +403,10 @@ class StrategyStore:
         entry_signal: dict[str, Any] | None = None,
         default_rules: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
+        execution_delay_seconds: int = 0,
     ) -> StrategyRecord:
+        if execution_delay_seconds < 0 or execution_delay_seconds > 86400:
+            raise ValueError("execution_delay_seconds must be between 0 and 86400")
         strategy = StrategyRecord(
             id=id,
             name=name,
@@ -344,6 +416,7 @@ class StrategyStore:
             entry_signal_json=_json_dumps(entry_signal or {}),
             default_rules_json=_json_dumps(default_rules or {}),
             metadata_json=_json_dumps(metadata or {}),
+            execution_delay_seconds=execution_delay_seconds,
         )
         self.save(strategy)
         return strategy
@@ -378,6 +451,7 @@ class StrategyStore:
         entry_signal: dict[str, Any] | None = None,
         default_rules: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
+        execution_delay_seconds: int | None = None,
     ) -> StrategyRecord | None:
         strategy = self.get(strategy_id)
         if strategy is None:
@@ -396,6 +470,10 @@ class StrategyStore:
             strategy.default_rules_json = _json_dumps(default_rules)
         if metadata is not None:
             strategy.metadata_json = _json_dumps(metadata)
+        if execution_delay_seconds is not None:
+            if execution_delay_seconds < 0 or execution_delay_seconds > 86400:
+                raise ValueError("execution_delay_seconds must be between 0 and 86400")
+            strategy.execution_delay_seconds = execution_delay_seconds
         self.save(strategy)
         return self.get(strategy_id)
 
@@ -410,6 +488,7 @@ class StrategyStore:
         entry_signal: dict[str, Any],
         default_rules: dict[str, Any],
         metadata: dict[str, Any] | None = None,
+        execution_delay_seconds: int = 0,
     ) -> StrategyRecord:
         existing = self.get(id)
         if existing is not None:
@@ -423,7 +502,50 @@ class StrategyStore:
             entry_signal=entry_signal,
             default_rules=default_rules,
             metadata=metadata,
+            execution_delay_seconds=execution_delay_seconds,
         )
+
+    def schedule_pending_execution(self, pending: PendingStrategyExecution) -> bool:
+        with self._conn() as conn:
+            try:
+                conn.execute(
+                    """INSERT INTO strategy_pending_executions
+                       (correlation_id, strategy_id, inst_id, triggered_at, due_at, evidence_json)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        pending.correlation_id,
+                        pending.strategy_id,
+                        pending.inst_id,
+                        pending.triggered_at,
+                        pending.due_at,
+                        pending.evidence_json,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    def list_pending_executions(self, *, strategy_id: str | None = None, due_at: str | None = None) -> list[PendingStrategyExecution]:
+        query = "SELECT * FROM strategy_pending_executions WHERE 1=1"
+        params: list[object] = []
+        if strategy_id is not None:
+            query += " AND strategy_id = ?"
+            params.append(strategy_id)
+        if due_at is not None:
+            query += " AND due_at <= ?"
+            params.append(due_at)
+        query += " ORDER BY due_at, triggered_at"
+        with self._conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [PendingStrategyExecution.from_row(row) for row in rows]
+
+    def delete_pending_execution(self, correlation_id: str) -> bool:
+        with self._conn() as conn:
+            result = conn.execute(
+                "DELETE FROM strategy_pending_executions WHERE correlation_id = ?",
+                (correlation_id,),
+            )
+        return result.rowcount > 0
 
     def save_signal_expression(self, expression: SignalExpressionRecord) -> str:
         expression.updated_at = datetime.now(timezone.utc).isoformat()
