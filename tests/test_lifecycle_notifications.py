@@ -85,6 +85,10 @@ def test_runtime_service_error_routes_as_safety_failure(tmp_path):
 
 def test_category_mapping_covers_confirmed_position_lifecycle():
     assert classify_lifecycle_event(
+        "position.allocation_confirmed",
+        {"action": "open", "strategy_id": "strategy-a"},
+    ) == "策略進場已成交／部位已開立"
+    assert classify_lifecycle_event(
         "position.allocation_confirmed", {"action": "open"}
     ) == "部位已開立"
     assert classify_lifecycle_event(

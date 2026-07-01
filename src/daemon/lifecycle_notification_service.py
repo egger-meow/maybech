@@ -40,6 +40,8 @@ def classify_lifecycle_event(
         return None
     if event_type == "position.allocation_confirmed":
         action = str(payload.get("action") or "")
+        if action == "open" and payload.get("strategy_id"):
+            return "策略進場已成交／部位已開立"
         return {
             "open": "部位已開立",
             "reduce": "部位已部分減倉",
