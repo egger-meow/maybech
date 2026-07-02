@@ -26,9 +26,9 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Child strategy-signal updates have no revision token. A stale editor can
-   overwrite a newer entry, filter, or copied-exit expression and silently
-   change the behavior of an enabled strategy.
+1. Child strategy-signal deletion has neither explicit confirmation in the API
+   contract nor an expected revision. A stale or accidental DELETE can remove
+   an entry, filter, or copied-exit condition from an enabled strategy.
 2. Logical-position close-condition updates have no revision token. Concurrent
    operator tabs can silently overwrite non-protective exit, trailing,
    break-even, or manual-review rule edits and leave different behavior than

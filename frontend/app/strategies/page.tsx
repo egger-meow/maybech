@@ -150,7 +150,7 @@ function ChildSignal({ strategyId, signal, onSaved }: { strategyId: string; sign
     try {
       const validation = await validateSignal({ expression });
       if (!validation.valid) throw new Error(validation.errors?.join("；") || "規則格式不正確");
-      if (signal) await updateStrategySignal(strategyId, signal.id, { purpose, expression: validation.normalized ?? expression });
+      if (signal) await updateStrategySignal(strategyId, signal.id, { expected_updated_at: signal.updated_at, purpose, expression: validation.normalized ?? expression });
       else await createStrategySignal(strategyId, { purpose, expression: validation.normalized ?? expression });
       setDirty(false); await onSaved();
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }

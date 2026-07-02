@@ -200,7 +200,8 @@ The Strategy Management page has a persisted strategy definition contract now:
 - `GET /strategies/{strategy_id}/signals/{expression_id}`: inspect one child
   expression.
 - `PATCH /strategies/{strategy_id}/signals/{expression_id}`: edit its purpose
-  or validated JSON expression.
+  or validated JSON expression with the exact `expected_updated_at`; stale
+  editors receive `409` and cannot overwrite a newer child signal.
 - `DELETE /strategies/{strategy_id}/signals/{expression_id}`: delete it.
 
 Signal-expression edits and deletes automatically disable an enabled parent

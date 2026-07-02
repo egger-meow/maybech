@@ -1733,6 +1733,14 @@ def create_app(
             previous = store.get_signal_expression(strategy_id, expression_id)
             if previous is None:
                 raise HTTPException(status_code=404, detail="Signal expression not found")
+            if payload.expected_updated_at != previous.updated_at:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Signal expression changed since it was loaded",
+                        "current_updated_at": previous.updated_at,
+                    },
+                )
             expression = store.update_signal_expression(
                 strategy_id,
                 expression_id,

@@ -1729,9 +1729,14 @@ def test_api_edits_and_deletes_strategy_signal_with_audit(monkeypatch, tmp_path)
     client = TestClient(create_app(DaemonRunner()))
 
     fetched = client.get(f"/strategies/breakout/signals/{expression.id}")
+    stale = client.patch(
+        f"/strategies/breakout/signals/{expression.id}",
+        json={"expected_updated_at": "stale", "purpose": "exit"},
+    )
     updated = client.patch(
         f"/strategies/breakout/signals/{expression.id}",
         json={
+            "expected_updated_at": fetched.json()["updated_at"],
             "purpose": "filter",
             "expression": {"type": "price_below", "symbol": "self", "value": 200},
         },
@@ -1739,6 +1744,7 @@ def test_api_edits_and_deletes_strategy_signal_with_audit(monkeypatch, tmp_path)
     deleted = client.delete(f"/strategies/breakout/signals/{expression.id}")
 
     assert fetched.status_code == 200
+    assert stale.status_code == 409
     assert updated.status_code == 200
     assert updated.json()["purpose"] == "filter"
     assert deleted.json() == {"status": "deleted", "id": expression.id}

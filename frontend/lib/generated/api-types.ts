@@ -585,6 +585,7 @@ export type SignalExpressionResponse = {
 };
 
 export type SignalExpressionUpdate = {
+  "expected_updated_at": string;
   "purpose"?: "entry" | "exit" | "filter" | string | null;
   "expression"?: Record<string, unknown> | null;
 };

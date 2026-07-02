@@ -412,6 +412,7 @@ class SignalExpressionCreate(BaseModel):
 
 
 class SignalExpressionUpdate(BaseModel):
+    expected_updated_at: str = Field(min_length=1)
     purpose: Literal["entry", "exit", "filter"] | str | None = None
     expression: dict[str, Any] | None = None
 

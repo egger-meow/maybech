@@ -96,6 +96,8 @@ Frontends must use `active`; there is no `state` field.
 - `POST /strategies/{strategy_id}/enable` requires a typed `confirm=true` and
   the exact reviewed `expected_updated_at`. Create/PATCH cannot enable a
   strategy, and stale confirmations fail instead of enabling an unseen edit.
+- Child strategy-signal PATCH is also revision-bound. Entry, filter, and copied
+  exit expressions retain their newer value when an older editor submits.
 - `GET /positions/logical` returns typed read-only logical position units from
   `LogicalPositionStore`, with compatibility backfill from `TradeStore` records.
   These include persisted close signal conditions, legacy trade rule groups,
