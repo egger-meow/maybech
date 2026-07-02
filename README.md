@@ -71,6 +71,13 @@ $env:MAYBECH_RUN_OKX_INTEGRATION = "1"
 .venv\Scripts\python.exe -m pytest tests/test_okx_integration.py -v
 ```
 
+This flag enables network/API assertions only; network, authentication, and API
+errors remain real test failures. Order submission, cancellation, and protective
+order mutation remain blocked. An intentional Demo execution test additionally
+requires `MAYBECH_RUN_OKX_DEMO_EXECUTION=1` with `OKX_FLAG=1`. The test suite
+never enables production order mutation, and runtime live arming remains a
+separate safety gate.
+
 ## Run Locally
 
 Start the API-backed runtime:

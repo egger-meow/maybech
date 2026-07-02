@@ -7,6 +7,10 @@ Prerequisites:
   - OKX_FLAG=1 selects DEMO_OKX_API_KEY/SECRET/PASSPHRASE
   - OKX_FLAG=0 selects OKX_API_KEY/SECRET/PASSPHRASE
 
+Order mutation is blocked inside this module unless both
+MAYBECH_RUN_OKX_DEMO_EXECUTION=1 and OKX_FLAG=1 are set. The read-only tests in
+this file do not require that execution flag.
+
 Run:
   .venv\\Scripts\\python.exe -m pytest tests/test_okx_integration.py -v
 """
@@ -30,10 +34,20 @@ def _call_okx_access(func, *args, **kwargs):
 
 # Skip the entire module unless network integration is explicitly requested.
 _integration_enabled = os.getenv("MAYBECH_RUN_OKX_INTEGRATION", "0") == "1"
+_demo_execution_enabled = os.getenv("MAYBECH_RUN_OKX_DEMO_EXECUTION", "0") == "1"
 _has_keys = bool(
     settings.OKX_API_KEY
     and settings.OKX_API_SECRET
     and settings.OKX_PASSPHRASE
+)
+
+_ORDER_MUTATION_METHODS = (
+    "place_limit_order",
+    "cancel_order",
+    "place_reduce_market_order",
+    "place_position_stop",
+    "amend_position_stop",
+    "cancel_position_stop",
 )
 pytestmark = pytest.mark.skipif(
     not (_integration_enabled and _has_keys),
@@ -45,6 +59,29 @@ pytestmark = pytest.mark.skipif(
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def require_explicit_demo_execution(monkeypatch):
+    """Fail closed if an integration test unexpectedly mutates OKX orders."""
+    from src.exchange.client import OKXClient
+
+    if _demo_execution_enabled:
+        if settings.OKX_FLAG != "1":
+            pytest.fail(
+                "MAYBECH_RUN_OKX_DEMO_EXECUTION=1 requires OKX_FLAG=1; "
+                "production order mutation is never enabled by this test suite"
+            )
+        return
+
+    def blocked_order_mutation(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError(
+            "OKX order mutation is blocked; set MAYBECH_RUN_OKX_DEMO_EXECUTION=1 "
+            "with OKX_FLAG=1 only for an intentional Demo execution test"
+        )
+
+    for method_name in _ORDER_MUTATION_METHODS:
+        monkeypatch.setattr(OKXClient, method_name, blocked_order_mutation)
 
 @pytest.fixture(scope="module")
 def client():
@@ -65,6 +102,16 @@ def dashboard(client):
     """Shared Dashboard."""
     from src.monitor.dashboard import Dashboard
     return Dashboard(client)
+
+
+@pytest.mark.skipif(
+    _demo_execution_enabled,
+    reason="Demo execution was explicitly enabled for this integration run",
+)
+def test_order_mutation_requires_separate_demo_execution_flag(client):
+    """Read-only integration opt-in alone must never permit order mutation."""
+    with pytest.raises(AssertionError, match="OKX order mutation is blocked"):
+        client.place_limit_order()
 
 # ── Account Tests ────────────────────────────────────────────────────────────
 
