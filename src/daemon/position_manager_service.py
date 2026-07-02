@@ -157,6 +157,47 @@ class PositionManagerService(DaemonService):
                 signal_context=signal_context,
             )
             if condition is not None and evaluation is not None:
+                rule_action = condition.metadata.get("rule_definition", {}).get("action", {})
+                action_type = str(rule_action.get("type") or "close_position")
+                if action_type in {"amend_stop", "require_manual_review"}:
+                    try:
+                        position_metadata = json.loads(position.metadata_json or "{}")
+                    except json.JSONDecodeError:
+                        position_metadata = {}
+                    if not (
+                        position_metadata.get("requires_manual_review") is True
+                        and position_metadata.get("rule_action_blocked") == action_type
+                        and position_metadata.get("rule_condition_id") == condition.id
+                    ):
+                        position_store.merge_metadata(position.id, {
+                            "requires_manual_review": True,
+                            "rule_action_blocked": action_type,
+                            "rule_condition_id": condition.id,
+                        })
+                    intents.append({
+                        "position_id": position.id,
+                        "trade_id": position.trade_id,
+                        "inst_id": position.inst_id,
+                        "side": position.side,
+                        "action": "manual_review",
+                        "reason": f"rule action {action_type} requires its dedicated lifecycle",
+                        "condition_id": condition.id,
+                        "condition_purpose": condition.purpose,
+                        "condition_evidence": evaluation.evidence,
+                    })
+                    continue
+                execution_action = "reduce" if action_type == "reduce_position" else "close"
+                requested_quantity = None
+                if execution_action == "reduce":
+                    quantity_basis = str(rule_action.get("quantity_basis") or "initial")
+                    base_quantity = (
+                        (position.opened_quantity or 0.0)
+                        if quantity_basis == "initial"
+                        else (position.remaining_quantity or position.opened_quantity or 0.0)
+                    )
+                    requested_quantity = (
+                        base_quantity * float(rule_action["quantity_fraction"])
+                    )
                 intents.append(
                     self._handle_close_trigger(
                         position_store=position_store,
@@ -171,7 +212,10 @@ class PositionManagerService(DaemonService):
                             "condition_purpose": condition.purpose,
                             "condition_expression": condition.expression,
                             "condition_evidence": evaluation.evidence,
+                            "rule_action": rule_action,
                         },
+                        execution_action=execution_action,
+                        requested_quantity=requested_quantity,
                     )
                 )
                 continue
@@ -616,6 +660,8 @@ class PositionManagerService(DaemonService):
                     "close_quantity": execution_quantity,
                     "previous_exchange_order_id": position.exchange_order_id,
                     "execution_status": "submitting",
+                    "rule_condition_id": str(trigger_payload.get("condition_id") or ""),
+                    "rule_action": trigger_payload.get("rule_action") or {},
                 },
             )
             if claimed is None:
@@ -855,6 +901,26 @@ class PositionManagerService(DaemonService):
                     else remaining_quantity - execution_quantity
                 ),
             )
+        if execution_action == "reduce":
+            condition_id = str(trigger_payload.get("condition_id") or "")
+            condition = (
+                position_store.get_close_condition(position.id, condition_id)
+                if condition_id else None
+            )
+            if condition is not None:
+                position_store.update_close_condition(
+                    position.id,
+                    condition.id,
+                    enabled=False,
+                    metadata={
+                        **condition.metadata,
+                        "execution_state": {
+                            "status": "completed",
+                            "allocation_action": "reduce",
+                            "quantity": execution_quantity,
+                        },
+                    },
+                )
 
         logger.info(
             "POSITION %s: %s %s %s @ %.4f (reason=%s)",

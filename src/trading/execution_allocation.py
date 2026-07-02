@@ -15,6 +15,7 @@ from src.trading.logical_position_store import (
     LogicalPositionStore,
 )
 from src.trading.trade_store import TradeStore
+from src.trading.position_rule_model import materialize_position_rule
 
 
 FillSource = Literal["okx_fill", "dry_run", "recovery"]
@@ -155,6 +156,10 @@ class ExecutionAllocationService:
             )
 
         execution_status = self._update_trade_and_status(updated, allocation)
+        if allocation.action == "open":
+            self._materialize_confirmed_entry_rules(updated, allocation)
+        if allocation.action == "reduce":
+            self._complete_one_shot_rule(updated, allocation)
         tracked = self.position_store.update_execution_tracking(
             updated.id,
             exchange_order_id=allocation.exchange_order_id,
@@ -250,6 +255,101 @@ class ExecutionAllocationService:
             idempotent=existing is not None,
             execution_status=execution_status,
         )
+
+    def _complete_one_shot_rule(
+        self,
+        position: LogicalPositionRecord,
+        allocation: LogicalPositionAllocation,
+    ) -> None:
+        try:
+            metadata = json.loads(position.metadata_json or "{}")
+        except json.JSONDecodeError:
+            return
+        condition_id = str(metadata.get("rule_condition_id") or "")
+        if not condition_id:
+            return
+        condition = self.position_store.get_close_condition(position.id, condition_id)
+        if condition is None:
+            return
+        action = condition.metadata.get("rule_definition", {}).get("action", {})
+        if action.get("type") != "reduce_position":
+            return
+        self.position_store.update_close_condition(
+            position.id,
+            condition.id,
+            enabled=False,
+            metadata={
+                **condition.metadata,
+                "execution_state": {
+                    "status": "completed",
+                    "fill_id": allocation.id,
+                    "quantity": allocation.quantity,
+                    "price": allocation.price,
+                },
+            },
+        )
+
+    def _materialize_confirmed_entry_rules(
+        self,
+        position: LogicalPositionRecord,
+        allocation: LogicalPositionAllocation,
+    ) -> None:
+        protection = self.position_store.get_protection(position.id)
+        for condition in self.position_store.list_close_conditions(position.id):
+            if not isinstance(condition.metadata.get("template_definition"), dict):
+                continue
+            materialized = materialize_position_rule(
+                {
+                    "purpose": condition.purpose,
+                    "expression": condition.expression,
+                    "enabled": condition.enabled,
+                    "metadata": condition.metadata,
+                },
+                entry_price=position.entry_price,
+                inst_id=position.inst_id,
+                side=position.side,
+                basis="confirmed_average_entry",
+            )
+            if (
+                condition.purpose == "stop_loss"
+                and protection is not None
+                and materialized["expression"] != condition.expression
+            ):
+                self.position_store.update_close_condition(
+                    position.id,
+                    condition.id,
+                    metadata={
+                        **condition.metadata,
+                        "pending_materialization": {
+                            "status": "pending_exchange_amend",
+                            "expression": materialized["expression"],
+                            "metadata": materialized["metadata"],
+                            "entry_fill_id": allocation.id,
+                        },
+                    },
+                )
+                self.position_store.merge_metadata(position.id, {
+                    "requires_manual_review": True,
+                    "protection_materialization_pending": True,
+                })
+                self.audit_store.create(
+                    type="position.rule_materialization_pending",
+                    source="execution_allocation",
+                    payload={
+                        "position_id": position.id,
+                        "condition_id": condition.id,
+                        "fill_id": allocation.id,
+                        "confirmed_entry_price": position.entry_price,
+                        "target_expression": materialized["expression"],
+                    },
+                )
+                continue
+            self.position_store.update_close_condition(
+                position.id,
+                condition.id,
+                expression=materialized["expression"],
+                metadata=materialized["metadata"],
+            )
 
     def _resolve_position(
         self,

@@ -139,6 +139,8 @@ export type ExecutionFillIngestionStatusResponse = {
   "protections_checked"?: number;
   "protection_rearmed"?: number;
   "protection_errors"?: number;
+  "rule_materializations"?: number;
+  "rule_materialization_errors"?: number;
   "pages_fetched"?: number;
   "caught_up"?: boolean;
   "cursor_in_progress"?: boolean;
@@ -570,6 +572,7 @@ export type PositionRiskStopPromotionCommand = {
 export type PositionRuleActionResponse = {
   "type": "close_position" | "reduce_position" | "amend_stop" | "require_manual_review";
   "quantity_fraction"?: number | null;
+  "quantity_basis"?: "initial" | "remaining" | null;
 };
 
 export type PositionRuleCreate = {
@@ -771,6 +774,7 @@ export type StrategyDecisionResponse = {
 export type StrategyDefaultRulesResponse = {
   "rule_schema_version"?: 1;
   "close_conditions"?: CanonicalPositionRuleResponse[];
+  "staged_take_profit"?: Record<string, number> | null;
 };
 
 export type StrategyDeleteCommand = {

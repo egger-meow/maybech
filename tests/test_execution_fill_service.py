@@ -1028,3 +1028,55 @@ def test_filled_order_without_fill_details_alerts_once_after_repeated_polls(tmp_
     assert metadata["filled_without_allocation"]["alerted_at"]
     assert len(alerts) == 1
     assert len(runtime_alerts) == 1
+
+
+def test_fill_service_applies_pending_confirmed_entry_stop_materialization(tmp_path):
+    db_path = str(tmp_path / "fills.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(LogicalPositionRecord(
+        id="relative", source="strategy", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=1, remaining_quantity=1, entry_price=102, status="open",
+        metadata_json=json.dumps({
+            "requires_manual_review": True,
+            "protection_materialization_pending": True,
+        }),
+    ))
+    condition = position_store.create_close_condition(
+        id="relative-stop", position_id="relative", purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 95},
+        metadata={"pending_materialization": {
+            "status": "pending_exchange_amend",
+            "expression": {"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 96.9},
+            "metadata": {"materialization": {"basis": "confirmed_average_entry"}},
+            "entry_fill_id": "fill-1",
+        }},
+    )
+    position_store.save_protection(LogicalPositionProtection(
+        position_id="relative", kind="attached_stop", status="active",
+        algo_id="algo", algo_client_order_id="algo-client", quantity=1, stop_loss=95,
+    ))
+
+    class FakeProtectionService:
+        def __init__(self):
+            self.calls = []
+
+        def amend_stop_condition(self, position_id, condition_id, **kwargs):
+            self.calls.append((position_id, condition_id, kwargs))
+            return position_store.get(position_id)
+
+    protection = FakeProtectionService()
+    service = ExecutionFillService(
+        allocator=ExecutionAllocationService(trade_store, position_store),
+        protection_service=protection,
+        allow_order_mutations=True,
+    )
+    status = service._empty_status()
+
+    service._apply_pending_rule_materializations("relative", status)
+
+    assert status["rule_materializations"] == 1
+    assert protection.calls[0][2]["expression"]["value"] == 96.9
+    assert protection.calls[0][2]["expected_condition_updated_at"] == condition.updated_at
+    metadata = json.loads(position_store.get("relative").metadata_json)
+    assert metadata["protection_materialization_pending"] is False

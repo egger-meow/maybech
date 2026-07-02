@@ -282,6 +282,8 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     protections_checked: int = 0
     protection_rearmed: int = 0
     protection_errors: int = 0
+    rule_materializations: int = 0
+    rule_materialization_errors: int = 0
     pages_fetched: int = 0
     caught_up: bool = False
     cursor_in_progress: bool = False
@@ -601,6 +603,7 @@ class MutationStatusResponse(BaseModel):
 class PositionRuleActionResponse(BaseModel):
     type: Literal["close_position", "reduce_position", "amend_stop", "require_manual_review"]
     quantity_fraction: float | None = None
+    quantity_basis: Literal["initial", "remaining"] | None = None
 
 
 class PositionRuleDefinitionResponse(BaseModel):
@@ -634,6 +637,7 @@ class CanonicalPositionRuleResponse(BaseModel):
 class StrategyDefaultRulesResponse(BaseModel):
     rule_schema_version: Literal[1] = 1
     close_conditions: list[CanonicalPositionRuleResponse] = Field(default_factory=list)
+    staged_take_profit: dict[str, float] | None = None
 
 
 class LogicalPositionCloseConditionCreate(BaseModel):

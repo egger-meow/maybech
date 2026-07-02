@@ -2,6 +2,7 @@ from src.trading.strategy_runtime import (
     close_condition_specs,
     compose_entry_expression,
     entry_limit_price,
+    exchange_protection_prices,
     resolve_self_symbol,
     validate_strategy_for_execution,
 )
@@ -85,3 +86,35 @@ def test_strategy_runtime_prices_fok_limit_from_persisted_slippage(tmp_path):
         metadata={**strategy.metadata, "position_side": "short"},
     )
     assert entry_limit_price(short, 2000) == 1990
+
+
+def test_strategy_runtime_materializes_relative_stop_but_keeps_staged_target_software_managed(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    strategy = _strategy(store)
+    strategy = store.update(strategy.id, default_rules={"close_conditions": [
+        {
+            "purpose": "stop_loss", "enabled": True,
+            "expression": {"type": "entry_relative", "symbol": "self"},
+            "metadata": {"rule_definition": {
+                "style": "fixed_percent", "action": {"type": "close_position"},
+                "parameters": {"offset_pct": 0.05}, "evidence": {},
+            }},
+        },
+        {
+            "purpose": "take_profit", "enabled": True,
+            "expression": {"type": "entry_relative", "symbol": "self"},
+            "metadata": {"rule_definition": {
+                "style": "fixed_percent",
+                "action": {"type": "reduce_position", "quantity_fraction": 0.25},
+                "parameters": {"offset_pct": 0.10}, "evidence": {},
+            }},
+        },
+    ]})
+
+    stop, attached_target = exchange_protection_prices(
+        strategy, store, "ETH-USDT-SWAP", entry_price=100
+    )
+
+    assert stop == 95
+    assert attached_target is None
+    assert validate_strategy_for_execution(strategy, store) == []

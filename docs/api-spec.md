@@ -97,6 +97,16 @@ automatically disables an enabled strategy. Position promotion requires the
 derived contract quantity to equal current remaining exposure; owned live
 protection continues through the confirmed exchange-amend lifecycle.
 
+Canonical stop-loss and take-profit rules support `absolute_price`,
+`fixed_price`, `fixed_percent`, and `evidence_target` styles. Entry-relative
+templates are materialized once for provisional attached protection and again
+from the confirmed average entry fill. A changed owned stop is not published
+until OKX confirms its amendment. Partial take-profit actions persist an
+initial- or remaining-quantity fraction, are disabled only after confirmed
+reduction allocation, and expose the unallocated running remainder. Partial or
+entry-relative take-profit rules stay software-managed instead of attaching a
+full-size exchange target with different semantics.
+
 `GET /runtime/preflight` reports whether startup checks passed, whether order
 placement is armed, the four-mode contract, OKX account and position mode, and
 the strategies/instruments validated before services started. Failed live

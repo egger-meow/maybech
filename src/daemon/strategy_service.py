@@ -32,6 +32,7 @@ from src.trading.strategy_runtime import (
     compose_entry_expression,
     entry_limit_price,
     exchange_protection_prices,
+    materialized_close_condition_specs,
     order_size,
     position_side,
     resolve_self_symbol,
@@ -585,6 +586,7 @@ class StrategyService(DaemonService):
             strategy,
             self.strategy_store,
             pair,
+            entry_price=order_price,
         )
         try:
             trade, position = self._prepare_open_unit(
@@ -596,6 +598,7 @@ class StrategyService(DaemonService):
                 evaluation=evaluation,
                 btc_regime=btc_regime,
                 decision_id=decision_id,
+                rule_entry_price=order_price,
             )
         except Exception as exc:
             logger.exception("Failed to persist entry intent %s", decision_id)
@@ -777,6 +780,7 @@ class StrategyService(DaemonService):
         evaluation: SignalEvaluationResult,
         btc_regime: dict[str, Any] | None,
         decision_id: str,
+        rule_entry_price: float,
     ) -> tuple[TradeRecord, LogicalPositionRecord]:
         display_quantities = strategy.metadata.get("order_display_quantities")
         display_quantity = (
@@ -811,7 +815,13 @@ class StrategyService(DaemonService):
         position.client_order_id = decision_id
         self.position_store.save(position)
 
-        for index, spec in enumerate(close_condition_specs(strategy, self.strategy_store)):
+        for index, spec in enumerate(materialized_close_condition_specs(
+            strategy,
+            self.strategy_store,
+            inst_id=pair,
+            entry_price=rule_entry_price,
+            basis="provisional_order_price",
+        )):
             created = self.position_store.create_close_condition(
                 position_id=position.id,
                 purpose=str(spec.get("purpose") or "exit"),

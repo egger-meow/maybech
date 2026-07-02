@@ -1,5 +1,7 @@
 from src.daemon.events import RuntimeState
 from src.daemon.execution_fill_service import ExecutionFillService
+import json
+
 from src.daemon.position_manager_service import PositionManagerService
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.execution_allocation import (
@@ -525,6 +527,37 @@ def test_position_manager_closes_trade_from_logical_close_condition(tmp_path):
     assert "position.closed" in audit_types
 
 
+def test_position_manager_executes_staged_take_profit_once_and_leaves_remainder(tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save(LogicalPositionRecord(
+        id="staged", source="manual", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=4, remaining_quantity=4, entry_price=100, status="open",
+    ))
+    condition = position_store.create_close_condition(
+        id="stage-1", position_id="staged", purpose="take_profit",
+        expression={"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 110},
+        metadata={"quantity_fraction": 0.25},
+    )
+    service = PositionManagerService(store, dry_run=True)
+    service.runtime = RuntimeState()
+    service.runtime.set_value(
+        "account.snapshot",
+        {"positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "120"}]},
+    )
+
+    service.tick()
+    service.tick()
+
+    updated = position_store.get("staged")
+    completed = position_store.get_close_condition("staged", condition.id)
+    assert updated.status == "open"
+    assert updated.remaining_quantity == 3
+    assert completed.enabled is False
+    assert completed.metadata["execution_state"]["status"] == "completed"
+    assert len(position_store.list_allocations("staged")) == 1
+
+
 def test_position_manager_closes_manual_logical_position_without_trade_in_dry_run(tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     position_store = LogicalPositionStore(store.db_path)
@@ -718,10 +751,12 @@ def test_position_manager_uses_candles_for_volume_multiple_close_condition(tmp_p
     service.tick()
 
     position = position_store.get("volume-unit")
-    assert position.status == "closed"
+    assert position.status == "open"
+    assert json.loads(position.metadata_json)["requires_manual_review"] is True
     assert candle_manager.calls == [{"inst_id": "ETH-USDT-SWAP", "bar": "1m", "limit": 30}]
     intent = service.runtime.get_value("position_manager.intents")[0]
     assert intent["condition_id"] == "volume-spike"
+    assert intent["action"] == "manual_review"
     assert intent["condition_evidence"]["volume_ratio"] == 3.0
 
 

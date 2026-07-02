@@ -115,7 +115,11 @@ An item is necessary only if leaving it unfixed could cause one or more of these
   with migrations for legacy records. Confirmed revision-bound backend
   promotion is built for single-instrument strategy stops and exact-size
   position stops; Market Analysis promotion controls and the remaining rule
-  lifecycles still need implementation.
+  lifecycles still need implementation. Backend rule materialization now covers
+  absolute, fixed-price, fixed-percent, and evidence targets. Confirmed average
+  entry rematerializes relative rules and verified exchange amendment protects
+  owned stops. Staged take-profit reductions are one-shot, allocation-confirmed,
+  bounded to initial quantity, and retain an explicit running remainder.
 
   The goal is to design a coherent rule system for stop-loss, take-profit, break-even, optional trailing protection, and research-grade Support/Resistance evidence after a strategy opens a position or when the operator edits an existing logical position unit.
 

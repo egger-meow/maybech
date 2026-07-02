@@ -796,6 +796,16 @@
             "title": "Protections Checked",
             "type": "integer"
           },
+          "rule_materialization_errors": {
+            "default": 0,
+            "title": "Rule Materialization Errors",
+            "type": "integer"
+          },
+          "rule_materializations": {
+            "default": 0,
+            "title": "Rule Materializations",
+            "type": "integer"
+          },
           "stale_cancel_requested": {
             "default": 0,
             "title": "Stale Cancel Requested",
@@ -3331,6 +3341,21 @@
       },
       "PositionRuleActionResponse": {
         "properties": {
+          "quantity_basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "initial",
+                  "remaining"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Basis"
+          },
           "quantity_fraction": {
             "anyOf": [
               {
@@ -4480,6 +4505,20 @@
             "default": 1,
             "title": "Rule Schema Version",
             "type": "integer"
+          },
+          "staged_take_profit": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staged Take Profit"
           }
         },
         "title": "StrategyDefaultRulesResponse",

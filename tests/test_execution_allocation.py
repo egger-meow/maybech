@@ -7,8 +7,9 @@ from src.trading.execution_allocation import (
     ConfirmedExecutionFill,
     ExecutionAllocationService,
 )
-from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
+from src.trading.logical_position_store import LogicalPositionProtection, LogicalPositionRecord, LogicalPositionStore
 from src.trading.trade_store import TradeRecord, TradeStore
+from src.trading.position_rule_model import materialize_position_rule, normalize_default_rules
 
 
 def _stores(tmp_path):
@@ -75,6 +76,115 @@ def test_execution_allocator_matches_order_and_handles_multiple_partial_fills(tm
     assert duplicate.idempotent is True
     assert len(position_store.list_allocations("trade-a")) == 2
     assert len(audit_store.list(event_type="position.allocation_confirmed")) == 2
+
+
+def test_confirmed_staged_reduce_disables_only_completed_target(tmp_path):
+    trade_store, position_store, audit_store = _stores(tmp_path)
+    position_store.save(LogicalPositionRecord(
+        id="staged", source="strategy", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=4, remaining_quantity=4, entry_price=100, status="reducing",
+        metadata_json=json.dumps({"rule_condition_id": "stage-1"}),
+    ))
+    first = position_store.create_close_condition(
+        id="stage-1", position_id="staged", purpose="take_profit",
+        expression={"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 110},
+        metadata={"quantity_fraction": 0.25},
+    )
+    second = position_store.create_close_condition(
+        id="stage-2", position_id="staged", purpose="take_profit",
+        expression={"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 120},
+        metadata={"quantity_fraction": 0.25},
+    )
+    result = ExecutionAllocationService(
+        trade_store, position_store, audit_store
+    ).ingest(ConfirmedExecutionFill(
+        fill_id="reduce-fill", position_id="staged", action="reduce",
+        quantity=1, price=111, confirmation_source="okx_fill",
+    ))
+
+    assert result.execution_status == "reduced"
+    assert position_store.get_close_condition("staged", first.id).enabled is False
+    assert position_store.get_close_condition("staged", second.id).enabled is True
+    assert position_store.get_close_condition("staged", first.id).metadata["execution_state"]["fill_id"] == "reduce-fill"
+
+
+def test_open_fill_rematerializes_entry_relative_rules_from_confirmed_average(tmp_path):
+    trade_store, position_store, audit_store = _stores(tmp_path)
+    position_store.save(LogicalPositionRecord(
+        id="relative", source="strategy", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=0, remaining_quantity=0, entry_price=100,
+        status="pending_open",
+    ))
+    template = normalize_default_rules({"close_conditions": [{
+        "purpose": "take_profit", "enabled": True,
+        "expression": {"type": "entry_relative", "symbol": "self"},
+        "metadata": {"rule_definition": {
+            "style": "fixed_percent", "action": {"type": "close_position"},
+            "parameters": {"offset_pct": "0.10"}, "evidence": {},
+        }},
+    }]})["close_conditions"][0]
+    provisional = materialize_position_rule(
+        template, entry_price=100, inst_id="ETH-USDT-SWAP", side="long",
+        basis="provisional_order_price",
+    )
+    condition = position_store.create_close_condition(
+        id="relative-target", position_id="relative", purpose="take_profit",
+        expression=provisional["expression"], metadata=provisional["metadata"],
+    )
+
+    result = ExecutionAllocationService(
+        trade_store, position_store, audit_store
+    ).ingest(ConfirmedExecutionFill(
+        fill_id="open-fill", position_id="relative", action="open",
+        quantity=1, price=102, confirmation_source="okx_fill",
+    ))
+
+    updated = position_store.get_close_condition("relative", condition.id)
+    assert result.position.entry_price == 102
+    assert updated.expression["value"] == pytest.approx(112.2)
+    assert updated.metadata["materialization"]["basis"] == "confirmed_average_entry"
+
+
+def test_protected_relative_stop_waits_for_exchange_amend_after_fill(tmp_path):
+    trade_store, position_store, audit_store = _stores(tmp_path)
+    position_store.save(LogicalPositionRecord(
+        id="protected-relative", source="strategy", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=0, remaining_quantity=0, entry_price=100, status="pending_open",
+    ))
+    template = normalize_default_rules({"close_conditions": [{
+        "purpose": "stop_loss", "enabled": True,
+        "expression": {"type": "entry_relative", "symbol": "self"},
+        "metadata": {"rule_definition": {
+            "style": "fixed_percent", "action": {"type": "close_position"},
+            "parameters": {"offset_pct": "0.05"}, "evidence": {},
+        }},
+    }]})["close_conditions"][0]
+    provisional = materialize_position_rule(
+        template, entry_price=100, inst_id="ETH-USDT-SWAP", side="long",
+        basis="provisional_order_price",
+    )
+    condition = position_store.create_close_condition(
+        id="relative-stop", position_id="protected-relative", purpose="stop_loss",
+        expression=provisional["expression"], metadata=provisional["metadata"],
+    )
+    position_store.save_protection(LogicalPositionProtection(
+        position_id="protected-relative", kind="attached_stop", status="active",
+        algo_id="algo", algo_client_order_id="algo-client", quantity=1, stop_loss=95,
+    ))
+
+    ExecutionAllocationService(trade_store, position_store, audit_store).ingest(
+        ConfirmedExecutionFill(
+            fill_id="open-fill", position_id="protected-relative", action="open",
+            quantity=1, price=102, confirmation_source="okx_fill",
+        )
+    )
+
+    updated = position_store.get_close_condition("protected-relative", condition.id)
+    pending = updated.metadata["pending_materialization"]
+    assert updated.expression["value"] == 95
+    assert pending["expression"]["value"] == pytest.approx(96.9)
+    assert pending["status"] == "pending_exchange_amend"
+    assert json.loads(position_store.get("protected-relative").metadata_json)["protection_materialization_pending"] is True
 
 
 def test_duplicate_fill_keeps_original_correlation_after_position_advances(tmp_path):

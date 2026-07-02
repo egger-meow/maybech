@@ -8,6 +8,7 @@ from typing import Any
 
 from src.trading.signal_engine import SignalExpressionEngine
 from src.trading.strategy_store import StrategyRecord, StrategyStore
+from src.trading.position_rule_model import materialize_position_rule
 
 
 def compose_entry_expression(
@@ -111,17 +112,48 @@ def close_condition_specs(
     return conditions
 
 
+def materialized_close_condition_specs(
+    strategy: StrategyRecord,
+    store: StrategyStore,
+    *,
+    inst_id: str,
+    entry_price: object,
+    basis: str,
+) -> list[dict[str, Any]]:
+    return [
+        materialize_position_rule(
+            spec,
+            entry_price=entry_price,
+            inst_id=inst_id,
+            side=position_side(strategy),
+            basis=basis,
+        )
+        for spec in close_condition_specs(strategy, store)
+    ]
+
+
 def exchange_protection_prices(
     strategy: StrategyRecord,
     store: StrategyStore,
     inst_id: str,
+    entry_price: object | None = None,
+    materialization_basis: str = "provisional_order_price",
 ) -> tuple[float, float | None]:
     side = position_side(strategy)
     stop_type = "price_below" if side == "long" else "price_above"
     take_profit_type = "price_above" if side == "long" else "price_below"
     stop_loss: float | None = None
     take_profit: float | None = None
-    for spec in close_condition_specs(strategy, store):
+    specs = close_condition_specs(strategy, store)
+    if entry_price is not None:
+        specs = materialized_close_condition_specs(
+            strategy,
+            store,
+            inst_id=inst_id,
+            entry_price=entry_price,
+            basis=materialization_basis,
+        )
+    for spec in specs:
         if not spec.get("enabled", True):
             continue
         expression = resolve_self_symbol(spec.get("expression") or {}, inst_id)
@@ -130,7 +162,13 @@ def exchange_protection_prices(
         if spec.get("purpose") == "stop_loss" and expression.get("type") == stop_type:
             stop_loss = float(expression["value"])
         if spec.get("purpose") == "take_profit" and expression.get("type") == take_profit_type:
-            take_profit = float(expression["value"])
+            metadata = spec.get("metadata") if isinstance(spec.get("metadata"), dict) else {}
+            template = metadata.get("template_definition")
+            style = template.get("style") if isinstance(template, dict) else None
+            definition = metadata.get("rule_definition")
+            action = definition.get("action") if isinstance(definition, dict) else {}
+            if style != "fixed_percent" and action.get("type") != "reduce_position":
+                take_profit = float(expression["value"])
     if stop_loss is None:
         raise ValueError(
             f"{inst_id} requires an enabled side-consistent absolute stop_loss condition"
@@ -181,14 +219,39 @@ def validate_strategy_for_execution(
         if not isinstance(expression, dict):
             errors.append(f"default_rules.close_conditions[{index}].expression must be an object")
             continue
+        validation_expression = expression
+        definition = (
+            condition.get("metadata", {}).get("rule_definition", {})
+            if isinstance(condition.get("metadata"), dict)
+            else {}
+        )
+        if definition.get("style") in {"fixed_percent", "fixed_price", "evidence_target"}:
+            try:
+                materialized = materialize_position_rule(
+                    condition,
+                    entry_price=100,
+                    inst_id=strategy.target_instruments[0] if strategy.target_instruments else "SELF",
+                    side=position_side(strategy),
+                    basis="validation_reference",
+                )
+                validation_expression = materialized["expression"]
+            except ValueError as exc:
+                errors.append(f"default_rules.close_conditions[{index}]: {exc}")
+                continue
         errors.extend(
             f"default_rules.close_conditions[{index}]: {error}"
-            for error in engine.validate(expression).errors
+            for error in engine.validate(validation_expression).errors
         )
     if position_side(strategy) in {"long", "short"}:
         for inst_id in strategy.target_instruments:
             try:
-                exchange_protection_prices(strategy, store, inst_id)
+                exchange_protection_prices(
+                    strategy,
+                    store,
+                    inst_id,
+                    entry_price=100,
+                    materialization_basis="validation_reference",
+                )
             except (KeyError, TypeError, ValueError) as exc:
                 errors.append(str(exc))
     return errors

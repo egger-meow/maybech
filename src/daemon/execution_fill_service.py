@@ -150,6 +150,8 @@ class ExecutionFillService(DaemonService):
             "protections_checked": 0,
             "protection_rearmed": 0,
             "protection_errors": 0,
+            "rule_materializations": 0,
+            "rule_materialization_errors": 0,
             "pages_fetched": 0,
             "caught_up": False,
             "cursor_in_progress": False,
@@ -333,6 +335,8 @@ class ExecutionFillService(DaemonService):
                 logger.warning("Rejected OKX fill %s: %s", fill.fill_id, exc)
                 self._record_fill_rejection(raw_fill, str(exc), category="rejected")
                 continue
+            if result.allocation.action == "open":
+                self._apply_pending_rule_materializations(result.position.id, status)
             if result.idempotent:
                 status["idempotent"] += 1
             else:
@@ -346,6 +350,65 @@ class ExecutionFillService(DaemonService):
                         "trade_id": result.position.trade_id,
                         "execution_status": result.execution_status,
                     },
+                )
+
+    def _apply_pending_rule_materializations(
+        self,
+        position_id: str,
+        status: dict[str, Any],
+    ) -> None:
+        position = self.allocator.position_store.get(position_id)
+        if position is None:
+            return
+        for condition in self.allocator.position_store.list_close_conditions(position.id):
+            pending = condition.metadata.get("pending_materialization")
+            if not isinstance(pending, dict) or pending.get("status") != "pending_exchange_amend":
+                continue
+            expression = pending.get("expression")
+            materialized_metadata = pending.get("metadata")
+            if not isinstance(expression, dict) or not isinstance(materialized_metadata, dict):
+                status["rule_materialization_errors"] += 1
+                continue
+            if not self.allow_order_mutations or self.protection_service is None:
+                status["rule_materialization_errors"] += 1
+                AccountRiskStore(self.allocator.trade_store.db_path).set_entries_enabled(False)
+                disable_entry_order_placement()
+                continue
+            try:
+                self.protection_service.amend_stop_condition(
+                    position.id,
+                    condition.id,
+                    expression=expression,
+                    reason="materialize stop from confirmed average entry",
+                    condition_metadata={
+                        **materialized_metadata,
+                        "pending_materialization": {
+                            **pending,
+                            "status": "applied",
+                            "applied_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    },
+                    intent_metadata={
+                        "operation": "confirmed_entry_materialization",
+                        "entry_fill_id": pending.get("entry_fill_id"),
+                    },
+                    expected_position_updated_at=position.updated_at,
+                    expected_condition_updated_at=condition.updated_at,
+                )
+                self.allocator.position_store.merge_metadata(position.id, {
+                    "requires_manual_review": False,
+                    "protection_materialization_pending": False,
+                })
+                status["rule_materializations"] += 1
+            except PositionProtectionError as exc:
+                status["rule_materialization_errors"] += 1
+                status["protection_errors"] += 1
+                AccountRiskStore(self.allocator.trade_store.db_path).set_entries_enabled(False)
+                disable_entry_order_placement()
+                logger.error(
+                    "Confirmed-entry stop materialization failed for %s: %s",
+                    position.id,
+                    exc,
                 )
 
     def _link_protection_trigger(

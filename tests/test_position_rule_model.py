@@ -1,7 +1,7 @@
 import pytest
 
 from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
-from src.trading.position_rule_model import normalize_default_rules, normalize_position_rule
+from src.trading.position_rule_model import materialize_position_rule, normalize_default_rules, normalize_position_rule
 from src.trading.strategy_store import StrategyStore
 
 
@@ -46,7 +46,8 @@ def test_take_profit_partial_action_requires_safe_fraction():
         metadata={"quantity_fraction": 0.25},
     )
     assert metadata["rule_definition"]["action"] == {
-        "type": "reduce_position", "quantity_fraction": 0.25
+        "type": "reduce_position", "quantity_fraction": 0.25,
+        "quantity_basis": "initial",
     }
 
     with pytest.raises(ValueError, match="between 0 and 1"):
@@ -112,3 +113,56 @@ def test_store_migrations_backfill_existing_rule_definitions(tmp_path):
     assert migrated_strategy.default_rules["rule_schema_version"] == 1
     assert migrated_strategy.default_rules["close_conditions"][0]["metadata"]["rule_definition"]["purpose"] == "stop_loss"
     assert migrated_condition.metadata["rule_definition"]["purpose"] == "stop_loss"
+
+
+def test_entry_relative_and_evidence_rules_materialize_from_entry():
+    stop = normalize_default_rules({"close_conditions": [{
+        "purpose": "stop_loss", "enabled": True,
+        "expression": {"type": "entry_relative", "symbol": "self"},
+        "metadata": {"rule_definition": {
+            "style": "fixed_percent", "action": {"type": "close_position"},
+            "parameters": {"offset_pct": "0.05"}, "evidence": {},
+        }},
+    }]})["close_conditions"][0]
+    target = normalize_default_rules({"close_conditions": [{
+        "purpose": "take_profit", "enabled": True,
+        "expression": {"type": "entry_relative", "symbol": "self"},
+        "metadata": {"rule_definition": {
+            "style": "evidence_target",
+            "action": {"type": "reduce_position", "quantity_fraction": 0.25},
+            "parameters": {"target_price": 112},
+            "evidence": {"source": "support_resistance", "level_score": 0.8},
+        }},
+    }]})["close_conditions"][0]
+
+    materialized_stop = materialize_position_rule(
+        stop, entry_price=100, inst_id="ETH-USDT-SWAP", side="long"
+    )
+    materialized_target = materialize_position_rule(
+        target, entry_price=100, inst_id="ETH-USDT-SWAP", side="long"
+    )
+
+    assert materialized_stop["expression"] == {
+        "type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 95.0
+    }
+    assert materialized_target["expression"]["value"] == 112.0
+    assert materialized_target["metadata"]["rule_definition"]["action"]["quantity_fraction"] == 0.25
+    assert materialized_target["metadata"]["materialization"]["basis"] == "confirmed_entry"
+
+
+def test_staged_targets_bound_total_initial_quantity_and_expose_remainder():
+    def stage(fraction):
+        return {
+            "purpose": "take_profit", "enabled": True,
+            "expression": {"type": "price_above", "symbol": "self", "value": 110},
+            "metadata": {"quantity_fraction": fraction},
+        }
+
+    rules = normalize_default_rules({"close_conditions": [stage(0.25), stage(0.5)]})
+
+    assert rules["staged_take_profit"] == {
+        "initial_quantity_fraction": 0.75,
+        "running_remainder_fraction": 0.25,
+    }
+    with pytest.raises(ValueError, match="cannot exceed"):
+        normalize_default_rules({"close_conditions": [stage(0.6), stage(0.5)]})
