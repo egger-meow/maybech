@@ -26,9 +26,7 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Prove Live Safe can read the production account, positions, orders, recovery,
-   and reconciliation state while order, cancel, algo, reduce, and close
-   mutation methods remain process-disarmed.
+None.
 
 ## Non-Blocking / Later
 
