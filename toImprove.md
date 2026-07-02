@@ -26,16 +26,17 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Child strategy-signal deletion has neither explicit confirmation in the API
-   contract nor an expected revision. A stale or accidental DELETE can remove
-   an entry, filter, or copied-exit condition from an enabled strategy.
-2. Logical-position close-condition updates have no revision token. Concurrent
+1. Logical-position close-condition updates have no revision token. Concurrent
    operator tabs can silently overwrite non-protective exit, trailing,
    break-even, or manual-review rule edits and leave different behavior than
    the most recent operator expected.
-3. Logical-position close-condition deletion has neither explicit confirmation
+2. Logical-position close-condition deletion has neither explicit confirmation
    nor a revision check. A stale or accidental DELETE can remove a software
    exit rule that another operator still expects to manage the live unit.
+3. Strategy deletion uses an unconfirmed DELETE with no expected strategy
+   revision. Although enabled or historically referenced strategies are
+   protected, an accidental request can still erase a newer disabled strategy
+   definition that another operator is editing.
 
 ## Non-Blocking / Later
 

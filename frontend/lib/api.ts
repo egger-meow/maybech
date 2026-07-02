@@ -43,6 +43,7 @@ import type {
   SignalEvaluationRequest,
   SignalEvaluationResponse,
   SignalExpressionCreate,
+  SignalExpressionDeleteCommand,
   SignalExpressionResponse,
   SignalExpressionUpdate,
   SignalRuntimeContextResponse,
@@ -106,6 +107,7 @@ export type {
   SignalEvaluationRequest,
   SignalEvaluationResponse,
   SignalExpressionCreate,
+  SignalExpressionDeleteCommand,
   SignalExpressionResponse as SignalExpression,
   SignalExpressionUpdate,
   SignalRuntimeContextResponse,
@@ -198,10 +200,11 @@ export const putData = async <T = unknown>(url: string, data?: unknown): Promise
   return res.json();
 };
 
-export const deleteData = async <T = unknown>(url: string): Promise<T> => {
+export const deleteData = async <T = unknown>(url: string, data?: unknown): Promise<T> => {
   const res = await fetch(apiUrl(url), {
     method: "DELETE",
-    headers: requestHeaders(),
+    headers: requestHeaders(Boolean(data)),
+    body: data ? JSON.stringify(data) : undefined,
   });
   if (!res.ok) {
     const info = await res.json().catch(() => null);
@@ -397,9 +400,11 @@ export const updateStrategySignal = (
 export const deleteStrategySignal = (
   strategyId: string,
   expressionId: string,
+  expectedUpdatedAt: string,
 ): Promise<MutationStatusResponse> =>
   deleteData<MutationStatusResponse>(
     `/strategies/${encodeURIComponent(strategyId)}/signals/${encodeURIComponent(expressionId)}`,
+    { confirm: true, expected_updated_at: expectedUpdatedAt } satisfies SignalExpressionDeleteCommand,
   );
 
 export type PositionGroupQuery = {

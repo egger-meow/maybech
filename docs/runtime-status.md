@@ -98,6 +98,8 @@ Frontends must use `active`; there is no `state` field.
   strategy, and stale confirmations fail instead of enabling an unseen edit.
 - Child strategy-signal PATCH is also revision-bound. Entry, filter, and copied
   exit expressions retain their newer value when an older editor submits.
+- Child signal deletion requires a typed confirmation body bound to that
+  expression's current revision; accidental or stale DELETE requests fail.
 - `GET /positions/logical` returns typed read-only logical position units from
   `LogicalPositionStore`, with compatibility backfill from `TradeStore` records.
   These include persisted close signal conditions, legacy trade rule groups,

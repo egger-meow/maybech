@@ -158,7 +158,7 @@ function ChildSignal({ strategyId, signal, onSaved }: { strategyId: string; sign
   const remove = async () => {
     if (!signal || !confirm("確定刪除此附加訊號？若策略因此不完整，後端會自動停用策略。")) return;
     setBusy(true); setError("");
-    try { await deleteStrategySignal(strategyId, signal.id); await onSaved(); }
+    try { await deleteStrategySignal(strategyId, signal.id, signal.updated_at); await onSaved(); }
     catch (caught) { setError(errorMessage(caught)); setBusy(false); }
   };
   return (

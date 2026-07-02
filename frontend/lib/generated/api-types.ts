@@ -575,6 +575,11 @@ export type SignalExpressionCreate = {
   "expression"?: Record<string, unknown>;
 };
 
+export type SignalExpressionDeleteCommand = {
+  "confirm": true;
+  "expected_updated_at": string;
+};
+
 export type SignalExpressionResponse = {
   "purpose"?: "entry" | "exit" | "filter" | string;
   "expression"?: Record<string, unknown>;
@@ -806,6 +811,7 @@ export type ApiSchemas = {
   "SignalEvaluationRequest": SignalEvaluationRequest;
   "SignalEvaluationResponse": SignalEvaluationResponse;
   "SignalExpressionCreate": SignalExpressionCreate;
+  "SignalExpressionDeleteCommand": SignalExpressionDeleteCommand;
   "SignalExpressionResponse": SignalExpressionResponse;
   "SignalExpressionUpdate": SignalExpressionUpdate;
   "SignalRuntimeContextResponse": SignalRuntimeContextResponse;

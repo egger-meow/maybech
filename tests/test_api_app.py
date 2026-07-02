@@ -1741,12 +1741,31 @@ def test_api_edits_and_deletes_strategy_signal_with_audit(monkeypatch, tmp_path)
             "expression": {"type": "price_below", "symbol": "self", "value": 200},
         },
     )
-    deleted = client.delete(f"/strategies/breakout/signals/{expression.id}")
+    unconfirmed_delete = client.request(
+        "DELETE",
+        f"/strategies/breakout/signals/{expression.id}",
+        json={"confirm": False, "expected_updated_at": updated.json()["updated_at"]},
+    )
+    stale_delete = client.request(
+        "DELETE",
+        f"/strategies/breakout/signals/{expression.id}",
+        json={"confirm": True, "expected_updated_at": "stale"},
+    )
+    deleted = client.request(
+        "DELETE",
+        f"/strategies/breakout/signals/{expression.id}",
+        json={
+            "confirm": True,
+            "expected_updated_at": updated.json()["updated_at"],
+        },
+    )
 
     assert fetched.status_code == 200
     assert stale.status_code == 409
     assert updated.status_code == 200
     assert updated.json()["purpose"] == "filter"
+    assert unconfirmed_delete.status_code == 422
+    assert stale_delete.status_code == 409
     assert deleted.json() == {"status": "deleted", "id": expression.id}
     event_types = {event.type for event in AuditEventStore(store.db_path).list(limit=10)}
     assert "signal_expression.updated" in event_types

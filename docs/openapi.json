@@ -3253,6 +3253,26 @@
         "title": "SignalExpressionCreate",
         "type": "object"
       },
+      "SignalExpressionDeleteCommand": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "expected_updated_at": {
+            "minLength": 1,
+            "title": "Expected Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "expected_updated_at"
+        ],
+        "title": "SignalExpressionDeleteCommand",
+        "type": "object"
+      },
       "SignalExpressionResponse": {
         "properties": {
           "created_at": {
@@ -6955,6 +6975,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalExpressionDeleteCommand"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

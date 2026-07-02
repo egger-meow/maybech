@@ -417,6 +417,11 @@ class SignalExpressionUpdate(BaseModel):
     expression: dict[str, Any] | None = None
 
 
+class SignalExpressionDeleteCommand(BaseModel):
+    confirm: Literal[True]
+    expected_updated_at: str = Field(min_length=1)
+
+
 class SignalTemplateResponse(BaseModel):
     type: str
     description: str

@@ -109,6 +109,7 @@ from src.api.schemas import (
     SignalEvaluationRequest,
     SignalEvaluationResponse,
     SignalExpressionCreate,
+    SignalExpressionDeleteCommand,
     SignalExpressionResponse,
     SignalExpressionUpdate,
     SignalRuntimeContextResponse,
@@ -1777,6 +1778,7 @@ def create_app(
     def delete_strategy_signal(
         strategy_id: str,
         expression_id: str,
+        payload: SignalExpressionDeleteCommand,
     ) -> MutationStatusResponse:
         store = StrategyStore()
         audit_store = AuditEventStore(store.db_path)
@@ -1784,6 +1786,14 @@ def create_app(
             expression = store.get_signal_expression(strategy_id, expression_id)
             if expression is None:
                 raise HTTPException(status_code=404, detail="Signal expression not found")
+            if payload.expected_updated_at != expression.updated_at:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Signal expression changed since deletion was confirmed",
+                        "current_updated_at": expression.updated_at,
+                    },
+                )
             if not store.delete_signal_expression(strategy_id, expression_id):
                 raise HTTPException(status_code=404, detail="Signal expression not found")
             strategy = store.get(strategy_id)
