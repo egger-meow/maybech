@@ -39,6 +39,7 @@ from src.trading.execution_allocation import (
     ConfirmedExecutionFill,
     ExecutionAllocationService,
 )
+from src.trading.execution_cursor_store import ExecutionCursorStore
 from src.trading.executor import Executor
 from src.trading.instrument_constraints import InstrumentConstraints
 from src.trading.logical_position_store import (
@@ -248,6 +249,7 @@ def run(db_path: str, *, environment: str = "demo") -> dict:
             max_order_notional_usd=Decimal("25"),
             max_total_exposure_usd=Decimal("25"),
             max_leverage=Decimal("3"),
+            allowed_instruments=(INSTRUMENT,),
         )
     )
     risk_store.set_entries_enabled(True)
@@ -408,6 +410,17 @@ def run(db_path: str, *, environment: str = "demo") -> dict:
             reason=f"{environment} lifecycle stop amendment",
         )
 
+        # Model the durable fill checkpoint held by the running service before
+        # it is interrupted. Restart recovery must process only fills newer
+        # than this boundary, including the reduce submitted below.
+        checkpoint_fills = client.get_fills_history(inst_type="SWAP", limit="100")
+        if not checkpoint_fills or not str(checkpoint_fills[0].get("billId") or ""):
+            raise RuntimeError("could not establish pre-interruption fill checkpoint")
+        ExecutionCursorStore(db_path).complete(
+            ExecutionFillService.FILL_STREAM_ID,
+            high_water_id=str(checkpoint_fills[0]["billId"]),
+        )
+
         manager = PositionManagerService(
             trade_store,
             dry_run=False,
@@ -425,23 +438,107 @@ def run(db_path: str, *, environment: str = "demo") -> dict:
             raise RuntimeError(f"{environment} reduce was not submitted: {reduce_result}")
         owned_order_ids.add(reduce_order_id)
         _wait_for_order(client, reduce_order_id)
-        _ingest_order_fills(client, allocator, reduce_order_id)
+
+        # Deliberately interrupt before local fill ingestion or protection
+        # restoration. Fresh stores/services must recover the confirmed partial
+        # reduce through REST catch-up while the private order stream is live.
+        interrupted = ExecutionFillService(
+            client=OKXClient(),
+            allocator=ExecutionAllocationService(
+                TradeStore(db_path),
+                LogicalPositionStore(db_path),
+                AuditEventStore(db_path),
+            ),
+            enable_private_stream=True,
+            rest_poll_interval=0,
+        )
+        interrupted_runner = DaemonRunner()
+        interrupted_runner.register(interrupted)
+        interrupted.setup()
+        try:
+            deadline = time.monotonic() + 20
+            interrupted_status: dict = {}
+            while time.monotonic() < deadline:
+                interrupted.tick()
+                interrupted_status = interrupted_runner.runtime.get_value(
+                    "execution.fills.status"
+                ) or {}
+                recovered = LogicalPositionStore(db_path).get(position_id)
+                if (
+                    interrupted_status.get("caught_up")
+                    and interrupted_status.get("websocket_connected")
+                    and recovered is not None
+                    and recovered.status == "open"
+                    and Decimal(str(recovered.remaining_quantity)) == REDUCE_SIZE
+                ):
+                    break
+                time.sleep(0.5)
+            else:
+                raise RuntimeError(
+                    "interrupted partial-fill recovery did not converge through "
+                    f"REST and private stream: {interrupted_status}"
+                )
+
+            recovered_protection = LogicalPositionStore(db_path).get_protection(
+                position_id
+            )
+            if recovered_protection is not None:
+                owned_algo_ids.add(recovered_protection.algo_id)
+
+            # A second poll must not change logical quantity or create a second
+            # allocation for the same exchange fill.
+            interrupted.tick()
+            recovered_again = LogicalPositionStore(db_path).get(position_id)
+            allocations = LogicalPositionStore(db_path).list_allocations(position_id)
+            reduce_allocations = [
+                item for item in allocations if item.exchange_order_id == reduce_order_id
+            ]
+            if (
+                recovered_again is None
+                or Decimal(str(recovered_again.remaining_quantity)) != REDUCE_SIZE
+                or len(reduce_allocations) != 1
+            ):
+                raise RuntimeError("restart recovery duplicated or lost partial-fill quantity")
+        finally:
+            interrupted.teardown()
+
+        position_store = LogicalPositionStore(db_path)
+        audit_store = AuditEventStore(db_path)
+        allocator = ExecutionAllocationService(
+            TradeStore(db_path), position_store, audit_store
+        )
+        protection_service = PositionProtectionService(client, position_store, audit_store)
+        manager = PositionManagerService(
+            TradeStore(db_path),
+            dry_run=False,
+            audit_store=audit_store,
+            close_executor=executor,
+            protection_service=protection_service,
+        )
         reduced = position_store.get(position_id)
         if reduced is None or reduced.status != "open" or Decimal(
             str(reduced.remaining_quantity)
         ) != REDUCE_SIZE:
             raise RuntimeError("confirmed reduce did not leave exact logical remainder")
-        protection_service.protect(position_id)
         resized = position_store.get_protection(position_id)
         if resized is None or Decimal(str(resized.quantity)) != REDUCE_SIZE:
-            raise RuntimeError("protection was not restored at reduced quantity")
+            raise RuntimeError("restart recovery did not restore protection at reduced quantity")
+        protection_service.verify_active(position_id)
         owned_algo_ids.add(resized.algo_id)
         _audit(
             audit_store,
             run_id,
             environment,
             "reduce_confirmed",
-            {"order_id": reduce_order_id},
+            {
+                "order_id": reduce_order_id,
+                "rest_caught_up": interrupted_status.get("caught_up", False),
+                "private_stream_connected": interrupted_status.get(
+                    "websocket_connected", False
+                ),
+                "allocation_count": len(reduce_allocations),
+                "protection_algo_id": resized.algo_id,
+            },
         )
 
         close_result = manager.request_close(

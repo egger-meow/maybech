@@ -70,8 +70,15 @@ class ExecutionAllocationService:
             if existing is not None
             else self._resolve_action(position, fill)
         )
-        correlation_id = fill.correlation_id or self._metadata_string(
-            position, "correlation_id"
+        existing_correlation_id = (
+            str(self._allocation_metadata(existing).get("correlation_id") or "")
+            if existing is not None
+            else ""
+        )
+        correlation_id = (
+            fill.correlation_id
+            or existing_correlation_id
+            or self._metadata_string(position, "correlation_id")
         )
         allocation = LogicalPositionAllocation(
             id=fill.fill_id,

@@ -274,6 +274,19 @@ def test_okx_client_get_order_can_recover_by_client_order_id():
     }
 
 
+def test_cancel_order_is_blocked_while_process_is_disarmed():
+    from src.exchange.client import disarm_order_placement
+
+    client = object.__new__(OKXClient)
+    client.trade_api = FakeTradeApi()
+    disarm_order_placement()
+
+    with pytest.raises(PermissionError, match="DISARMED"):
+        client.cancel_order("ETH-USDT-SWAP", "order-a")
+
+    assert client.trade_api.kwargs is None
+
+
 def test_okx_client_get_instruments_uses_public_endpoint():
     client = object.__new__(OKXClient)
     client.public_api = FakePublicApi()

@@ -114,7 +114,7 @@ async def _logs_in_subscribes_and_queues_orders():
     assert stream.drain() == [{"ordId": "order-a", "state": "filled"}]
     assert json.loads(socket.sent[0])["op"] == "login"
     assert json.loads(socket.sent[1]) == {
-        "id": "maybech-orders",
+        "id": "maybechorders",
         "op": "subscribe",
         "args": [{"channel": "orders", "instType": "SWAP"}],
     }

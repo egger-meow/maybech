@@ -430,6 +430,11 @@ class OKXClient:
 
     def cancel_order(self, inst_id: str, order_id: str) -> dict:
         """Cancel an existing order."""
+        if not _ORDER_PLACEMENT_ARMED:
+            raise PermissionError(
+                "Order placement is DISARMED. Start an order-capable runtime "
+                "and pass preflight before canceling an exchange order."
+            )
         resp = self.trade_api.cancel_order(instId=inst_id, ordId=order_id)
         return _accepted_order_result(resp, label="cancel_order")
 

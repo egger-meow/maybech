@@ -77,6 +77,33 @@ def test_execution_allocator_matches_order_and_handles_multiple_partial_fills(tm
     assert len(audit_store.list(event_type="position.allocation_confirmed")) == 2
 
 
+def test_duplicate_fill_keeps_original_correlation_after_position_advances(tmp_path):
+    trade_store, position_store, audit_store = _stores(tmp_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="unit-a",
+            status="pending_open",
+            exchange_order_id="order-a",
+            metadata_json='{"correlation_id":"open-decision","order_action":"open"}',
+        )
+    )
+    service = ExecutionAllocationService(trade_store, position_store, audit_store)
+    fill = ConfirmedExecutionFill(
+        fill_id="fill-a",
+        exchange_order_id="order-a",
+        quantity=0.1,
+        price=2000,
+        confirmation_source="okx_fill",
+    )
+
+    service.ingest(fill)
+    position_store.merge_metadata("unit-a", {"correlation_id": "reduce-decision"})
+    duplicate = service.ingest(fill)
+
+    assert duplicate.idempotent is True
+    assert len(position_store.list_allocations("unit-a")) == 1
+
+
 def test_execution_allocator_rejects_unmatched_order(tmp_path):
     trade_store, position_store, audit_store = _stores(tmp_path)
     service = ExecutionAllocationService(trade_store, position_store, audit_store)

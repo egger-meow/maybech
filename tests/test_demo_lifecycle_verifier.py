@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from pathlib import Path
 
 import scripts.verify_okx_demo_lifecycle as verifier
 
@@ -47,3 +48,12 @@ def test_demo_verifier_recovers_lagging_fill_from_authenticated_order(monkeypatc
     assert fill.quantity == 0.02
     assert fill.price == 60000.1
     assert fill.confirmation_source == "recovery"
+
+
+def test_demo_verifier_configures_an_enabled_instrument_allowlist():
+    source = Path(verifier.__file__).read_text(encoding="utf-8")
+    assert "allowed_instruments=(INSTRUMENT,)" in source
+    assert "could not establish pre-interruption fill checkpoint" in source
+    assert "ExecutionCursorStore(db_path).complete(" in source
+    assert "enable_private_stream=True" in source
+    assert "restart recovery duplicated or lost partial-fill quantity" in source

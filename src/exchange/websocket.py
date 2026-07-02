@@ -178,7 +178,7 @@ class OKXPrivateOrderStream:
             await websocket.send(
                 json.dumps(
                     {
-                        "id": "maybech-orders",
+                        "id": "maybechorders",
                         "op": "subscribe",
                         "args": [{"channel": "orders", "instType": "SWAP"}],
                     },
