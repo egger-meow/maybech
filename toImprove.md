@@ -26,13 +26,10 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Creating an enabled close condition on an active logical position has no
-   explicit confirmation. A POST can immediately introduce a new automatic
-   software exit rule without a guarded operator transition.
-2. Logical-position close-condition deletion has neither explicit confirmation
+1. Logical-position close-condition deletion has neither explicit confirmation
    nor a revision check. A stale or accidental DELETE can remove a software
    exit rule that another operator still expects to manage the live unit.
-3. Strategy deletion uses an unconfirmed DELETE with no expected strategy
+2. Strategy deletion uses an unconfirmed DELETE with no expected strategy
    revision. Although enabled or historically referenced strategies are
    protected, an accidental request can still erase a newer disabled strategy
    definition that another operator is editing.

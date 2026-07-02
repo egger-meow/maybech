@@ -82,7 +82,7 @@ from src.api.schemas import (
     NotificationHealthResponse,
     NotificationTestRequest,
     NotificationTestResponse,
-    LogicalPositionCloseConditionCreate,
+    LogicalPositionCloseConditionCreateCommand,
     LogicalPositionCloseConditionResponse,
     LogicalPositionCloseConditionUpdate,
     LogicalPositionCloseRequest,
@@ -2513,7 +2513,7 @@ def create_app(
     )
     def create_logical_position_close_condition(
         position_id: str,
-        payload: LogicalPositionCloseConditionCreate,
+        payload: LogicalPositionCloseConditionCreateCommand,
     ) -> LogicalPositionCloseConditionResponse:
         store = TradeStore()
         position_store = LogicalPositionStore(store.db_path)
@@ -2528,6 +2528,18 @@ def create_app(
         audit_store = AuditEventStore(store.db_path)
         with ENTRY_EXECUTION_LOCK:
             with position_store.transaction() as connection:
+                current_position = position_store.get(position.id)
+                if current_position is None:
+                    raise HTTPException(status_code=404, detail="Logical position not found")
+                if payload.expected_position_updated_at != current_position.updated_at:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "message": "Logical position changed since rule creation was confirmed",
+                            "current_updated_at": current_position.updated_at,
+                        },
+                    )
+                position = current_position
                 if _protected_stop_mutation_blocked(
                     position_store,
                     position,

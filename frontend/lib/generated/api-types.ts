@@ -264,6 +264,15 @@ export type LogicalPositionCloseConditionCreate = {
   "metadata"?: Record<string, unknown>;
 };
 
+export type LogicalPositionCloseConditionCreateCommand = {
+  "purpose"?: "stop_loss" | "take_profit" | "trailing" | "break_even" | "manual_review" | "exit" | string;
+  "expression"?: Record<string, unknown>;
+  "enabled"?: boolean;
+  "metadata"?: Record<string, unknown>;
+  "confirm": true;
+  "expected_position_updated_at": string;
+};
+
 export type LogicalPositionCloseConditionResponse = {
   "purpose"?: "stop_loss" | "take_profit" | "trailing" | "break_even" | "manual_review" | "exit" | string;
   "expression"?: Record<string, unknown>;
@@ -781,6 +790,7 @@ export type ApiSchemas = {
   "LogicalPositionAllocationResponse": LogicalPositionAllocationResponse;
   "LogicalPositionChartResponse": LogicalPositionChartResponse;
   "LogicalPositionCloseConditionCreate": LogicalPositionCloseConditionCreate;
+  "LogicalPositionCloseConditionCreateCommand": LogicalPositionCloseConditionCreateCommand;
   "LogicalPositionCloseConditionResponse": LogicalPositionCloseConditionResponse;
   "LogicalPositionCloseConditionUpdate": LogicalPositionCloseConditionUpdate;
   "LogicalPositionCloseRequest": LogicalPositionCloseRequest;

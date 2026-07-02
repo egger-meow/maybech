@@ -209,7 +209,8 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
       } else if (condition) {
         await updateLogicalPositionCloseCondition(position.id, condition.id, { expected_updated_at: condition.updated_at, purpose, enabled, expression: normalized, metadata: condition.metadata });
       } else {
-        await createLogicalPositionCloseCondition(position.id, { purpose, enabled, expression: normalized, metadata: {} });
+        if (enabled && !confirm("新增已啟用規則後，條件成立時可能立即觸發自動減倉／平倉。確定新增至目前檢視的邏輯部位版本？")) return;
+        await createLogicalPositionCloseCondition(position.id, { confirm: true, expected_position_updated_at: position.updated_at, purpose, enabled, expression: normalized, metadata: {} });
       }
       setDirty(false); await onSaved(); onCancel?.();
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }

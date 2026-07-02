@@ -523,6 +523,11 @@ class LogicalPositionCloseConditionCreate(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class LogicalPositionCloseConditionCreateCommand(LogicalPositionCloseConditionCreate):
+    confirm: Literal[True]
+    expected_position_updated_at: str = Field(min_length=1)
+
+
 class LogicalPositionCloseConditionUpdate(BaseModel):
     expected_updated_at: str = Field(min_length=1)
     purpose: Literal["stop_loss", "take_profit", "trailing", "break_even", "manual_review", "exit"] | str | None = None

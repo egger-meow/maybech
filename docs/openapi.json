@@ -1401,6 +1401,61 @@
         "title": "LogicalPositionCloseConditionCreate",
         "type": "object"
       },
+      "LogicalPositionCloseConditionCreateCommand": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expected_position_updated_at": {
+            "minLength": 1,
+            "title": "Expected Position Updated At",
+            "type": "string"
+          },
+          "expression": {
+            "additionalProperties": true,
+            "title": "Expression",
+            "type": "object"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stop_loss",
+                  "take_profit",
+                  "trailing",
+                  "break_even",
+                  "manual_review",
+                  "exit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "default": "exit",
+            "title": "Purpose"
+          }
+        },
+        "required": [
+          "confirm",
+          "expected_position_updated_at"
+        ],
+        "title": "LogicalPositionCloseConditionCreateCommand",
+        "type": "object"
+      },
       "LogicalPositionCloseConditionResponse": {
         "properties": {
           "created_at": {
@@ -5665,7 +5720,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LogicalPositionCloseConditionCreate"
+                "$ref": "#/components/schemas/LogicalPositionCloseConditionCreateCommand"
               }
             }
           },

@@ -356,7 +356,10 @@ The Position Management page has a logical-position contract now:
   stop-loss, take-profit, trailing, break-even, manual-review, and exit signal
   expressions for one logical unit.
 - `POST /positions/logical/{position_id}/close-conditions`: create a validated
-  close signal expression for one logical unit.
+  close signal expression for one logical unit. The command requires explicit
+  `confirm: true` and the exact `expected_position_updated_at`; the revision is
+  rechecked inside the write transaction so a stale operator view receives
+  `409` before an automatic exit rule can be introduced.
 - `PATCH /positions/logical/{position_id}/close-conditions/{condition_id}`:
   edit purpose, expression, enabled state, or metadata with the exact
   `expected_updated_at`; stale tabs receive `409` without overwriting the rule.

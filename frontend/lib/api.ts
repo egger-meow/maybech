@@ -14,7 +14,7 @@ import type {
   InstrumentContractQuoteRequest,
   InstrumentSizeQuoteRequest,
   InstrumentSizeQuoteResponse,
-  LogicalPositionCloseConditionCreate,
+  LogicalPositionCloseConditionCreateCommand,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
   LogicalPositionCloseConditionUpdate,
   LogicalPositionCloseRequest,
@@ -79,7 +79,7 @@ export type {
   LogicalPositionUnitResponse as LogicalPositionUnit,
   ManualPositionOpenRequest,
   LivePreflightResponse,
-  LogicalPositionCloseConditionCreate,
+  LogicalPositionCloseConditionCreateCommand,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
   LogicalPositionCloseConditionUpdate,
   LogicalPositionCloseRequest,
@@ -502,7 +502,7 @@ export const getLogicalPositionChart = (
 
 export const createLogicalPositionCloseCondition = (
   positionId: string,
-  payload: LogicalPositionCloseConditionCreate,
+  payload: LogicalPositionCloseConditionCreateCommand,
 ): Promise<LogicalPositionCloseCondition> =>
   postData<LogicalPositionCloseCondition>(
     `/positions/logical/${encodeURIComponent(positionId)}/close-conditions`,

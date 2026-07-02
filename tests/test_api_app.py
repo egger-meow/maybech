@@ -2179,16 +2179,40 @@ def test_api_manages_logical_position_close_conditions(monkeypatch, tmp_path):
 
     monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
     client = TestClient(create_app(DaemonRunner()))
+    position_version = position_store.get("unit-a").updated_at
+
+    unconfirmed_create = client.post(
+        "/positions/logical/unit-a/close-conditions",
+        json={
+            "confirm": False,
+            "expected_position_updated_at": position_version,
+            "purpose": "exit",
+            "expression": {"type": "price_below", "symbol": "self", "value": 1},
+        },
+    )
+    stale_create = client.post(
+        "/positions/logical/unit-a/close-conditions",
+        json={
+            "confirm": True,
+            "expected_position_updated_at": "stale",
+            "purpose": "exit",
+            "expression": {"type": "price_below", "symbol": "self", "value": 1},
+        },
+    )
 
     created = client.post(
         "/positions/logical/unit-a/close-conditions",
         json={
+            "confirm": True,
+            "expected_position_updated_at": position_version,
             "purpose": "stop_loss",
             "expression": {"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 2900},
             "metadata": {"label": "hard stop"},
         },
     )
 
+    assert unconfirmed_create.status_code == 422
+    assert stale_create.status_code == 409
     assert created.status_code == 201
     condition_id = created.json()["id"]
     assert created.json()["position_id"] == "unit-a"
@@ -2255,6 +2279,8 @@ def test_close_condition_mutation_rolls_back_when_audit_insert_fails(
     response = client.post(
         "/positions/logical/unit-a/close-conditions",
         json={
+            "confirm": True,
+            "expected_position_updated_at": position_store.get("unit-a").updated_at,
             "purpose": "take_profit",
             "expression": {
                 "type": "price_above",
@@ -2426,7 +2452,12 @@ def test_api_rejects_invalid_logical_position_close_condition(monkeypatch, tmp_p
 
     response = client.post(
         "/positions/logical/unit-a/close-conditions",
-        json={"purpose": "stop_loss", "expression": {"type": "price_below", "value": "bad"}},
+        json={
+            "confirm": True,
+            "expected_position_updated_at": position_store.get("unit-a").updated_at,
+            "purpose": "stop_loss",
+            "expression": {"type": "price_below", "value": "bad"},
+        },
     )
 
     assert response.status_code == 400
