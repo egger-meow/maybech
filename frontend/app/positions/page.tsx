@@ -98,7 +98,7 @@ function ManualOpenForm({ catalog, catalogStale, onCreated }: { catalog: Instrum
   const submit = async () => {
     if (!quote.data) { setError("商品數量尚未通過 OKX 單位換算，不能建立部位。"); return; }
     if (!stopLoss) { setError("必須設定保護性停損底線。"); return; }
-    if (!confirm(`建立 ${instrument} ${side === "long" ? "做多" : "做空"} dry-run 邏輯單位？\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`)) return;
+    if (!confirm(`建立 ${instrument} ${side === "long" ? "做多" : "做空"} Simulation 邏輯單位？\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`)) return;
     setBusy(true); setError("");
     try {
       const created = await manualOpenPosition({
@@ -114,10 +114,10 @@ function ManualOpenForm({ catalog, catalogStale, onCreated }: { catalog: Instrum
       setQuantity(""); setStopLoss(""); setTakeProfit("");
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   };
-  const dryRun = preflight.data?.execution_mode === "dry_run";
+  const dryRun = preflight.data?.execution_mode === "simulation";
   return (
     <section className="panel manual-open-panel">
-      <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以目前價格預填限價；你仍可修改。此版本只允許 Dry-run 建立，不會送出真實委託。</p></div><span className={`badge ${dryRun ? "success" : "danger"}`}>{dryRun ? "Dry-run 可用" : "非 Dry-run 已封鎖"}</span></div>
+      <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以本機重播價格預填；你仍可修改。此版本只允許 Simulation 建立，不會連接交易所。</p></div><span className={`badge ${dryRun ? "success" : "danger"}`}>{dryRun ? "Simulation 可用" : "非 Simulation 已封鎖"}</span></div>
       <div className="form-grid">
         <div className="field full"><span>OKX 交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} value={instrument ? [instrument] : []} onChange={selectInstrument} /></div>
         <label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
@@ -129,7 +129,7 @@ function ManualOpenForm({ catalog, catalogStale, onCreated }: { catalog: Instrum
       {quote.data && <div className="manual-open-quote"><span><small>顯示幣量</small><strong>{quote.data.display_quantity} {quote.data.display_currency}</strong></span><span><small>OKX API 數量</small><strong>{quote.data.api_quantity_contracts} 口</strong></span><span><small>估算名目</small><strong>{quote.data.estimated_notional_usdt} USDT</strong></span><span><small>停損估算</small><strong className={Number(quote.data.estimated_pnl_usdt) < 0 ? "negative" : ""}>{quote.data.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${quote.data.estimated_pnl_usdt} USDT`}</strong></span></div>}
       {quote.error && <div className="error-state">目前數量無法安全換算成 OKX 合約口數。</div>}
       {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
-      <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || !dryRun || !quote.data || !stopLoss} onClick={submit}>{busy ? "建立中…" : "確認建立 Dry-run 單位"}</button></div>
+      <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || !dryRun || !quote.data || !stopLoss} onClick={submit}>{busy ? "建立中…" : "確認建立 Simulation 單位"}</button></div>
     </section>
   );
 }

@@ -58,6 +58,7 @@ class StrategyService(DaemonService):
         trade_store: TradeStore | None = None,
         audit_store: AuditEventStore | None = None,
         strategy_store: StrategyStore | None = None,
+        client: OKXClient | None = None,
     ) -> None:
         super().__init__()
         self.dry_run = dry_run
@@ -65,7 +66,7 @@ class StrategyService(DaemonService):
         self.position_store = LogicalPositionStore(self.trade_store.db_path)
         self.audit_store = audit_store or AuditEventStore(self.trade_store.db_path)
         self.strategy_store = strategy_store or StrategyStore(self.trade_store.db_path)
-        self.client: OKXClient | None = None
+        self.client: OKXClient | None = client
         self.candle_manager: CandleManager | None = None
         self.executor: Executor | None = None
         self.signal_engine = SignalExpressionEngine()
@@ -74,7 +75,8 @@ class StrategyService(DaemonService):
         self.decisions_history: list[dict[str, Any]] = []
 
     def setup(self) -> None:
-        self.client = OKXClient()
+        if self.client is None:
+            self.client = OKXClient()
         self.candle_manager = CandleManager(self.client)
         self.executor = Executor(
             self.client,

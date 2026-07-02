@@ -224,7 +224,11 @@ export type InstrumentSizeQuoteResponse = {
 export type LivePreflightResponse = {
   "passed": boolean;
   "armed": boolean;
-  "execution_mode": "dry_run" | "demo" | "real";
+  "execution_mode": "simulation" | "demo" | "live_safe" | "live_armed";
+  "exchange_enabled"?: boolean;
+  "order_submission_enabled"?: boolean;
+  "credential_environment"?: "none" | "demo" | "production";
+  "applicable_checks"?: string[];
   "account_level"?: string;
   "position_mode"?: string;
   "account_scope"?: string;

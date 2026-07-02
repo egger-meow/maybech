@@ -14,6 +14,7 @@ from src.api.app import create_app
 from src.config.settings import settings
 from src.daemon.runtime import create_default_runner
 from src.daemon.service import DaemonRunner
+from src.runtime.mode import RuntimeMode, legacy_live_mode
 from src.utils.logger import setup_logger
 
 
@@ -31,7 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow non-loopback binding when MAYBECH_API_TOKEN is configured",
     )
-    parser.add_argument("--live", action="store_true", help="Disable dry-run for strategy")
+    parser.add_argument("--mode", choices=[mode.value for mode in RuntimeMode], default=None)
+    parser.add_argument("--live", action="store_true", help="Deprecated: demo/live_armed from OKX_FLAG")
     parser.add_argument(
         "--role",
         choices=("combined", "replica"),
@@ -59,14 +61,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not loopback and not settings.MAYBECH_API_TOKEN:
         raise SystemExit("non-loopback API binding requires MAYBECH_API_TOKEN")
 
-    if args.role == "replica" and args.live:
-        raise SystemExit("--live is not allowed for a read-only API replica")
+    if args.live and args.mode:
+        raise SystemExit("--live cannot be combined with --mode")
+    if args.role == "replica" and (args.live or args.mode):
+        raise SystemExit("execution mode flags are not allowed for a read-only API replica")
     if args.role == "replica" and args.no_strategy:
         raise SystemExit("--no-strategy only applies to the combined runtime")
 
     if args.role == "combined":
+        mode = legacy_live_mode() if args.live else (args.mode or RuntimeMode.SIMULATION)
         runner = create_default_runner(
-            dry_run=not args.live,
+            mode=mode,
             include_strategy=not args.no_strategy,
         )
         daemon_thread = Thread(target=runner.run_forever, daemon=True)

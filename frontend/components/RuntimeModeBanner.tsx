@@ -5,7 +5,7 @@ import { AlertTriangle, FlaskConical, ShieldCheck, ShieldOff } from "lucide-reac
 
 import { ApiError, getEntryControl, getLivePreflight, getRiskLimits, listInstruments, listStrategies } from "@/lib/api";
 
-type Mode = "dry" | "unarmed" | "armed" | "blocked" | "stale";
+type Mode = "simulation" | "demo" | "live_safe" | "live_armed" | "blocked" | "stale";
 
 type DiagnosticCard = {
   endpoint: string;
@@ -14,17 +14,21 @@ type DiagnosticCard = {
 };
 
 const modeCopy: Record<Mode, { title: string; detail: string }> = {
-  dry: {
-    title: "模擬執行（Dry-run）",
-    detail: "可查看訊號與模擬動作；系統不會送出任何真實委託。",
+  simulation: {
+    title: "Simulation",
+    detail: "Signal／Risk／Strategy／Position 啟用；完全不連接交易所。",
   },
-  unarmed: {
-    title: "實盤環境 · 尚未武裝",
-    detail: "執行環境已連接交易所帳戶，但委託功能尚未武裝。",
+  demo: {
+    title: "Demo",
+    detail: "Signal／Risk／Strategy／Position 啟用；OKX Demo 委託已啟用。",
   },
-  armed: {
-    title: "實盤環境 · 已武裝",
-    detail: "減倉與平倉規則可能送單；新進場仍須另外開啟進場閘門。",
+  live_safe: {
+    title: "Live Safe",
+    detail: "正式交易所讀取與復原已啟用；所有委託停用。",
+  },
+  live_armed: {
+    title: "Live Armed",
+    detail: "真實委託已啟用；新進場仍須另外開啟進場閘門。",
   },
   blocked: {
     title: "安全檢查封鎖中",
@@ -59,18 +63,14 @@ export default function RuntimeModeBanner() {
 
   let mode: Mode = "stale";
   if (!preflight.error && preflight.data) {
-    if (!preflight.data.passed || (preflight.data.execution_mode !== "dry_run" && (!risk.data?.enabled || Boolean(risk.error)))) {
+    if (!preflight.data.passed || (preflight.data.order_submission_enabled && (!risk.data?.enabled || Boolean(risk.error)))) {
       mode = "blocked";
-    } else if (preflight.data.execution_mode === "dry_run") {
-      mode = "dry";
-    } else if (preflight.data.armed) {
-      mode = "armed";
     } else {
-      mode = "unarmed";
+      mode = preflight.data.execution_mode;
     }
   }
 
-  const Icon = mode === "dry" ? FlaskConical : mode === "armed" ? ShieldCheck : mode === "unarmed" ? ShieldOff : AlertTriangle;
+  const Icon = mode === "simulation" || mode === "demo" ? FlaskConical : mode === "live_armed" ? ShieldCheck : mode === "live_safe" ? ShieldOff : AlertTriangle;
   const copy = modeCopy[mode];
   const riskState = risk.data
     ? risk.data.enabled ? "已啟用" : "已建立但停用"
@@ -149,8 +149,8 @@ export default function RuntimeModeBanner() {
     );
   }
   requirements.push(
-    { label: "OKX 衍生品帳戶模式", state: preflight.data?.account_level ? "ready" : "unchecked", detail: preflight.data?.account_level ? `acctLv=${preflight.data.account_level}` : "Dry-run 未驗證；實盤要求 acctLv 2、3 或 4" },
-    { label: "OKX 部位模式", state: preflight.data?.position_mode === "net_mode" ? "ready" : "unchecked", detail: preflight.data?.position_mode || "Dry-run 未驗證；實盤必須是 net_mode" },
+    { label: "OKX 衍生品帳戶模式", state: preflight.data?.account_level ? "ready" : "unchecked", detail: preflight.data?.account_level ? `acctLv=${preflight.data.account_level}` : "Simulation 不適用；Demo／Live 要求 acctLv 2、3 或 4" },
+    { label: "OKX 部位模式", state: preflight.data?.position_mode === "net_mode" ? "ready" : "unchecked", detail: preflight.data?.position_mode || "Simulation 不適用；Demo／Live 必須是 net_mode" },
   );
 
   return (
@@ -164,10 +164,11 @@ export default function RuntimeModeBanner() {
       </div>
       <div className="mode-facts">
         <span>模式：{preflight.data?.execution_mode?.replace("_", " ") ?? "未知"}</span>
+        <span>憑證：{preflight.data?.credential_environment ?? "未知"}</span>
         <span>委託：{preflight.data ? preflight.data.armed ? "已武裝" : "已解除" : "未知"}</span>
         <span>進場：{entries.data ? entryState : "未知"}</span>
       </div>
-      {mode === "dry" && risk.error instanceof ApiError && risk.error.status === 404 && <div className="mode-notice">風險上限尚未建立；明確缺少：單筆名目金額上限、帳戶總曝險上限、最大槓桿、允許商品及啟用狀態。Dry-run 可繼續使用，實盤啟動會被封鎖。</div>}
+      {mode === "simulation" && risk.error instanceof ApiError && risk.error.status === 404 && <div className="mode-notice">風險上限尚未建立；Simulation 可繼續使用，Demo 與 Live Armed 會被 preflight 封鎖。</div>}
       <details className="mode-requirements">
         <summary>實盤啟動條件逐項檢查</summary>
         <div className="mode-requirements-grid">

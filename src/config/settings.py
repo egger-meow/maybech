@@ -37,9 +37,21 @@ class OKXConnectionSettings:
         return "demo" if self.flag == "1" else "production"
 
 
-def load_okx_connection_settings(flag: str | None = None) -> OKXConnectionSettings:
+def load_okx_connection_settings(
+    flag: str | None = None, *, runtime_mode: str | None = None
+) -> OKXConnectionSettings:
     """Select one complete credential set for the requested OKX environment."""
-    selected_flag = _get("OKX_FLAG", "1") if flag is None else str(flag)
+    if runtime_mode is not None:
+        from src.runtime.mode import RuntimeMode, parse_runtime_mode
+
+        mode = parse_runtime_mode(runtime_mode)
+        if mode is RuntimeMode.SIMULATION:
+            raise ValueError("simulation mode does not select OKX credentials")
+        selected_flag = mode.okx_flag
+        if flag is not None and str(flag) != selected_flag:
+            raise ValueError("runtime mode and OKX credential environment conflict")
+    else:
+        selected_flag = _get("OKX_FLAG", "1") if flag is None else str(flag)
     if selected_flag == "1":
         return OKXConnectionSettings(
             flag=selected_flag,

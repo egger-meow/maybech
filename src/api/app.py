@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 
 from src.config.settings import settings
 from src.data.candles import CandleManager
+from src.data.simulation_market import SimulationMarketClient
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
 from src.exchange.client import OKXClient, entry_order_placement_enabled
@@ -608,6 +609,7 @@ def _signal_candle_context(
     bar: str | None = None,
     limit: int = 120,
     windows_seconds: set[int] | None = None,
+    client=None,
 ) -> dict:
     requirements = collect_signal_requirements(expression or {})
     strategy_store = StrategyStore()
@@ -636,7 +638,7 @@ def _signal_candle_context(
         requested_windows.update({60, 300, 600})
 
     try:
-        manager = CandleManager(OKXClient())
+        manager = CandleManager(client or OKXClient())
         candles = {
             symbol: manager.fetch(symbol, bar=requested_bar, limit=limit)
             for symbol in requested_symbols
@@ -659,9 +661,9 @@ def _signal_candle_context(
     return context
 
 
-def _fetch_candle_rows(inst_id: str, *, bar: str, limit: int) -> list[dict]:
+def _fetch_candle_rows(inst_id: str, *, bar: str, limit: int, client=None) -> list[dict]:
     try:
-        frame = CandleManager(OKXClient()).fetch(inst_id, bar=bar, limit=limit)
+        frame = CandleManager(client or OKXClient()).fetch(inst_id, bar=bar, limit=limit)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Unable to fetch candles: {exc}") from exc
 
@@ -756,6 +758,22 @@ def create_app(
     api_token: str | None = None,
 ) -> FastAPI:
     """Create an API app bound to a daemon runner."""
+    def runtime_mode() -> str:
+        status = runner.runtime.get_value("runtime.live_preflight") or {}
+        mode = str(status.get("execution_mode") or "unknown")
+        return {"dry_run": "simulation", "real": "live_armed"}.get(mode, mode)
+
+    def market_client():
+        return SimulationMarketClient() if runtime_mode() == "simulation" else OKXClient()
+
+    def exchange_client(*, require_orders: bool = False):
+        mode = runtime_mode()
+        if mode == "simulation":
+            raise HTTPException(status_code=409, detail="Simulation does not connect to OKX")
+        if require_orders and mode == "live_safe":
+            raise HTTPException(status_code=409, detail="Live Safe disables all order mutations")
+        return OKXClient()
+
     app = FastAPI(title="Maybech Runtime API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
@@ -932,6 +950,21 @@ def create_app(
         status = runner.runtime.get_value("runtime.live_preflight")
         if status is None:
             raise HTTPException(status_code=503, detail="Runtime preflight status unavailable")
+        status = dict(status)
+        legacy_mode = status.get("execution_mode")
+        if legacy_mode == "dry_run":
+            status["execution_mode"] = "simulation"
+        elif legacy_mode == "real":
+            status["execution_mode"] = "live_armed" if status.get("armed") else "live_safe"
+        status.setdefault("exchange_enabled", status["execution_mode"] != "simulation")
+        status.setdefault("order_submission_enabled", bool(status.get("armed")))
+        status.setdefault(
+            "credential_environment",
+            "none" if status["execution_mode"] == "simulation"
+            else "demo" if status["execution_mode"] == "demo"
+            else "production",
+        )
+        status.setdefault("applicable_checks", [])
         return LivePreflightResponse(**status)
 
     @app.get("/runtime/lease", response_model=RuntimeLeaseResponse)
@@ -1060,8 +1093,10 @@ def create_app(
         try:
             records = InstrumentMetadataStore().replace_type(
                 "SWAP",
-                OKXClient().get_instruments(inst_type="SWAP"),
+                exchange_client().get_instruments(inst_type="SWAP"),
             )
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(
                 status_code=502,
@@ -1225,7 +1260,7 @@ def create_app(
         return MarketCandlesResponse(
             inst_id=inst_id,
             bar=bar,
-            candles=_fetch_candle_rows(inst_id, bar=bar, limit=limit),
+            candles=_fetch_candle_rows(inst_id, bar=bar, limit=limit, client=market_client()),
             fetched_at=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -1260,6 +1295,7 @@ def create_app(
                 symbols=_parse_symbols_param(symbols),
                 bar=bar,
                 limit=candle_limit,
+                client=market_client(),
             )
             context = _merge_signal_context(candle_context, context)
         return context
@@ -1278,6 +1314,7 @@ def create_app(
                     symbols=payload.symbols,
                     bar=payload.bar,
                     limit=payload.candle_limit,
+                    client=market_client(),
                 ),
                 context,
             )
@@ -1938,11 +1975,11 @@ def create_app(
                 status_code=503,
                 detail="Runtime execution mode is unavailable; manual open is blocked",
             )
-        if preflight.get("execution_mode") != "dry_run":
+        if preflight.get("execution_mode") not in {"simulation", "dry_run"}:
             detail = (
                 "Manual live open requires an armed runtime and enabled entry gate"
                 if not preflight.get("armed") or not entry_order_placement_enabled()
-                else "Manual live open remains disabled in this build; use dry-run"
+                else "Manual exchange open remains disabled in this build; use simulation"
             )
             raise HTTPException(status_code=409, detail=detail)
 
@@ -2140,7 +2177,9 @@ def create_app(
         )
         if position is None:
             raise HTTPException(status_code=404, detail="Logical position not found")
-        candles = _fetch_candle_rows(position.inst_id, bar=bar, limit=limit)
+        candles = _fetch_candle_rows(
+            position.inst_id, bar=bar, limit=limit, client=market_client()
+        )
         return LogicalPositionChartResponse(
             position_id=position.id,
             inst_id=position.inst_id,
@@ -2158,7 +2197,7 @@ def create_app(
         position_store = LogicalPositionStore()
         report = PositionReconciler().reconcile_account(
             logical_positions=position_store.list_active(),
-            exchange_positions=OKXClient().get_positions(inst_type="SWAP"),
+            exchange_positions=exchange_client().get_positions(inst_type="SWAP"),
         )
         return AccountExposureReconciliationResponse(**report.to_dict())
 
@@ -2173,7 +2212,7 @@ def create_app(
         trade_store = TradeStore()
         position_store = LogicalPositionStore(trade_store.db_path)
         try:
-            position = PositionImportService(OKXClient(), position_store).import_unexplained(
+            position = PositionImportService(exchange_client(require_orders=True), position_store).import_unexplained(
                 PositionImportRequest(
                     inst_id=payload.inst_id,
                     side=payload.side,
@@ -2209,7 +2248,7 @@ def create_app(
         position_store = LogicalPositionStore(trade_store.db_path)
         try:
             position = PositionProtectionService(
-                OKXClient(), position_store
+                exchange_client(require_orders=True), position_store
             ).protect(position_id)
         except PositionProtectionError as exc:
             status_code = 404 if str(exc) == "logical position not found" else 409
@@ -2235,7 +2274,7 @@ def create_app(
         position_store = LogicalPositionStore(trade_store.db_path)
         try:
             position = PositionProtectionService(
-                OKXClient(),
+                exchange_client(require_orders=True),
                 position_store,
                 AuditEventStore(trade_store.db_path),
             ).adopt_recovered_position(
@@ -2268,7 +2307,7 @@ def create_app(
         _validate_signal_or_400(payload.expression)
         try:
             position = PositionProtectionService(
-                OKXClient(),
+                exchange_client(require_orders=True),
                 position_store,
                 AuditEventStore(trade_store.db_path),
             ).amend_stop_condition(
@@ -2307,7 +2346,7 @@ def create_app(
         position_store = LogicalPositionStore(trade_store.db_path)
         try:
             position = PositionProtectionService(
-                OKXClient(),
+                exchange_client(require_orders=True),
                 position_store,
                 AuditEventStore(trade_store.db_path),
             ).move_to_break_even(

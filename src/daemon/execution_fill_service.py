@@ -48,6 +48,7 @@ class ExecutionFillService(DaemonService):
         enable_private_stream: bool = False,
         rest_poll_interval: float = 0.0,
         protection_service: PositionProtectionService | None = None,
+        allow_order_mutations: bool = True,
     ) -> None:
         super().__init__()
         self.client = client
@@ -64,6 +65,7 @@ class ExecutionFillService(DaemonService):
         self._next_rest_poll = 0.0
         self._last_rest_status: dict[str, Any] = {}
         self.protection_service = protection_service
+        self.allow_order_mutations = allow_order_mutations
 
     def setup(self) -> None:
         if self.client is None:
@@ -610,6 +612,8 @@ class ExecutionFillService(DaemonService):
                 order_state in self.ACTIVE_ORDER_STATES
                 and self._order_age_seconds(order) >= self.stale_after_seconds
             ):
+                if not self.allow_order_mutations:
+                    continue
                 if self.allocator.position_store.is_order_cancel_requested(
                     position.id,
                     exchange_order_id=order_id,
@@ -695,6 +699,8 @@ class ExecutionFillService(DaemonService):
         order_id: str,
         status: dict[str, Any],
     ) -> None:
+        if not self.allow_order_mutations:
+            return
         protection = self.allocator.position_store.get_protection(position.id)
         if (
             position.status == "open"
@@ -746,6 +752,8 @@ class ExecutionFillService(DaemonService):
                 continue
             except PositionProtectionError:
                 pass
+            if not self.allow_order_mutations:
+                continue
             try:
                 self.protection_service.protect(position.id)
                 status["protection_rearmed"] += 1

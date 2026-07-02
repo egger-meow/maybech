@@ -1,5 +1,13 @@
 # Maybech System Direction
 
+## Runtime Boundary
+
+Runtime policy is modeled by `RuntimeMode`, not inferred from a dry-run boolean.
+Exchange connectivity and order permission are independent capabilities. Demo
+and Live Armed use disjoint credential namespaces/endpoints; Live Safe connects
+to production only for inspection and recovery and never arms mutation;
+Simulation remains the default.
+
 ## Product Goal
 
 Maybech should be a robust auto-signaling and action-trigger system for perpetual position management. It is not primarily a high-frequency or fully autonomous quant trading bot. The core loop should detect market state, produce explainable signals, manage position actions safely, and present a precise, vivid, interactive control surface.
@@ -23,7 +31,7 @@ The current codebase is a good Python MVP:
 - `src/daemon/` already separates background services from the UI.
 - Strategy, account, reconciliation, position, and fill services can run continuously.
 - `frontend/` provides the browser dashboard for control and inspection.
-- OKX order placement has safety guards through dry-run and explicit arming.
+- OKX order placement has safety guards through explicit runtime modes and arming.
 
 The main limitation is remaining process coupling in the daemon runtime. The API-backed runner now exposes service state directly, but longer-running production behavior still needs stronger persistence and authentication.
 
@@ -106,7 +114,7 @@ Open positions also flow through `PositionIntentService`, which emits
 `position.intents` snapshots from the latest account state and BTC regime. That
 gives the frontend a direct feed for hold/reduce/close/manual-review guidance.
 `PositionManagerService` evaluates persisted logical-position close conditions
-against runtime and candle-derived signal context for dry-run close simulation,
+against runtime and candle-derived signal context for Simulation close handling,
 and armed live triggers automatically submit reduce-only close orders. Units
 remain `closing` until authenticated OKX fills confirm partial or complete exit.
 

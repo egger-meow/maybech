@@ -1,5 +1,15 @@
 # Deployment Notes
 
+## Runtime Mode Selection
+
+Use `--mode simulation` (default), `--mode demo`, `--mode live_safe`, or
+`--mode live_armed`. Demo requires `OKX_FLAG=1` and only `DEMO_OKX_*`; both live
+modes require `OKX_FLAG=0` and only `OKX_*`. A mismatch fails preflight. Demo
+and Live Armed require `MAYBECH_ARM_ORDERS=1`; Live Safe never arms orders.
+Simulation may read an optional local JSON replay selected by
+`MAYBECH_SIMULATION_CANDLES`. The file maps `INSTRUMENT:bar` keys to OKX-shaped
+candle arrays; Simulation never falls back to OKX when a key or file is absent.
+
 ## Recommended Local Modes
 
 Use the local Python virtual environment plus the Next.js dev server for normal
@@ -52,13 +62,13 @@ restart to change environments rather than imply both are concurrently safe.
 
 ## Guarded Path To Real Money
 
-There is intentionally no one-click transition from dry-run to real-money
+There is intentionally no one-click transition from Simulation to real-money
 execution. Use this sequence and stop whenever one stage is not independently
 verified:
 
 1. Keep `MAYBECH_ARM_ORDERS=0`. This means Maybech cannot place live orders,
    even if strategies are enabled in SQLite. Build and inspect strategies,
-   logical-position rules, account risk limits, and audit evidence in dry-run.
+   logical-position rules, account risk limits, and audit evidence in Simulation.
 2. Create a dedicated OKX demo API key first. Grant only the permissions needed
    for trading and inspection, never withdrawal permission. Configure the OKX
    IP whitelist for the machine that runs Maybech. Store demo credentials only
@@ -72,7 +82,7 @@ verified:
    strategy needs explicit contract counts, a maximum entry-slippage fraction,
    and an enabled side-consistent absolute stop. Contract counts are OKX
    contracts, not base-asset quantities.
-5. Start with `--live` only after the preceding checks pass. Setting
+5. Start Demo with `--mode demo`; use `--mode live_armed` only after the preceding checks pass. Setting
    `MAYBECH_ARM_ORDERS=1` merely allows successful live preflight to arm order
    placement; it does not bypass credentials, account mode, risk, strategy,
    instrument, reconciliation, protection, lease, fill-catch-up, or private
@@ -91,14 +101,14 @@ price gaps, poor liquidity, exchange failure, or market-order slippage. Maybech
 fails closed when required protection is missing or mismatched; that is not a
 guarantee that a stop will fill exactly at its trigger price.
 
-Before `--live`, populate `metadata.order_size_contracts` and
+Before Demo or Live Armed, populate `metadata.order_size_contracts` and
 `metadata.max_entry_slippage_pct` on each enabled strategy. Verify each size as
 an OKX contract count rather than a base-asset quantity. The slippage value is a
 decimal fraction greater than zero and no greater than `0.05`; it caps the FOK
 limit price and is included in account-risk approval. The executor also checks
 current OKX instrument precision.
 Create the account risk envelope through `PUT /risk/limits` while running the
-dry-run API, then inspect it with `GET /risk/limits`. Set operator-selected
+Simulation API, then inspect it with `GET /risk/limits`. Set operator-selected
 positive limits for one order's USD notional, total gross USD exposure, and
 maximum OKX cross leverage, plus a non-empty `allowed_instruments` list; keep
 `enabled=false` until the values and searchable cached SWAP selections are
@@ -112,7 +122,7 @@ Entry placement is a separate persisted control and defaults to disabled. Use
 risk envelope and successfully starting an armed live runtime. Every live
 startup first persists entries disabled and records an
 `entry_control.startup_disabled` audit event, so a restart never resumes new
-entries. Dry-run and offline enable attempts return a conflict instead of
+entries. Simulation, Live Safe, and offline enable attempts return a conflict instead of
 persisting future activation. `POST /risk/entries/kill` with the same
 confirmation disables new entries first, then requests cancellation of every
 Maybech `pending_open` order it can resolve. Partial cancellation failures are
@@ -199,7 +209,7 @@ and OKX account scope.
 
 `src.runtime api --role replica` starts a read-only HTTP process without daemon
 services, runtime locks, WebSocket events, or order capability. It rejects
-`--live`, `--no-strategy`, and every non-read HTTP method. This role establishes
+execution `--mode`, `--live`, `--no-strategy`, and every non-read HTTP method. This role establishes
 the safe read-replica boundary for future scaling; it is not another trading
 worker.
 

@@ -1190,12 +1190,29 @@
             "title": "Account Scope",
             "type": "string"
           },
+          "applicable_checks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Applicable Checks",
+            "type": "array"
+          },
           "armed": {
             "title": "Armed",
             "type": "boolean"
           },
           "checked_at": {
             "title": "Checked At",
+            "type": "string"
+          },
+          "credential_environment": {
+            "default": "none",
+            "enum": [
+              "none",
+              "demo",
+              "production"
+            ],
+            "title": "Credential Environment",
             "type": "string"
           },
           "enabled_strategies": {
@@ -1208,11 +1225,17 @@
             "title": "Entries Enabled",
             "type": "boolean"
           },
+          "exchange_enabled": {
+            "default": false,
+            "title": "Exchange Enabled",
+            "type": "boolean"
+          },
           "execution_mode": {
             "enum": [
-              "dry_run",
+              "simulation",
               "demo",
-              "real"
+              "live_safe",
+              "live_armed"
             ],
             "title": "Execution Mode",
             "type": "string"
@@ -1223,6 +1246,11 @@
             },
             "title": "Instruments",
             "type": "array"
+          },
+          "order_submission_enabled": {
+            "default": false,
+            "title": "Order Submission Enabled",
+            "type": "boolean"
           },
           "passed": {
             "title": "Passed",

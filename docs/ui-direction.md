@@ -1,5 +1,14 @@
 # UI Direction
 
+## Runtime Banner Contract
+
+- Simulation: Signal/Risk/Strategy/Position enabled; Exchange disabled.
+- Demo: Signal/Risk/Strategy/Position enabled; Demo Exchange enabled.
+- Live Safe: Production exchange read/recovery enabled; Orders disabled.
+- Live Armed: Real exchange orders enabled.
+
+The UI never uses “dry-run” as a synonym for OKX Demo.
+
 The frontend should be a control surface for repeated trading operations, not a
 marketing site. It should optimize for clarity, inspection, and fast edits.
 
@@ -60,7 +69,7 @@ Required capabilities:
 - show BTC regime filters and risk blocks
 - run backtests or display latest backtest pass/fail state
 - inspect recent decisions with signal evidence and action result
-- clearly separate disabled, ready, dry-run active, and live armed states
+- clearly separate disabled, ready, Simulation, Demo, Live Safe, and Live Armed states
 - configure execution delay as disabled/0 seconds or an explicit number of
   seconds, and show restart-safe pending actions with due time and correlation id
 
@@ -87,7 +96,7 @@ Required capabilities:
   available
 - expose source strategy tag when a strategy created the unit
 - support manual position units with no strategy tag
-- create a Dry-run manual unit from a searchable cached instrument selector,
+- create a Simulation manual unit from a searchable cached instrument selector,
   prefill the entry limit only from a fresh market price, and show display
   quantity, derived OKX contracts, notional, and stop PnL before confirmation
 - show owned protection state, stop level, protected quantity, algo identity,
@@ -119,7 +128,7 @@ behind decoration.
 
 - Any control that can affect live trading needs an explicit confirmation path.
 - Rule edits should show unsaved vs saved state.
-- Dry-run, live-unarmed, and live-armed modes must be visually distinct.
+- Simulation, Demo, Live Safe, and Live Armed must be visually distinct.
 - The runtime banner must list each live-readiness requirement separately:
   account risk amounts/enabled state, cached instruments, per-strategy API
   size, slippage, side-correct protective stop, derivatives account level, and

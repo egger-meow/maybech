@@ -151,7 +151,7 @@ export default function RiskLimitsPage() {
 
       <section className={`risk-state-banner ${saved?.enabled ? "enabled" : "disabled"}`}>
         <ShieldCheck size={25} />
-        <div><strong>{saved ? saved.enabled ? "風險信封已啟用" : "風險信封已停用" : "尚未建立風險信封"}</strong><p>{saved ? `後端更新：${new Date(saved.updated_at).toLocaleString("zh-TW")}` : "實盤 preflight 會封鎖；Dry-run 仍可使用。"}</p></div>
+        <div><strong>{saved ? saved.enabled ? "風險信封已啟用" : "風險信封已停用" : "尚未建立風險信封"}</strong><p>{saved ? `後端更新：${new Date(saved.updated_at).toLocaleString("zh-TW")}` : "Demo／Live Armed preflight 會封鎖；Simulation 仍可使用。"}</p></div>
         <span className={`badge ${entriesEnabled === false ? "success" : "danger"}`}>{entriesEnabled === false ? "進場已停用，可編輯" : entriesEnabled === true ? "進場已啟用，禁止編輯" : "進場狀態未知"}</span>
       </section>
 

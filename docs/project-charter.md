@@ -1,5 +1,14 @@
 # Maybech Project Charter
 
+## Runtime Mode Contract
+
+Maybech has four operator-facing modes. Simulation is the default and never
+creates exchange orders. Demo is the mandatory execution-validation stage and
+routes the real order lifecycle only to OKX Demo. Live Safe uses production
+credentials for inspection, recovery, and reconciliation while order submission
+stays disarmed. Live Armed is the only production order-capable mode and requires
+explicit selection, `MAYBECH_ARM_ORDERS=1`, and the complete live preflight.
+
 ## Mission
 
 Maybech is a local-first OKX perpetual trading workspace for signal-driven
@@ -69,7 +78,7 @@ price, stop-loss, take-profit, and break-even levels.
 
 ## Safety Principles
 
-- Dry-run remains the default.
+- Simulation remains the default.
 - Live execution requires explicit startup and arming.
 - Close-order execution must be confirmed against OKX before Maybech marks a
   live logical position unit as closed.

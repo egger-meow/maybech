@@ -18,16 +18,17 @@ class BTCRegimeService(DaemonService):
     name = "btc_regime"
     interval = 30.0
 
-    def __init__(self, symbol: str = "BTC-USDT-SWAP") -> None:
+    def __init__(self, symbol: str = "BTC-USDT-SWAP", *, client=None) -> None:
         super().__init__()
         self.symbol = symbol
-        self.client = None
+        self.client = client
         self.candle_manager = None
         self.analyzer = BTCRegimeAnalyzer()
         self.latest_regime = None
 
     def setup(self) -> None:
-        self.client = OKXClient()
+        if self.client is None:
+            self.client = OKXClient()
         self.candle_manager = CandleManager(self.client)
         logger.info("BTCRegimeService setup complete for %s", self.symbol)
 
@@ -40,6 +41,17 @@ class BTCRegimeService(DaemonService):
             "1m",
             limit=120,
         )
+        if df.empty:
+            payload = {
+                "symbol": self.symbol,
+                "state": "unavailable",
+                "reason": "simulation market replay has no candles",
+            }
+            self.latest_regime = payload
+            if self.runtime is not None:
+                self.runtime.set_value("market.btc_regime", payload)
+            self.publish_event("market.btc_regime", payload)
+            return
         regime = self.analyzer.analyze(df, symbol=self.symbol)
         payload = regime.to_dict()
         self.latest_regime = payload

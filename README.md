@@ -5,8 +5,10 @@ for OKX perpetuals. The current system is a Python daemon runtime with a
 FastAPI/WebSocket control surface, a Next.js dashboard, dynamic position rules,
 BTC regime tracking, account snapshots, notifications, and persisted signals.
 
-This project should be treated as an operator-assist system first. Dry-run mode
-is the default. Live strategy execution requires explicit `--live` startup and
+This project should be treated as an operator-assist system first. `simulation`
+is the default. The runtime modes are `simulation`, `demo`, `live_safe`, and
+`live_armed`; `--live` remains a deprecated compatibility alias. Live strategy
+execution requires explicit `--mode live_armed` startup and
 the existing arming safeguards. In armed live mode, triggered close conditions
 automatically submit reduce-only market orders. Logical quantity and trade state
 remain unchanged until authenticated OKX fills confirm the exit.
@@ -84,6 +86,9 @@ Start the API-backed runtime:
 
 ```powershell
 uv run python -m src.runtime api
+uv run python -m src.runtime api --mode demo
+uv run python -m src.runtime api --mode live_safe
+uv run python -m src.runtime api --mode live_armed
 uv run python -m src.runtime api --role replica
 ```
 
@@ -129,7 +134,7 @@ Disable strategy execution for monitor-only service runs:
 uv run python -m src.runtime services --no-strategy
 ```
 
-Order-capable demo or real execution additionally requires `--live`, valid OKX
+Order-capable Demo or Live Armed execution requires its explicit `--mode`, valid OKX
 credentials, `MAYBECH_ARM_ORDERS=1`, a derivatives-capable account in
 `net_mode`, enabled SQLite account risk limits, and passing strategy/instrument
 checks. Startup aborts before daemon
@@ -149,7 +154,7 @@ either resource exits before services run or orders are armed. Locks release
 automatically on process death and explicitly after order placement is disarmed.
 Strategy entries are disabled by default, including after the entry-control
 schema migration and every live runtime restart. Enabling entries requires a
-successfully preflighted live process plus `{ "confirm": true }`; dry-run or
+successfully preflighted order-capable process plus `{ "confirm": true }`; Simulation or
 offline enable attempts are rejected instead of being scheduled for restart.
 Killing entries requires the same confirmation.
 The kill command persists the disabled state before canceling Maybech

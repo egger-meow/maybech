@@ -1,5 +1,14 @@
 # API Spec Direction
 
+## Runtime Mode Contract
+
+`GET /runtime/preflight` exposes `execution_mode` as `simulation`, `demo`,
+`live_safe`, or `live_armed`. `exchange_enabled`,
+`order_submission_enabled`, and `armed` are separate facts; clients must not
+infer Demo from a dry-run flag or order permission from credentials alone.
+`credential_environment` is `none`, `demo`, or `production`, and
+`applicable_checks` enumerates the preflight gates for the selected mode.
+
 This file records the intended API contract. Keep `docs/runtime-status.md` in
 sync with endpoints that already exist, and use this file to design the durable
 surface before frontend/backend work expands.
@@ -65,7 +74,7 @@ These endpoints currently exist or are already documented in runtime status:
 See `docs/runtime-status.md` for current payload behavior.
 
 `GET /runtime/preflight` reports whether startup checks passed, whether order
-placement is armed, demo/real/dry-run mode, OKX account and position mode, and
+placement is armed, the four-mode contract, OKX account and position mode, and
 the strategies/instruments validated before services started. Failed live
 preflight aborts startup, so no unhealthy live API remains running.
 
@@ -133,7 +142,7 @@ Entry control is persisted separately from editable risk-limit values, so a
 risk-limit update cannot silently re-enable trading. Entries default to
 disabled, and every live startup persists them disabled again. Enable and kill
 commands require `{ "confirm": true }`. Enable also requires a successfully
-preflighted live process; dry-run or otherwise unarmed calls return `409` and
+preflighted order-capable process; Simulation, Live Safe, or otherwise unarmed calls return `409` and
 cannot schedule activation for a later restart. Kill disables the persisted and
 process-local entry gates before resolving and canceling only Maybech
 `pending_open` orders. It reports requested, already-requested,
@@ -297,7 +306,7 @@ The Position Management page has a logical-position contract now:
 - `POST /positions/manual-open`: create one `source=manual` logical unit from a
   cached instrument and operator-facing base quantity. The request requires an
   explicit confirmation and side-correct protective stop. In the current
-  guarded implementation this endpoint accepts Dry-run only; demo/real modes
+  guarded implementation this endpoint accepts Simulation only; Demo and Live modes
   return `409` and no new live-order path is enabled.
 - `GET /account/exposure-reconciliation`: fetch fresh authenticated OKX SWAP
   positions and compare every instrument/side group with active SQLite logical

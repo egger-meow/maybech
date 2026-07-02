@@ -494,6 +494,66 @@ def test_failed_runner_preflight_leaves_orders_disarmed(monkeypatch, tmp_path):
     assert client_module._ORDER_PLACEMENT_ARMED is False
 
 
+def test_live_safe_uses_production_reads_without_registering_execution_services(
+    monkeypatch, tmp_path
+):
+    store = TradeStore(str(tmp_path / "safe.db"))
+    monkeypatch.setattr(runtime_module, "TradeStore", lambda: store)
+    real_lease = runtime_module.RuntimeLease
+    monkeypatch.setattr(
+        runtime_module,
+        "RuntimeLease",
+        lambda **kwargs: real_lease(**kwargs, lock_root=tmp_path / "locks"),
+    )
+    for service in (
+        runtime_module.AccountSnapshotService,
+        runtime_module.BTCRegimeService,
+        runtime_module.ExecutionFillService,
+    ):
+        monkeypatch.setattr(service, "setup", lambda self: None)
+
+    class Report:
+        passed = True
+        account_scope = "production-scope"
+
+        @staticmethod
+        def to_dict(*, armed):
+            return {
+                "passed": True,
+                "armed": armed,
+                "execution_mode": "live_safe",
+                "exchange_enabled": True,
+                "order_submission_enabled": False,
+                "account_scope": "production-scope",
+                "checked_at": "2026-07-02T00:00:00+00:00",
+            }
+
+    calls = []
+    monkeypatch.setattr(
+        runtime_module,
+        "run_live_preflight",
+        lambda **kwargs: calls.append(kwargs) or Report(),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "arm_order_placement",
+        lambda **kwargs: pytest.fail("Live Safe must never arm orders"),
+    )
+
+    runner = runtime_module.create_default_runner(mode="live_safe")
+    try:
+        assert calls[0]["runtime_mode"] is runtime_module.RuntimeMode.LIVE_SAFE
+        assert calls[0]["include_strategy"] is False
+        assert "account" in runner.services
+        assert "execution_fills" in runner.services
+        assert runner.services["execution_fills"].allow_order_mutations is False
+        assert "position_manager" not in runner.services
+        assert "strategy" not in runner.services
+        assert runner.runtime.get_value("runtime.live_preflight")["armed"] is False
+    finally:
+        runner.teardown_services()
+
+
 def test_default_dry_runner_exclusively_owns_its_database(monkeypatch, tmp_path):
     store = TradeStore(str(tmp_path / "trades.db"))
     monkeypatch.setattr(runtime_module, "TradeStore", lambda: store)

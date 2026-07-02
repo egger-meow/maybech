@@ -1,5 +1,20 @@
 # Runtime Status
 
+## Execution Modes
+
+- `simulation` (default): OKX connectivity is disabled. Signal and rule evaluation
+  use local replay candles from `MAYBECH_SIMULATION_CANDLES` when configured;
+  missing replay data is reported as unavailable rather than fetched from OKX.
+- `demo`: Demo credentials/API only; demo orders and the real lifecycle are enabled.
+- `live_safe`: production credentials only; reads/recovery enabled, orders disabled.
+- `live_armed`: production credentials only; real orders require full preflight and arming.
+
+`GET /runtime/preflight` returns these names plus `exchange_enabled`,
+`order_submission_enabled`, and `armed`.
+It also returns the selected `credential_environment` and an
+`applicable_checks` list so operators can distinguish enforced gates from checks
+that do not apply to the selected mode.
+
 This file records the current runtime/API tracking surface for Maybech. Update it
 when endpoints, service state keys, or safety behavior changes.
 
@@ -49,14 +64,14 @@ Frontends must use `active`; there is no `state` field.
   catch-up counts, client-order recovery counts, cursor state, page progress,
   or zeroed fields before the first poll.
 - `GET /runtime/preflight` returns the successful startup safety report,
-  including dry-run/demo/real mode, armed state, OKX account and position mode,
+  including the four-mode contract, armed state, OKX account and position mode,
   hashed account scope, enabled strategy count, account-risk enabled state,
   validated instruments, and check time.
   Live preflight fetches current OKX SWAP exposure before arming and requires it
   to reconcile exactly with protected exchange-backed logical units. Operators
-  must run Dry-run recovery and resolve every manual-review gap first.
+  must run recovery in Live Safe or Demo and resolve every manual-review gap first.
 - `GET /runtime/lease` reports exclusive live ownership of the resolved SQLite
-  path and, in live mode, the hashed OKX account scope. Dry-run also holds the
+  path and, in exchange modes, the hashed OKX account scope. Simulation also holds the
   database lock so it cannot consume signal state beside another runtime.
 - `GET /runtime/capabilities` reports whether the process is the combined
   execution leader or a read-only API replica and exposes routing/storage
@@ -113,7 +128,7 @@ Frontends must use `active`; there is no `state` field.
   conservative reconciliation state, and related audit events when event
   payloads reference the trade/position id.
 - `POST /positions/manual-open` creates a simulated `source=manual` unit in
-  Dry-run after cached-instrument sizing and stop-direction validation. It
+  Simulation after cached-instrument sizing and stop-direction validation. It
   records a confirmed simulated allocation and durable audit event. Demo/real
   calls are rejected before persistence in this build.
 - `GET /positions/logical/{position_id}/chart` returns recent candles plus
@@ -166,7 +181,7 @@ net-position snapshots, and the execution-confirmed allocation lifecycle
 described in `docs/domain-model.md`.
 `PositionManagerService` now evaluates persisted close signal conditions against
 runtime price/change context and optional candle-derived context for rapid-move
-and volume-ratio conditions. In dry-run mode it can close the simulated logical
+and volume-ratio conditions. In Simulation it can close the simulated logical
 unit and backing trade. In armed live mode, triggered conditions automatically
 submit a reduce-only market close without waiting for operator confirmation.
 The unit atomically moves to `closing` and only confirmed fills reduce quantity
@@ -191,7 +206,7 @@ strategy groups remain financially valid by partitioning instrument and side.
 
 `StrategyService` writes an action-decision record before an allowed execution
 and updates that record with the result. Live actions fail closed when this
-pre-execution audit write fails. Dry-run orders are marked `simulated`; live
+pre-execution audit write fails. Simulation orders are marked `simulated`; exchange
 orders are `submitted` only after a slippage-capped FOK order is completely
 filled and its exact attached stop is visible in OKX's active algo list. SQLite
 fill allocation still arrives asynchronously through authenticated ingestion.
@@ -333,7 +348,7 @@ notification destinations.
 ## Safety Notes
 
 - Importing `src.exchange.client` never arms orders. Every runtime factory
-  disarms first. With `--live`, startup requires non-empty private credentials,
+  disarms first. Demo and Live Armed require non-empty matching private credentials,
   `MAYBECH_ARM_ORDERS=1`, `OKX_FLAG` of `0` or `1`, authenticated account config,
   account level `2`, `3`, or `4`, and `net_mode`. Enabled strategy definitions,
   contract sizes, attached stops, active logical-position instruments, live

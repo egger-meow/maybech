@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from src.daemon.account_service import AccountSnapshotService
 from src.daemon.btc_regime_service import BTCRegimeService
 from src.daemon.execution_fill_service import ExecutionFillService
@@ -10,11 +12,15 @@ from src.daemon.position_intent_service import PositionIntentService
 from src.daemon.position_manager_service import PositionManagerService
 from src.daemon.service import DaemonRunner
 from src.daemon.strategy_service import StrategyService
+from src.data.simulation_market import SimulationMarketClient
+from src.data.candles import CandleManager
+from src.trading.executor import Executor
 from src.exchange.client import (
     arm_order_placement,
     disarm_order_placement,
 )
-from src.runtime.live_preflight import dry_run_preflight_report, run_live_preflight
+from src.runtime.live_preflight import simulation_preflight_report, run_live_preflight
+from src.runtime.mode import RuntimeMode, parse_runtime_mode
 from src.runtime.lease import RuntimeLease, RuntimeLeaseService
 from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.strategy_store import StrategyStore
@@ -25,8 +31,24 @@ from src.trading.audit_event_store import AuditEventStore
 from src.trading.entry_control import EntryControlManager
 
 
-def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True) -> DaemonRunner:
+def create_default_runner(
+    *,
+    mode: RuntimeMode | str | None = None,
+    dry_run: bool | None = None,
+    include_strategy: bool = True,
+) -> DaemonRunner:
     """Create the standard daemon runner used by UI, API, and headless modes."""
+    if mode is None:
+        resolved_mode = RuntimeMode.SIMULATION if dry_run is not False else (
+            RuntimeMode.DEMO if os.getenv("OKX_FLAG", "1") == "1" else RuntimeMode.LIVE_ARMED
+        )
+    else:
+        resolved_mode = parse_runtime_mode(mode)
+        if dry_run is not None and dry_run != (resolved_mode is RuntimeMode.SIMULATION):
+            raise ValueError("mode conflicts with deprecated dry_run argument")
+    simulation = resolved_mode is RuntimeMode.SIMULATION
+    order_capable = resolved_mode.submits_orders
+    live_safe = resolved_mode is RuntimeMode.LIVE_SAFE
     disarm_order_placement()
     runner = DaemonRunner()
     store = TradeStore()
@@ -34,15 +56,17 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
     try:
         lease.acquire()
         risk_store = AccountRiskStore(store.db_path)
-        if dry_run:
-            preflight_status = dry_run_preflight_report()
+        if simulation:
+            preflight_status = simulation_preflight_report()
         else:
-            EntryControlManager(risk_store=risk_store).disable_for_startup()
+            if order_capable:
+                EntryControlManager(risk_store=risk_store).disable_for_startup()
             report = run_live_preflight(
                 strategy_store=StrategyStore(store.db_path),
                 position_store=LogicalPositionStore(store.db_path),
                 risk_store=risk_store,
-                include_strategy=include_strategy,
+                include_strategy=include_strategy and not live_safe,
+                runtime_mode=resolved_mode,
             )
             lease.bind_account_scope(report.account_scope)
             preflight_status = report.to_dict(armed=False)
@@ -56,40 +80,62 @@ def create_default_runner(*, dry_run: bool = True, include_strategy: bool = True
             before_release=disarm_order_placement,
         )
         runner.register(lease_service)
-        runner.register(AccountSnapshotService(position_store=LogicalPositionStore(store.db_path)))
-        runner.register(BTCRegimeService())
+        simulation_client = SimulationMarketClient() if simulation else None
+        if not simulation:
+            runner.register(AccountSnapshotService(position_store=LogicalPositionStore(store.db_path)))
+        runner.register(BTCRegimeService(client=simulation_client))
         runner.register(PositionIntentService())
-        runner.register(PositionManagerService(store=store, dry_run=dry_run))
-        runner.register(
-            ExecutionFillService(
-                allocator=ExecutionAllocationService(trade_store=store),
-                enable_private_stream=not dry_run,
-                rest_poll_interval=5.0,
+        if not live_safe:
+            runner.register(
+                PositionManagerService(
+                    store=store,
+                    dry_run=simulation,
+                    close_executor=(
+                        Executor(simulation_client, dry_run=True) if simulation_client else None
+                    ),
+                    candle_manager=CandleManager(simulation_client) if simulation_client else None,
+                )
             )
-        )
-        if include_strategy:
-            runner.register(StrategyService(dry_run=dry_run, trade_store=store))
+        if not simulation:
+            runner.register(
+                ExecutionFillService(
+                    allocator=ExecutionAllocationService(trade_store=store),
+                    enable_private_stream=True,
+                    rest_poll_interval=5.0,
+                    allow_order_mutations=order_capable,
+                )
+            )
+        if include_strategy and not live_safe:
+            runner.register(
+                StrategyService(
+                    dry_run=simulation,
+                    trade_store=store,
+                    client=simulation_client,
+                )
+            )
         runner.register(
             LifecycleNotificationService(
                 audit_store=AuditEventStore(store.db_path),
             )
         )
         lease_service.setup()
-        if not dry_run:
+        if not simulation:
             required_services = {
                 "runtime_lease",
                 "account",
                 "btc_regime",
-                "position_manager",
                 "execution_fills",
             }
-            if include_strategy:
+            if not live_safe:
+                required_services.add("position_manager")
+            if include_strategy and not live_safe:
                 required_services.add("strategy")
             runner.setup_services(required_services=required_services)
-            arm_order_placement(preflight_passed=report.passed)
+            if order_capable:
+                arm_order_placement(preflight_passed=report.passed)
             runner.runtime.set_value(
                 "runtime.live_preflight",
-                report.to_dict(armed=True),
+                report.to_dict(armed=order_capable),
             )
     except Exception:
         disarm_order_placement()

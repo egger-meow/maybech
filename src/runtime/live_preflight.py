@@ -10,6 +10,7 @@ from typing import Any
 from src.config.settings import load_okx_connection_settings
 from src.exchange.client import OKXClient
 from src.runtime.lease import account_scope as build_account_scope
+from src.runtime.mode import RuntimeMode, parse_runtime_mode
 from src.trading.account_risk import AccountRiskStore
 from src.trading.instrument_constraints import InstrumentConstraints
 from src.trading.logical_position_store import LogicalPositionStore
@@ -43,20 +44,29 @@ class LivePreflightReport:
     entries_enabled: bool
     instruments: tuple[str, ...]
     checked_at: str
+    exchange_enabled: bool = True
+    order_submission_enabled: bool = False
+    credential_environment: str = "production"
+    applicable_checks: tuple[str, ...] = ()
 
     def to_dict(self, *, armed: bool | None = None) -> dict[str, Any]:
         value = asdict(self)
         value["instruments"] = list(self.instruments)
+        value["applicable_checks"] = list(self.applicable_checks)
         if armed is not None:
             value["armed"] = armed
         return value
 
 
-def dry_run_preflight_report() -> dict[str, Any]:
+def simulation_preflight_report() -> dict[str, Any]:
     return {
         "passed": True,
         "armed": False,
-        "execution_mode": "dry_run",
+        "execution_mode": "simulation",
+        "exchange_enabled": False,
+        "order_submission_enabled": False,
+        "credential_environment": "none",
+        "applicable_checks": ["local_replay", "exchange_disabled"],
         "account_level": "",
         "position_mode": "",
         "account_scope": "",
@@ -68,6 +78,9 @@ def dry_run_preflight_report() -> dict[str, Any]:
     }
 
 
+dry_run_preflight_report = simulation_preflight_report
+
+
 def run_live_preflight(
     *,
     client: OKXClient | None = None,
@@ -75,9 +88,16 @@ def run_live_preflight(
     position_store: LogicalPositionStore | None = None,
     risk_store: AccountRiskStore | None = None,
     include_strategy: bool = True,
+    runtime_mode: RuntimeMode | str | None = None,
 ) -> LivePreflightReport:
     """Validate environment, account mode, strategies, and instruments."""
-    errors = _validate_local_environment()
+    if runtime_mode is None:
+        mode = RuntimeMode.DEMO if os.getenv("OKX_FLAG", "1") == "1" else RuntimeMode.LIVE_ARMED
+    else:
+        mode = parse_runtime_mode(runtime_mode)
+    if mode is RuntimeMode.SIMULATION:
+        raise ValueError("simulation does not run OKX preflight")
+    errors = _validate_local_environment(mode)
     if errors:
         raise LivePreflightError(errors)
 
@@ -85,7 +105,7 @@ def run_live_preflight(
     strategy_store = strategy_store or StrategyStore()
     position_store = position_store or LogicalPositionStore(strategy_store.db_path)
     risk_store = risk_store or AccountRiskStore(strategy_store.db_path)
-    configured_flag = os.getenv("OKX_FLAG", "1")
+    configured_flag = mode.okx_flag or ""
     if str(client.flag) != configured_flag:
         raise LivePreflightError(["OKX client environment does not match OKX_FLAG"])
 
@@ -115,17 +135,20 @@ def run_live_preflight(
         errors.append("OKX position mode must be net_mode for the current executor")
 
     risk_limits = risk_store.get()
-    if risk_limits is None:
-        errors.append("account risk limits are not configured in SQLite")
-    elif not risk_limits.enabled:
-        errors.append("account risk limits are disabled")
-    else:
-        try:
-            risk_limits.validate()
-        except ValueError as exc:
-            errors.append(f"account risk limits: {exc}")
+    if mode.submits_orders:
+        if risk_limits is None:
+            errors.append("account risk limits are not configured in SQLite")
+        elif not risk_limits.enabled:
+            errors.append("account risk limits are disabled")
+        else:
+            try:
+                risk_limits.validate()
+            except ValueError as exc:
+                errors.append(f"account risk limits: {exc}")
 
-    enabled_strategies = strategy_store.list(enabled=True) if include_strategy else []
+    enabled_strategies = (
+        strategy_store.list(enabled=True) if include_strategy and mode.submits_orders else []
+    )
     instruments: set[str] = set()
     sizes_by_instrument: dict[str, list[str]] = {}
     for strategy in enabled_strategies:
@@ -160,10 +183,10 @@ def run_live_preflight(
             logical_positions=active_positions,
             exchange_positions=exchange_positions,
         )
-        if not reconciliation.safe_for_entries:
+        if mode.submits_orders and not reconciliation.safe_for_entries:
             errors.append(
                 "OKX exposure does not reconcile to protected logical positions "
-                f"before startup (state={reconciliation.state}); run Dry-run "
+                f"before startup (state={reconciliation.state}); run Simulation "
                 "recovery and resolve manual review first"
             )
     except Exception as exc:
@@ -184,7 +207,7 @@ def run_live_preflight(
             errors.append(f"instrument {inst_id}: {exc}")
 
     protection_service = PositionProtectionService(client, position_store)
-    for position in active_positions:
+    for position in active_positions if mode.submits_orders else []:
         remaining = position.remaining_quantity or position.opened_quantity or 0.0
         if remaining <= 0:
             continue
@@ -199,7 +222,7 @@ def run_live_preflight(
     return LivePreflightReport(
         passed=True,
         armed=False,
-        execution_mode="demo" if configured_flag == "1" else "real",
+        execution_mode=mode.value,
         account_level=account_level,
         position_mode=position_mode,
         account_scope=account_scope,
@@ -208,16 +231,42 @@ def run_live_preflight(
         entries_enabled=bool(risk_limits and risk_limits.entries_enabled),
         instruments=tuple(sorted(instruments)),
         checked_at=datetime.now(timezone.utc).isoformat(),
+        order_submission_enabled=mode.submits_orders,
+        credential_environment="demo" if mode is RuntimeMode.DEMO else "production",
+        applicable_checks=(
+            (
+                "credentials",
+                "account_level",
+                "position_mode",
+                "reconciliation",
+                "risk_limits",
+                "strategies",
+                "instrument_constraints",
+                "position_protection",
+                "explicit_arming",
+                "private_order_stream",
+            )
+            if mode.submits_orders
+            else (
+                "credentials",
+                "account_level",
+                "position_mode",
+                "reconciliation",
+                "instrument_constraints",
+                "orders_disarmed",
+            )
+        ),
     )
 
 
-def _validate_local_environment() -> list[str]:
+def _validate_local_environment(mode: RuntimeMode) -> list[str]:
     errors: list[str] = []
-    flag = os.getenv("OKX_FLAG", "1")
-    if flag not in {"0", "1"}:
-        errors.append("OKX_FLAG must be '0' for real trading or '1' for demo trading")
+    flag = mode.okx_flag
+    configured_flag = os.getenv("OKX_FLAG", flag or "")
+    if configured_flag != flag:
+        errors.append(f"{mode.value} requires OKX_FLAG={flag}")
     else:
-        connection = load_okx_connection_settings(flag)
+        connection = load_okx_connection_settings(runtime_mode=mode.value)
         prefix = "DEMO_" if flag == "1" else ""
         for key, value in (
             (f"{prefix}OKX_API_KEY", connection.api_key),
@@ -226,6 +275,8 @@ def _validate_local_environment() -> list[str]:
         ):
             if not value.strip():
                 errors.append(f"{key} is required")
-    if os.getenv("MAYBECH_ARM_ORDERS", "0") != "1":
-        errors.append("MAYBECH_ARM_ORDERS must be exactly '1' for --live startup")
+    if mode.submits_orders and os.getenv("MAYBECH_ARM_ORDERS", "0") != "1":
+        errors.append(
+            f"MAYBECH_ARM_ORDERS must be exactly '1' for {mode.value} startup"
+        )
     return errors

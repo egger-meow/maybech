@@ -26,8 +26,16 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-None. Add a new item only when it meets the necessary-blocker definition and
-the operator-approved finish-line gate.
+1. Prove the complete `--mode demo` lifecycle against a dedicated OKX Demo
+   account: submission/order-id capture, partial and complete fills,
+   cancellation, exact reduce/final close, protective algos, restart catch-up,
+   and zero-residual reconciliation. Preserve sanitized verifier audit evidence.
+2. Prove Demo restart recovery after a deliberately interrupted partial fill:
+   REST catch-up and the private order stream must converge without duplicate
+   allocation, lost quantity, or orphaned protection.
+3. Prove Live Safe can read the production account, positions, orders, recovery,
+   and reconciliation state while order, cancel, algo, reduce, and close
+   mutation methods remain process-disarmed.
 
 ## Non-Blocking / Later
 

@@ -13,13 +13,13 @@ const steps = [
   },
   {
     icon: ShieldCheck,
-    title: "3. 先在 Dry-run 完成策略與風險上限",
+    title: "3. 先在 Simulation 完成策略與風險上限",
     detail: "設定每筆名目金額、總曝險與最大槓桿；檢查策略口數、最大滑價與至少一個方向正確的停損。策略資料儲存在 SQLite，不放進 .env。",
   },
   {
     icon: LockKeyhole,
     title: "4. 分兩層武裝",
-    detail: "先以 --live 啟動，再明確設定 MAYBECH_ARM_ORDERS=1 並通過 preflight。之後仍須個別啟用策略及另外確認開啟進場閘門；每次重新啟動都會再次關閉進場。",
+    detail: "先以 --mode demo 完成 Demo 生命週期；正式環境使用 --mode live_armed，再明確設定 MAYBECH_ARM_ORDERS=1 並通過 preflight。之後仍須個別啟用策略及另外確認開啟進場閘門。",
   },
   {
     icon: CheckCircle2,

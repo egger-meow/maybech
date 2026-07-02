@@ -55,7 +55,11 @@ class NotificationTestResponse(BaseModel):
 class LivePreflightResponse(BaseModel):
     passed: bool
     armed: bool
-    execution_mode: Literal["dry_run", "demo", "real"]
+    execution_mode: Literal["simulation", "demo", "live_safe", "live_armed"]
+    exchange_enabled: bool = False
+    order_submission_enabled: bool = False
+    credential_environment: Literal["none", "demo", "production"] = "none"
+    applicable_checks: list[str] = Field(default_factory=list)
     account_level: str = ""
     position_mode: str = ""
     account_scope: str = ""
