@@ -48,7 +48,7 @@ def test_logical_position_store_saves_and_lists_independent_units(tmp_path):
 def test_logical_position_store_records_schema_version(tmp_path):
     store = LogicalPositionStore(str(tmp_path / "positions.db"))
 
-    assert store.applied_schema_versions() == [2, 3, 4, 5, 6]
+    assert store.applied_schema_versions() == [2, 3, 4, 5, 6, 7]
 
 
 def test_logical_position_store_migrates_order_lookups(tmp_path):
@@ -94,7 +94,7 @@ def test_logical_position_store_migrates_order_lookups(tmp_path):
         )
     )
 
-    assert store.applied_schema_versions() == [2, 3, 4, 5, 6]
+    assert store.applied_schema_versions() == [2, 3, 4, 5, 6, 7]
     assert store.get_by_exchange_order_id("order-a").id == "unit-a"
     assert store.get_by_client_order_id("entryclient1").id == "unit-a"
 

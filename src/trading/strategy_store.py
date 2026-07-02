@@ -19,10 +19,11 @@ from src.trading.sqlite_schema import (
     record_schema_version,
     sqlite_read_only,
 )
+from src.trading.position_rule_model import normalize_default_rules
 
 
 _SCHEMA_COMPONENT = "strategies"
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 
 _SCHEMA = """
@@ -295,6 +296,23 @@ class StrategyStore:
                     )
                 conn.executescript(_SCHEMA_V4)
                 record_schema_version(conn, component=_SCHEMA_COMPONENT, version=4)
+            if 5 not in versions:
+                rows = conn.execute(
+                    "SELECT id, default_rules_json FROM strategies"
+                ).fetchall()
+                for row in rows:
+                    rules = _json_loads(row["default_rules_json"], {})
+                    try:
+                        normalized = normalize_default_rules(
+                            rules if isinstance(rules, dict) else {}
+                        )
+                    except ValueError:
+                        continue
+                    conn.execute(
+                        "UPDATE strategies SET default_rules_json = ? WHERE id = ?",
+                        (_json_dumps(normalized), row["id"]),
+                    )
+                record_schema_version(conn, component=_SCHEMA_COMPONENT, version=5)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -357,6 +375,9 @@ class StrategyStore:
         return matched and not previous
 
     def save(self, strategy: StrategyRecord) -> str:
+        strategy.default_rules_json = _json_dumps(
+            normalize_default_rules(strategy.default_rules)
+        )
         strategy.updated_at = datetime.now(timezone.utc).isoformat()
         with self._conn() as conn:
             conn.execute(
@@ -414,7 +435,7 @@ class StrategyStore:
             enabled=enabled,
             target_instruments_json=_json_dumps(target_instruments or []),
             entry_signal_json=_json_dumps(entry_signal or {}),
-            default_rules_json=_json_dumps(default_rules or {}),
+            default_rules_json=_json_dumps(normalize_default_rules(default_rules)),
             metadata_json=_json_dumps(metadata or {}),
             execution_delay_seconds=execution_delay_seconds,
         )
@@ -467,7 +488,7 @@ class StrategyStore:
         if entry_signal is not None:
             strategy.entry_signal_json = _json_dumps(entry_signal)
         if default_rules is not None:
-            strategy.default_rules_json = _json_dumps(default_rules)
+            strategy.default_rules_json = _json_dumps(normalize_default_rules(default_rules))
         if metadata is not None:
             strategy.metadata_json = _json_dumps(metadata)
         if execution_delay_seconds is not None:

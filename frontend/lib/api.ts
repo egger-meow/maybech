@@ -16,6 +16,8 @@ import type {
   InstrumentSizeQuoteResponse,
   InstrumentRiskQuoteRequest,
   InstrumentRiskQuoteResponse,
+  StrategyRiskStopPromotionCommand,
+  PositionRiskStopPromotionCommand,
   LogicalPositionCloseConditionCreateCommand,
   LogicalPositionCloseConditionDeleteCommand,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
@@ -83,6 +85,8 @@ export type {
   InstrumentSizeQuoteResponse,
   InstrumentRiskQuoteRequest,
   InstrumentRiskQuoteResponse,
+  StrategyRiskStopPromotionCommand,
+  PositionRiskStopPromotionCommand,
   LogicalPositionUnitResponse as LogicalPositionUnit,
   ManualPositionOpenRequest,
   LivePreflightResponse,
@@ -285,6 +289,22 @@ export const quoteInstrumentRisk = (
   postData<InstrumentRiskQuoteResponse>(
     `/instruments/${encodeURIComponent(instId)}/risk-quote`,
     payload,
+  );
+
+export const promoteStrategyRiskStop = (
+  strategyId: string,
+  payload: StrategyRiskStopPromotionCommand,
+): Promise<StrategySummaryResponse> =>
+  postData<StrategySummaryResponse>(
+    `/strategies/${encodeURIComponent(strategyId)}/risk-stop`, payload,
+  );
+
+export const promotePositionRiskStop = (
+  positionId: string,
+  payload: PositionRiskStopPromotionCommand,
+): Promise<LogicalPositionUnitResponse> =>
+  postData<LogicalPositionUnitResponse>(
+    `/positions/logical/${encodeURIComponent(positionId)}/risk-stop`, payload,
   );
 
 export const getExecutionFillStatus = (): Promise<ExecutionFillIngestionStatusResponse> =>

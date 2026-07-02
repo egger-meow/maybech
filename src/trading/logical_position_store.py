@@ -25,6 +25,7 @@ from src.trading.sqlite_schema import (
     record_schema_version,
     sqlite_read_only,
 )
+from src.trading.position_rule_model import normalize_position_rule
 
 
 LogicalPositionSource = Literal["strategy", "manual", "import", "recovery", "unknown"]
@@ -351,7 +352,7 @@ class LogicalPositionProtection:
 
 
 _SCHEMA_COMPONENT = "logical_positions"
-_SCHEMA_VERSION = 6
+_SCHEMA_VERSION = 7
 
 
 _SCHEMA = """
@@ -477,8 +478,10 @@ class LogicalPositionStore:
                 self._migrate_v4(conn)
             if 5 not in versions:
                 self._migrate_v5(conn)
-            if _SCHEMA_VERSION not in versions:
+            if 6 not in versions:
                 self._migrate_v6(conn)
+            if 7 not in versions:
+                self._migrate_v7(conn)
 
     @staticmethod
     def _migrate_v3(conn: sqlite3.Connection) -> None:
@@ -651,6 +654,31 @@ class LogicalPositionStore:
                 ),
             )
         record_schema_version(conn, component=_SCHEMA_COMPONENT, version=6)
+
+    @staticmethod
+    def _migrate_v7(conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            "SELECT id, purpose, expression_json, enabled, metadata_json "
+            "FROM logical_position_close_conditions"
+        ).fetchall()
+        for row in rows:
+            expression = _json_loads(row["expression_json"], {})
+            metadata = _json_loads(row["metadata_json"], {})
+            try:
+                normalized = normalize_position_rule(
+                    purpose=str(row["purpose"]),
+                    expression=expression if isinstance(expression, dict) else {},
+                    enabled=bool(row["enabled"]),
+                    metadata=metadata if isinstance(metadata, dict) else {},
+                )
+            except ValueError:
+                continue
+            conn.execute(
+                "UPDATE logical_position_close_conditions SET metadata_json = ? "
+                "WHERE id = ?",
+                (_json_dumps(normalized), row["id"]),
+            )
+        record_schema_version(conn, component=_SCHEMA_COMPONENT, version=7)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -1721,6 +1749,12 @@ class LogicalPositionStore:
     def save_close_condition(self, condition: LogicalPositionCloseCondition) -> str | None:
         if self.get(condition.position_id) is None:
             return None
+        condition.metadata_json = _json_dumps(normalize_position_rule(
+            purpose=str(condition.purpose),
+            expression=condition.expression,
+            enabled=condition.enabled,
+            metadata=condition.metadata,
+        ))
         condition.updated_at = datetime.now(timezone.utc).isoformat()
         with self._conn() as conn:
             conn.execute(
@@ -1759,13 +1793,20 @@ class LogicalPositionStore:
         metadata: dict[str, Any] | None = None,
         id: str | None = None,
     ) -> LogicalPositionCloseCondition | None:
+        normalized_expression = expression or {}
+        normalized_metadata = normalize_position_rule(
+            purpose=str(purpose),
+            expression=normalized_expression,
+            enabled=enabled,
+            metadata=metadata,
+        )
         condition = LogicalPositionCloseCondition(
             id=id,
             position_id=position_id,
             purpose=purpose,
-            expression_json=_json_dumps(expression or {}),
+            expression_json=_json_dumps(normalized_expression),
             enabled=enabled,
-            metadata_json=_json_dumps(metadata or {}),
+            metadata_json=_json_dumps(normalized_metadata),
         )
         saved_id = self.save_close_condition(condition)
         return None if saved_id is None else condition
@@ -1812,14 +1853,19 @@ class LogicalPositionStore:
         condition = self.get_close_condition(position_id, condition_id)
         if condition is None:
             return None
-        if purpose is not None:
-            condition.purpose = purpose
-        if expression is not None:
-            condition.expression_json = _json_dumps(expression)
-        if enabled is not None:
-            condition.enabled = enabled
-        if metadata is not None:
-            condition.metadata_json = _json_dumps(metadata)
+        next_purpose = str(purpose if purpose is not None else condition.purpose)
+        next_expression = expression if expression is not None else condition.expression
+        next_enabled = enabled if enabled is not None else condition.enabled
+        next_metadata = metadata if metadata is not None else condition.metadata
+        condition.purpose = next_purpose
+        condition.expression_json = _json_dumps(next_expression)
+        condition.enabled = next_enabled
+        condition.metadata_json = _json_dumps(normalize_position_rule(
+            purpose=next_purpose,
+            expression=next_expression,
+            enabled=next_enabled,
+            metadata=next_metadata,
+        ))
         self.save_close_condition(condition)
         return self.get_close_condition(position_id, condition_id)
 

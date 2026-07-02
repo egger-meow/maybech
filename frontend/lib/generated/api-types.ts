@@ -69,6 +69,14 @@ export type CandleResponse = {
   "confirmed": boolean;
 };
 
+export type CanonicalPositionRuleResponse = {
+  "purpose": "stop_loss" | "take_profit" | "trailing" | "break_even" | "manual_review" | "exit";
+  "expression": Record<string, unknown>;
+  "enabled"?: boolean;
+  "metadata"?: Record<string, unknown>;
+  "rule_definition": PositionRuleDefinitionResponse;
+};
+
 export type ConfirmedPositionFillCreate = {
   "fill_id": string;
   "action": "open" | "reduce" | "close";
@@ -320,6 +328,7 @@ export type LogicalPositionCloseConditionResponse = {
   "position_id": string;
   "created_at": string;
   "updated_at": string;
+  "rule_definition": PositionRuleDefinitionResponse;
 };
 
 export type LogicalPositionCloseConditionUpdate = {
@@ -488,6 +497,8 @@ export type NotificationTestResponse = {
 export type PositionBreakEvenCommand = {
   "confirm": true;
   "condition_id": string;
+  "expected_position_updated_at": string;
+  "expected_condition_updated_at": string;
   "lock_in_pct"?: number;
   "reason"?: string;
 };
@@ -540,11 +551,43 @@ export type PositionRecoveryAdoptionCommand = {
   "reason"?: string;
 };
 
+export type PositionRiskStopPromotionCommand = {
+  "mode": "fixed_loss" | "chart_anchored";
+  "entry_price": string;
+  "side": "long" | "short";
+  "allowed_loss_usdt": string;
+  "position_notional_usdt"?: string | null;
+  "stop_price"?: string | null;
+  "timeframe"?: string | null;
+  "evidence"?: Record<string, unknown>;
+  "confirm": true;
+  "expected_position_updated_at": string;
+  "expected_condition_updated_at"?: string | null;
+  "condition_id"?: string | null;
+  "reason"?: string;
+};
+
+export type PositionRuleActionResponse = {
+  "type": "close_position" | "reduce_position" | "amend_stop" | "require_manual_review";
+  "quantity_fraction"?: number | null;
+};
+
 export type PositionRuleCreate = {
   "target"?: string;
   "metric"?: "price" | "pnl_pct" | "velocity_1m" | "velocity_5m" | "velocity_10m";
   "operator"?: "greater_than" | "less_than";
   "value"?: number;
+};
+
+export type PositionRuleDefinitionResponse = {
+  "schema_version": 1;
+  "purpose": "stop_loss" | "take_profit" | "trailing" | "break_even" | "manual_review" | "exit";
+  "style": string;
+  "enabled": boolean;
+  "trigger": Record<string, unknown>;
+  "action": PositionRuleActionResponse;
+  "parameters"?: Record<string, unknown>;
+  "evidence"?: Record<string, unknown>;
 };
 
 export type PositionRuleResponse = {
@@ -558,6 +601,8 @@ export type PositionRuleResponse = {
 export type PositionStopAmendCommand = {
   "confirm": true;
   "condition_id": string;
+  "expected_position_updated_at": string;
+  "expected_condition_updated_at": string;
   "expression": Record<string, unknown>;
   "reason": string;
 };
@@ -723,6 +768,11 @@ export type StrategyDecisionResponse = {
   "completed_at"?: string | null;
 };
 
+export type StrategyDefaultRulesResponse = {
+  "rule_schema_version"?: 1;
+  "close_conditions"?: CanonicalPositionRuleResponse[];
+};
+
 export type StrategyDeleteCommand = {
   "confirm": true;
   "expected_updated_at": string;
@@ -731,6 +781,20 @@ export type StrategyDeleteCommand = {
 export type StrategyEnableCommand = {
   "confirm": true;
   "expected_updated_at": string;
+};
+
+export type StrategyRiskStopPromotionCommand = {
+  "mode": "fixed_loss" | "chart_anchored";
+  "entry_price": string;
+  "side": "long" | "short";
+  "allowed_loss_usdt": string;
+  "position_notional_usdt"?: string | null;
+  "stop_price"?: string | null;
+  "timeframe"?: string | null;
+  "evidence"?: Record<string, unknown>;
+  "confirm": true;
+  "expected_updated_at": string;
+  "inst_id": string;
 };
 
 export type StrategyRuntimeResponse = {
@@ -748,7 +812,7 @@ export type StrategySummaryResponse = {
   "readiness"?: "ready" | "disabled" | "blocked" | "unknown";
   "target_instruments"?: string[];
   "entry_signal"?: Record<string, unknown>;
-  "default_rules"?: Record<string, unknown>;
+  "default_rules"?: StrategyDefaultRulesResponse;
   "metadata"?: Record<string, unknown>;
   "execution_delay_seconds"?: number;
   "signal_expressions"?: SignalExpressionResponse[];
@@ -858,6 +922,7 @@ export type ApiSchemas = {
   "AuditEventResponse": AuditEventResponse;
   "BTCRegimeResponse": BTCRegimeResponse;
   "CandleResponse": CandleResponse;
+  "CanonicalPositionRuleResponse": CanonicalPositionRuleResponse;
   "ConfirmedPositionFillCreate": ConfirmedPositionFillCreate;
   "ConfirmedPositionFillResponse": ConfirmedPositionFillResponse;
   "EntryControlCommand": EntryControlCommand;
@@ -902,7 +967,10 @@ export type ApiSchemas = {
   "PositionIntentResponse": PositionIntentResponse;
   "PositionProtectionCommand": PositionProtectionCommand;
   "PositionRecoveryAdoptionCommand": PositionRecoveryAdoptionCommand;
+  "PositionRiskStopPromotionCommand": PositionRiskStopPromotionCommand;
+  "PositionRuleActionResponse": PositionRuleActionResponse;
   "PositionRuleCreate": PositionRuleCreate;
+  "PositionRuleDefinitionResponse": PositionRuleDefinitionResponse;
   "PositionRuleResponse": PositionRuleResponse;
   "PositionStopAmendCommand": PositionStopAmendCommand;
   "RuleGroupCreate": RuleGroupCreate;
@@ -923,8 +991,10 @@ export type ApiSchemas = {
   "SignalValidationResponse": SignalValidationResponse;
   "StrategyCreate": StrategyCreate;
   "StrategyDecisionResponse": StrategyDecisionResponse;
+  "StrategyDefaultRulesResponse": StrategyDefaultRulesResponse;
   "StrategyDeleteCommand": StrategyDeleteCommand;
   "StrategyEnableCommand": StrategyEnableCommand;
+  "StrategyRiskStopPromotionCommand": StrategyRiskStopPromotionCommand;
   "StrategyRuntimeResponse": StrategyRuntimeResponse;
   "StrategySummaryResponse": StrategySummaryResponse;
   "StrategyUpdate": StrategyUpdate;

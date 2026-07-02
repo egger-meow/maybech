@@ -2203,7 +2203,7 @@ def test_api_manages_logical_position_close_conditions(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
-    client = TestClient(create_app(DaemonRunner()))
+    client = TestClient(create_app(DaemonRunner(), api_token=""))
     position_version = position_store.get("unit-a").updated_at
 
     unconfirmed_create = client.post(
@@ -2412,7 +2412,7 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
     exchange = AmendClient()
     monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
     monkeypatch.setattr("src.api.app.OKXClient", lambda: exchange)
-    client = TestClient(create_app(DaemonRunner()))
+    client = TestClient(create_app(DaemonRunner(), api_token=""))
     path = f"/positions/logical/protected-unit/close-conditions/{condition.id}"
 
     generic = client.patch(
@@ -2440,8 +2440,23 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
         json={
             "confirm": True,
             "condition_id": condition.id,
+            "expected_position_updated_at": position_store.get("protected-unit").updated_at,
+            "expected_condition_updated_at": condition.updated_at,
             "expression": {"type": "price_below", "symbol": "self", "value": 2850},
             "reason": "tighten operator stop",
+        },
+    )
+    amended_body = amended.json()
+    amended_condition = amended_body["close_conditions"][0]
+    stale_amend = client.post(
+        "/positions/logical/protected-unit/protection/stop",
+        json={
+            "confirm": True,
+            "condition_id": condition.id,
+            "expected_position_updated_at": "stale-position",
+            "expected_condition_updated_at": condition.updated_at,
+            "expression": {"type": "price_below", "symbol": "self", "value": 2800},
+            "reason": "stale stop review",
         },
     )
     unconfirmed_break_even = client.post(
@@ -2458,6 +2473,8 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
         json={
             "confirm": True,
             "condition_id": condition.id,
+            "expected_position_updated_at": amended_body["updated_at"],
+            "expected_condition_updated_at": amended_condition["updated_at"],
             "lock_in_pct": 0,
             "reason": "protect entry",
         },
@@ -2466,6 +2483,7 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
     assert generic.status_code == 409
     assert unconfirmed.status_code == 422
     assert amended.status_code == 200
+    assert stale_amend.status_code == 409
     assert unconfirmed_break_even.status_code == 422
     assert break_even.status_code == 200
     assert break_even.json()["protection"]["status"] == "active"

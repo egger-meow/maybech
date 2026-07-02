@@ -4,7 +4,7 @@ from src.trading.strategy_store import PendingStrategyExecution, StrategyRecord,
 def test_strategy_store_records_schema_version(tmp_path):
     store = StrategyStore(str(tmp_path / "strategies.db"))
 
-    assert store.applied_schema_versions() == [1, 2, 3, 4]
+    assert store.applied_schema_versions() == [1, 2, 3, 4, 5]
 
 
 def test_strategy_store_creates_updates_and_lists_records(tmp_path):
@@ -82,7 +82,7 @@ def test_strategy_store_v3_migration_removes_legacy_momentum_records(tmp_path):
     migrated = StrategyStore(store.db_path)
 
     assert migrated.get("legacy-momentum") is None
-    assert migrated.applied_schema_versions() == [1, 2, 3, 4]
+    assert migrated.applied_schema_versions() == [1, 2, 3, 4, 5]
 
 
 def test_strategy_store_signal_expressions_follow_parent_strategy(tmp_path):

@@ -80,6 +80,8 @@ from src.api.schemas import (
     InstrumentSizeQuoteResponse,
     InstrumentRiskQuoteRequest,
     InstrumentRiskQuoteResponse,
+    StrategyRiskStopPromotionCommand,
+    PositionRiskStopPromotionCommand,
     LivePreflightResponse,
     LogicalPositionUnitResponse,
     ManualPositionOpenRequest,
@@ -248,6 +250,7 @@ def _close_condition_response(
         expression=condition.expression,
         enabled=condition.enabled,
         metadata=condition.metadata,
+        rule_definition=condition.metadata["rule_definition"],
         created_at=condition.created_at,
         updated_at=condition.updated_at,
     )
@@ -780,6 +783,33 @@ def create_app(
             raise HTTPException(status_code=409, detail="Live Safe disables all order mutations")
         return OKXClient()
 
+    def build_risk_quote(inst_id: str, payload: InstrumentRiskQuoteRequest):
+        metadata_store = InstrumentMetadataStore()
+        metadata = metadata_store.get(inst_id)
+        if metadata is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Cached OKX metadata for {inst_id} is unavailable",
+            )
+        if metadata_store.cache_status(inst_type="SWAP")["stale"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Cached OKX instrument metadata is stale; refresh is required",
+            )
+        try:
+            return InstrumentSizer(metadata).quote_risk(
+                mode=payload.mode,
+                entry_price=payload.entry_price,
+                side=payload.side,
+                allowed_loss_usdt=payload.allowed_loss_usdt,
+                position_notional_usdt=payload.position_notional_usdt,
+                stop_price=payload.stop_price,
+                timeframe=payload.timeframe,
+                evidence=payload.evidence,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     app = FastAPI(title="Maybech Runtime API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
@@ -1182,31 +1212,7 @@ def create_app(
         inst_id: str,
         payload: InstrumentRiskQuoteRequest,
     ) -> InstrumentRiskQuoteResponse:
-        store = InstrumentMetadataStore()
-        metadata = store.get(inst_id)
-        if metadata is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Cached OKX metadata for {inst_id} is unavailable",
-            )
-        if store.cache_status(inst_type="SWAP")["stale"]:
-            raise HTTPException(
-                status_code=409,
-                detail="Cached OKX instrument metadata is stale; refresh is required",
-            )
-        try:
-            quote = InstrumentSizer(metadata).quote_risk(
-                mode=payload.mode,
-                entry_price=payload.entry_price,
-                side=payload.side,
-                allowed_loss_usdt=payload.allowed_loss_usdt,
-                position_notional_usdt=payload.position_notional_usdt,
-                stop_price=payload.stop_price,
-                timeframe=payload.timeframe,
-                evidence=payload.evidence,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        quote = build_risk_quote(inst_id, payload)
         return InstrumentRiskQuoteResponse(**quote.to_dict())
 
     @app.get("/risk/entries", response_model=EntryControlResponse)
@@ -1575,6 +1581,78 @@ def create_app(
                 payload={
                     "strategy_id": strategy.id,
                     "after": _strategy_definition_payload(strategy),
+                },
+                connection=connection,
+            )
+        return _strategy_summary(runner, strategy, store)
+
+    @app.post(
+        "/strategies/{strategy_id}/risk-stop",
+        response_model=StrategySummaryResponse,
+    )
+    def promote_strategy_risk_stop(
+        strategy_id: str,
+        payload: StrategyRiskStopPromotionCommand,
+    ) -> StrategySummaryResponse:
+        quote = build_risk_quote(payload.inst_id, payload)
+        store = StrategyStore()
+        audit_store = AuditEventStore(store.db_path)
+        with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
+            previous = store.get(strategy_id)
+            if previous is None:
+                raise HTTPException(status_code=404, detail="Strategy not found")
+            if previous.updated_at != payload.expected_updated_at:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Strategy changed since risk stop review",
+                        "current_updated_at": previous.updated_at,
+                    },
+                )
+            if previous.target_instruments != [payload.inst_id]:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Risk stop promotion requires exactly one matching strategy instrument",
+                )
+            conditions = previous.default_rules.get("close_conditions")
+            retained = [
+                item for item in conditions or []
+                if isinstance(item, dict) and item.get("purpose") != "stop_loss"
+            ]
+            quote_payload = quote.to_dict()
+            retained.insert(0, {
+                "purpose": "stop_loss",
+                "enabled": True,
+                "expression": quote.stop_expression,
+                "metadata": {
+                    "evidence": {
+                        **quote.evidence,
+                        "promotion_target": "strategy_default",
+                        "risk_quote": quote_payload,
+                    },
+                },
+            })
+            defaults = {
+                **previous.default_rules,
+                "close_conditions": retained,
+            }
+            strategy = store.update(
+                strategy_id,
+                default_rules=defaults,
+                enabled=False if previous.enabled else None,
+            )
+            if strategy is None:
+                raise HTTPException(status_code=404, detail="Strategy not found")
+            _record_definition_audit(
+                audit_store,
+                event_type="strategy.risk_stop_promoted",
+                payload={
+                    "strategy_id": strategy_id,
+                    "inst_id": payload.inst_id,
+                    "before": _strategy_definition_payload(previous),
+                    "after": _strategy_definition_payload(strategy),
+                    "risk_quote": quote_payload,
+                    "strategy_auto_disabled": previous.enabled,
                 },
                 connection=connection,
             )
@@ -2354,6 +2432,147 @@ def create_app(
         )
 
     @app.post(
+        "/positions/logical/{position_id}/risk-stop",
+        response_model=LogicalPositionUnitResponse,
+    )
+    def promote_logical_position_risk_stop(
+        position_id: str,
+        payload: PositionRiskStopPromotionCommand,
+    ) -> LogicalPositionUnitResponse:
+        trade_store = TradeStore()
+        position_store = LogicalPositionStore(trade_store.db_path)
+        position = position_store.get(position_id)
+        if position is None:
+            raise HTTPException(status_code=404, detail="Logical position not found")
+        if position.updated_at != payload.expected_position_updated_at:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Logical position changed since risk stop review",
+                    "current_updated_at": position.updated_at,
+                },
+            )
+        quote = build_risk_quote(position.inst_id, payload)
+        if payload.side != position.side or quote.size.entry_price != Decimal(str(position.entry_price)):
+            raise HTTPException(
+                status_code=409,
+                detail="Risk stop review must use the position's persisted side and entry price",
+            )
+        remaining = Decimal(str(position.remaining_quantity or position.opened_quantity or 0))
+        if Decimal(str(quote.size.api_quantity_contracts)) != remaining:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Risk quote size does not equal the existing logical position quantity; "
+                    "existing exposure cannot be silently resized"
+                ),
+            )
+        enabled_stops = [
+            item for item in position_store.list_close_conditions(position.id, enabled=True)
+            if item.purpose == "stop_loss"
+        ]
+        condition = (
+            position_store.get_close_condition(position.id, payload.condition_id)
+            if payload.condition_id
+            else enabled_stops[0] if len(enabled_stops) == 1 else None
+        )
+        if len(enabled_stops) > 1:
+            raise HTTPException(status_code=409, detail="Position has multiple enabled stop rules")
+        if condition is not None and (
+            payload.expected_condition_updated_at is None
+            or condition.updated_at != payload.expected_condition_updated_at
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Stop condition changed since risk stop review",
+                    "current_updated_at": condition.updated_at,
+                },
+            )
+        quote_payload = quote.to_dict()
+        promoted_metadata = {
+            **(condition.metadata if condition is not None else {}),
+            "evidence": {
+                **quote.evidence,
+                "promotion_target": "logical_position_override",
+                "risk_quote": quote_payload,
+            },
+        }
+        protection = position_store.get_protection(position.id)
+        if protection is not None:
+            if condition is None:
+                raise HTTPException(status_code=409, detail="Owned protection has no stop condition")
+            try:
+                position = PositionProtectionService(
+                    exchange_client(require_orders=True),
+                    position_store,
+                    AuditEventStore(trade_store.db_path),
+                ).amend_stop_condition(
+                    position.id,
+                    condition.id,
+                    expression=quote.stop_expression,
+                    reason=payload.reason,
+                    condition_metadata=promoted_metadata,
+                    intent_metadata={
+                        "operation": "risk_stop_promotion",
+                        "risk_quote": quote_payload,
+                    },
+                    expected_position_updated_at=payload.expected_position_updated_at,
+                    expected_condition_updated_at=payload.expected_condition_updated_at,
+                )
+            except PositionProtectionError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+        else:
+            audit_store = AuditEventStore(trade_store.db_path)
+            with ENTRY_EXECUTION_LOCK, position_store.transaction() as connection:
+                current = position_store.get(position.id)
+                if current is None:
+                    raise HTTPException(status_code=404, detail="Logical position not found")
+                if current.updated_at != payload.expected_position_updated_at:
+                    raise HTTPException(status_code=409, detail="Logical position changed since review")
+                if condition is None:
+                    condition = position_store.create_close_condition(
+                        position_id=position.id,
+                        purpose="stop_loss",
+                        expression=quote.stop_expression,
+                        enabled=True,
+                        metadata=promoted_metadata,
+                    )
+                else:
+                    current_condition = position_store.get_close_condition(position.id, condition.id)
+                    if current_condition is None or current_condition.updated_at != payload.expected_condition_updated_at:
+                        raise HTTPException(status_code=409, detail="Stop condition changed since review")
+                    condition = position_store.update_close_condition(
+                        position.id,
+                        condition.id,
+                        expression=quote.stop_expression,
+                        enabled=True,
+                        metadata=promoted_metadata,
+                    )
+                if condition is None:
+                    raise HTTPException(status_code=409, detail="Risk stop could not be persisted")
+                _record_definition_audit(
+                    audit_store,
+                    event_type="position.risk_stop_promoted",
+                    payload={
+                        "position_id": position.id,
+                        "strategy_id": position.strategy_id,
+                        "condition_id": condition.id,
+                        "risk_quote": quote_payload,
+                    },
+                    connection=connection,
+                )
+                position = current
+        return _logical_position_response(
+            store=trade_store,
+            position_store=position_store,
+            position=position,
+            account_snapshot=runner.runtime.get_value("account.snapshot") or {},
+            intents=runner.runtime.get_value("position.intents") or [],
+            audit_events=runner.runtime.events.recent(limit=100),
+        )
+
+    @app.post(
         "/positions/logical/{position_id}/protection/stop",
         response_model=LogicalPositionUnitResponse,
     )
@@ -2374,6 +2593,8 @@ def create_app(
                 payload.condition_id,
                 expression=payload.expression,
                 reason=payload.reason,
+                expected_position_updated_at=payload.expected_position_updated_at,
+                expected_condition_updated_at=payload.expected_condition_updated_at,
             )
         except PositionProtectionError as exc:
             protection = position_store.get_protection(position_id)
@@ -2413,6 +2634,8 @@ def create_app(
                 payload.condition_id,
                 lock_in_pct=Decimal(str(payload.lock_in_pct)),
                 reason=payload.reason,
+                expected_position_updated_at=payload.expected_position_updated_at,
+                expected_condition_updated_at=payload.expected_condition_updated_at,
             )
         except PositionProtectionError as exc:
             protection = position_store.get_protection(position_id)

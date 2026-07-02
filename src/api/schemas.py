@@ -202,6 +202,20 @@ class InstrumentRiskQuoteResponse(InstrumentSizeQuoteResponse):
     evidence: dict[str, Any]
 
 
+class StrategyRiskStopPromotionCommand(InstrumentRiskQuoteRequest):
+    confirm: Literal[True]
+    expected_updated_at: str = Field(min_length=1)
+    inst_id: str = Field(min_length=1, max_length=64)
+
+
+class PositionRiskStopPromotionCommand(InstrumentRiskQuoteRequest):
+    confirm: Literal[True]
+    expected_position_updated_at: str = Field(min_length=1)
+    expected_condition_updated_at: str | None = Field(default=None, min_length=1)
+    condition_id: str | None = Field(default=None, min_length=1, max_length=128)
+    reason: str = Field(default="operator promoted reviewed risk stop", min_length=1, max_length=256)
+
+
 class EntryControlCommand(BaseModel):
     confirm: Literal[True]
 
@@ -584,6 +598,44 @@ class MutationStatusResponse(BaseModel):
     id: str
 
 
+class PositionRuleActionResponse(BaseModel):
+    type: Literal["close_position", "reduce_position", "amend_stop", "require_manual_review"]
+    quantity_fraction: float | None = None
+
+
+class PositionRuleDefinitionResponse(BaseModel):
+    schema_version: Literal[1]
+    purpose: Literal["stop_loss", "take_profit", "trailing", "break_even", "manual_review", "exit"]
+    style: str
+    enabled: bool
+    trigger: dict[str, Any]
+    action: PositionRuleActionResponse
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class CanonicalPositionRuleResponse(BaseModel):
+    purpose: Literal["stop_loss", "take_profit", "trailing", "break_even", "manual_review", "exit"]
+    expression: dict[str, Any]
+    enabled: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    rule_definition: PositionRuleDefinitionResponse
+
+    @model_validator(mode="before")
+    @classmethod
+    def expose_rule_definition(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "rule_definition" not in value:
+            metadata = value.get("metadata")
+            if isinstance(metadata, dict) and isinstance(metadata.get("rule_definition"), dict):
+                return {**value, "rule_definition": metadata["rule_definition"]}
+        return value
+
+
+class StrategyDefaultRulesResponse(BaseModel):
+    rule_schema_version: Literal[1] = 1
+    close_conditions: list[CanonicalPositionRuleResponse] = Field(default_factory=list)
+
+
 class LogicalPositionCloseConditionCreate(BaseModel):
     purpose: Literal["stop_loss", "take_profit", "trailing", "break_even", "manual_review", "exit"] | str = "exit"
     expression: dict[str, Any] = Field(default_factory=dict)
@@ -614,6 +666,7 @@ class LogicalPositionCloseConditionResponse(LogicalPositionCloseConditionCreate)
     position_id: str
     created_at: str
     updated_at: str
+    rule_definition: PositionRuleDefinitionResponse
 
 
 class ConfirmedPositionFillCreate(BaseModel):
@@ -741,6 +794,8 @@ class PositionRecoveryAdoptionCommand(BaseModel):
 class PositionStopAmendCommand(BaseModel):
     confirm: Literal[True]
     condition_id: str = Field(min_length=1, max_length=128)
+    expected_position_updated_at: str = Field(min_length=1)
+    expected_condition_updated_at: str = Field(min_length=1)
     expression: dict[str, Any]
     reason: str = Field(min_length=1, max_length=256)
 
@@ -748,6 +803,8 @@ class PositionStopAmendCommand(BaseModel):
 class PositionBreakEvenCommand(BaseModel):
     confirm: Literal[True]
     condition_id: str = Field(min_length=1, max_length=128)
+    expected_position_updated_at: str = Field(min_length=1)
+    expected_condition_updated_at: str = Field(min_length=1)
     lock_in_pct: float = Field(default=0, ge=0, le=0.05)
     reason: str = Field(default="operator break-even", min_length=1, max_length=256)
 
@@ -816,7 +873,7 @@ class StrategySummaryResponse(BaseModel):
     readiness: Literal["ready", "disabled", "blocked", "unknown"] = "unknown"
     target_instruments: list[str] = Field(default_factory=list)
     entry_signal: dict[str, Any] = Field(default_factory=dict)
-    default_rules: dict[str, Any] = Field(default_factory=dict)
+    default_rules: StrategyDefaultRulesResponse = Field(default_factory=StrategyDefaultRulesResponse)
     metadata: dict[str, Any] = Field(default_factory=dict)
     execution_delay_seconds: int = 0
     signal_expressions: list[SignalExpressionResponse] = Field(default_factory=list)

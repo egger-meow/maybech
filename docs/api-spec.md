@@ -38,6 +38,8 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /instruments`
 - `POST /instruments/refresh`
 - `POST /instruments/{inst_id}/risk-quote`
+- `POST /strategies/{strategy_id}/risk-stop`
+- `POST /positions/logical/{position_id}/risk-stop`
 - `POST /risk/entries/enable`
 - `POST /risk/entries/kill`
 - `GET /events`
@@ -84,6 +86,16 @@ confidence slightly but never acts as an authority. A short process-local cache 
 always marks results `research_only=true` and `eligible_as_live_rule=false`;
 turning a proposed level into a trading rule requires a separate persisted,
 revision-protected operator mutation.
+
+All newly persisted strategy default rules and logical-position overrides use
+canonical rule schema version `1`: purpose, style, enabled state, trigger,
+typed action, parameters, and structured evidence. Strategy schema migration
+`5` and logical-position migration `7` backfill valid legacy rules. Promotion
+recalculates the risk quote server-side and requires explicit confirmation plus
+the reviewed revision. Strategy promotion requires one matching instrument and
+automatically disables an enabled strategy. Position promotion requires the
+derived contract quantity to equal current remaining exposure; owned live
+protection continues through the confirmed exchange-amend lifecycle.
 
 `GET /runtime/preflight` reports whether startup checks passed, whether order
 placement is armed, the four-mode contract, OKX account and position mode, and
@@ -365,6 +377,8 @@ The Position Management page has a logical-position contract now:
   beyond the directionally rounded target. The operation then uses the same
   durable, verified stop-amend lifecycle and stores break-even evidence on the
   condition and audit event.
+  Stop-amend and break-even commands are bound to both the reviewed logical
+  position revision and stop-condition revision before any exchange mutation.
 
 - `GET /positions/logical`: list current logical position units persisted in
   SQLite, with compatibility backfill from `TradeStore` records, first-class

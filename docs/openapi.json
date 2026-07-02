@@ -389,6 +389,47 @@
         "title": "CandleResponse",
         "type": "object"
       },
+      "CanonicalPositionRuleResponse": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expression": {
+            "additionalProperties": true,
+            "title": "Expression",
+            "type": "object"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "purpose": {
+            "enum": [
+              "stop_loss",
+              "take_profit",
+              "trailing",
+              "break_even",
+              "manual_review",
+              "exit"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "rule_definition": {
+            "$ref": "#/components/schemas/PositionRuleDefinitionResponse"
+          }
+        },
+        "required": [
+          "purpose",
+          "expression",
+          "rule_definition"
+        ],
+        "title": "CanonicalPositionRuleResponse",
+        "type": "object"
+      },
       "ConfirmedPositionFillCreate": {
         "properties": {
           "action": {
@@ -1732,6 +1773,9 @@
             "default": "exit",
             "title": "Purpose"
           },
+          "rule_definition": {
+            "$ref": "#/components/schemas/PositionRuleDefinitionResponse"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "string"
@@ -1741,7 +1785,8 @@
           "id",
           "position_id",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "rule_definition"
         ],
         "title": "LogicalPositionCloseConditionResponse",
         "type": "object"
@@ -2800,6 +2845,16 @@
             "title": "Confirm",
             "type": "boolean"
           },
+          "expected_condition_updated_at": {
+            "minLength": 1,
+            "title": "Expected Condition Updated At",
+            "type": "string"
+          },
+          "expected_position_updated_at": {
+            "minLength": 1,
+            "title": "Expected Position Updated At",
+            "type": "string"
+          },
           "lock_in_pct": {
             "default": 0,
             "maximum": 0.05,
@@ -2817,7 +2872,9 @@
         },
         "required": [
           "confirm",
-          "condition_id"
+          "condition_id",
+          "expected_position_updated_at",
+          "expected_condition_updated_at"
         ],
         "title": "PositionBreakEvenCommand",
         "type": "object"
@@ -3144,6 +3201,164 @@
         "title": "PositionRecoveryAdoptionCommand",
         "type": "object"
       },
+      "PositionRiskStopPromotionCommand": {
+        "properties": {
+          "allowed_loss_usdt": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Allowed Loss Usdt",
+            "type": "string"
+          },
+          "condition_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Id"
+          },
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "entry_price": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entry Price",
+            "type": "string"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "expected_condition_updated_at": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Condition Updated At"
+          },
+          "expected_position_updated_at": {
+            "minLength": 1,
+            "title": "Expected Position Updated At",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "fixed_loss",
+              "chart_anchored"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "position_notional_usdt": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Notional Usdt"
+          },
+          "reason": {
+            "default": "operator promoted reviewed risk stop",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "side": {
+            "enum": [
+              "long",
+              "short"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Price"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframe"
+          }
+        },
+        "required": [
+          "mode",
+          "entry_price",
+          "side",
+          "allowed_loss_usdt",
+          "confirm",
+          "expected_position_updated_at"
+        ],
+        "title": "PositionRiskStopPromotionCommand",
+        "type": "object"
+      },
+      "PositionRuleActionResponse": {
+        "properties": {
+          "quantity_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Fraction"
+          },
+          "type": {
+            "enum": [
+              "close_position",
+              "reduce_position",
+              "amend_stop",
+              "require_manual_review"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "PositionRuleActionResponse",
+        "type": "object"
+      },
       "PositionRuleCreate": {
         "properties": {
           "metric": {
@@ -3179,6 +3394,63 @@
           }
         },
         "title": "PositionRuleCreate",
+        "type": "object"
+      },
+      "PositionRuleDefinitionResponse": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/PositionRuleActionResponse"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "purpose": {
+            "enum": [
+              "stop_loss",
+              "take_profit",
+              "trailing",
+              "break_even",
+              "manual_review",
+              "exit"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "style": {
+            "title": "Style",
+            "type": "string"
+          },
+          "trigger": {
+            "additionalProperties": true,
+            "title": "Trigger",
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema_version",
+          "purpose",
+          "style",
+          "enabled",
+          "trigger",
+          "action"
+        ],
+        "title": "PositionRuleDefinitionResponse",
         "type": "object"
       },
       "PositionRuleResponse": {
@@ -3238,6 +3510,16 @@
             "title": "Confirm",
             "type": "boolean"
           },
+          "expected_condition_updated_at": {
+            "minLength": 1,
+            "title": "Expected Condition Updated At",
+            "type": "string"
+          },
+          "expected_position_updated_at": {
+            "minLength": 1,
+            "title": "Expected Position Updated At",
+            "type": "string"
+          },
           "expression": {
             "additionalProperties": true,
             "title": "Expression",
@@ -3253,6 +3535,8 @@
         "required": [
           "confirm",
           "condition_id",
+          "expected_position_updated_at",
+          "expected_condition_updated_at",
           "expression",
           "reason"
         ],
@@ -4182,6 +4466,25 @@
         "title": "StrategyDecisionResponse",
         "type": "object"
       },
+      "StrategyDefaultRulesResponse": {
+        "properties": {
+          "close_conditions": {
+            "items": {
+              "$ref": "#/components/schemas/CanonicalPositionRuleResponse"
+            },
+            "title": "Close Conditions",
+            "type": "array"
+          },
+          "rule_schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Rule Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "StrategyDefaultRulesResponse",
+        "type": "object"
+      },
       "StrategyDeleteCommand": {
         "properties": {
           "confirm": {
@@ -4220,6 +4523,109 @@
           "expected_updated_at"
         ],
         "title": "StrategyEnableCommand",
+        "type": "object"
+      },
+      "StrategyRiskStopPromotionCommand": {
+        "properties": {
+          "allowed_loss_usdt": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Allowed Loss Usdt",
+            "type": "string"
+          },
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "entry_price": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entry Price",
+            "type": "string"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "expected_updated_at": {
+            "minLength": 1,
+            "title": "Expected Updated At",
+            "type": "string"
+          },
+          "inst_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "fixed_loss",
+              "chart_anchored"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "position_notional_usdt": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Notional Usdt"
+          },
+          "side": {
+            "enum": [
+              "long",
+              "short"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Price"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframe"
+          }
+        },
+        "required": [
+          "mode",
+          "entry_price",
+          "side",
+          "allowed_loss_usdt",
+          "confirm",
+          "expected_updated_at",
+          "inst_id"
+        ],
+        "title": "StrategyRiskStopPromotionCommand",
         "type": "object"
       },
       "StrategyRuntimeResponse": {
@@ -4278,9 +4684,7 @@
             "title": "Created At"
           },
           "default_rules": {
-            "additionalProperties": true,
-            "title": "Default Rules",
-            "type": "object"
+            "$ref": "#/components/schemas/StrategyDefaultRulesResponse"
           },
           "enabled": {
             "title": "Enabled",
@@ -6604,6 +7008,55 @@
         "summary": "Reduce Logical Position"
       }
     },
+    "/positions/logical/{position_id}/risk-stop": {
+      "post": {
+        "operationId": "promote_logical_position_risk_stop_positions_logical__position_id__risk_stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PositionRiskStopPromotionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogicalPositionUnitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Promote Logical Position Risk Stop"
+      }
+    },
     "/positions/manual-open": {
       "post": {
         "operationId": "manual_open_position_positions_manual_open_post",
@@ -7547,6 +8000,55 @@
           }
         },
         "summary": "Enable Strategy"
+      }
+    },
+    "/strategies/{strategy_id}/risk-stop": {
+      "post": {
+        "operationId": "promote_strategy_risk_stop_strategies__strategy_id__risk_stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "title": "Strategy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyRiskStopPromotionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategySummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Promote Strategy Risk Stop"
       }
     },
     "/strategies/{strategy_id}/signals": {

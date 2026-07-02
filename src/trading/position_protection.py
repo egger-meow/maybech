@@ -50,6 +50,8 @@ class PositionProtectionService:
         reason: str,
         condition_metadata: dict[str, Any] | None = None,
         intent_metadata: dict[str, Any] | None = None,
+        expected_position_updated_at: str | None = None,
+        expected_condition_updated_at: str | None = None,
     ) -> LogicalPositionRecord:
         """Amend one owned exchange stop before publishing its new rule value."""
         with ENTRY_EXECUTION_LOCK:
@@ -66,6 +68,10 @@ class PositionProtectionService:
                 raise PositionProtectionError(f"protection is {protection.status}")
             if condition is None:
                 raise PositionProtectionError("close condition not found")
+            if expected_position_updated_at is not None and position.updated_at != expected_position_updated_at:
+                raise PositionProtectionError("logical position changed since stop review")
+            if expected_condition_updated_at is not None and condition.updated_at != expected_condition_updated_at:
+                raise PositionProtectionError("stop condition changed since stop review")
             if condition.purpose != "stop_loss" or not condition.enabled:
                 raise PositionProtectionError(
                     "condition must be the enabled stop_loss owned by protection"
@@ -242,6 +248,8 @@ class PositionProtectionService:
         *,
         lock_in_pct: Decimal,
         reason: str,
+        expected_position_updated_at: str | None = None,
+        expected_condition_updated_at: str | None = None,
     ) -> LogicalPositionRecord:
         """Move an owned stop to entry or a side-consistent protected profit."""
         with ENTRY_EXECUTION_LOCK:
@@ -316,6 +324,8 @@ class PositionProtectionService:
                 reason=reason,
                 condition_metadata={"break_even": break_even},
                 intent_metadata={"operation": "break_even", "break_even": break_even},
+                expected_position_updated_at=expected_position_updated_at,
+                expected_condition_updated_at=expected_condition_updated_at,
             )
 
     def protect(self, position_id: str) -> LogicalPositionRecord:

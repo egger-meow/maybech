@@ -205,7 +205,7 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
       const normalized = validation.normalized ?? expression;
       if (ownedStop && condition) {
         if (!confirm("此停損擁有真實 OKX 保護單。系統會先驗證舊保護，再修改並確認新價位；確定繼續？")) return;
-        await amendLogicalPositionStop(position.id, { confirm: true, condition_id: condition.id, expression: normalized, reason: "operator dashboard stop edit" });
+        await amendLogicalPositionStop(position.id, { confirm: true, condition_id: condition.id, expected_position_updated_at: position.updated_at, expected_condition_updated_at: condition.updated_at, expression: normalized, reason: "operator dashboard stop edit" });
       } else if (condition) {
         await updateLogicalPositionCloseCondition(position.id, condition.id, { expected_updated_at: condition.updated_at, purpose, enabled, expression: normalized, metadata: condition.metadata });
       } else {
@@ -289,7 +289,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
       reason: "operator adopted recovered exposure in Position Management",
     }));
   };
-  const breakEven = () => { const input = prompt("要鎖定多少獲利百分比？輸入 0 代表進場價，最大 5。", "0"); if (input === null) return; const pct = Number(input); if (!Number.isFinite(pct) || pct < 0 || pct > 5) { setError("保本鎖利百分比必須介於 0 到 5。"); return; } const stop = position.close_conditions?.find((condition) => condition.purpose === "stop_loss" && condition.enabled); if (!stop) { setError("找不到已啟用的停損條件。"); return; } if (!confirm(`將 OKX 保護停損移至進場價並鎖定 ${pct}%？`)) return; return command("break-even", () => moveLogicalPositionToBreakEven(position.id, { confirm: true, condition_id: stop.id, lock_in_pct: pct / 100, reason: "operator dashboard break-even" })); };
+  const breakEven = () => { const input = prompt("要鎖定多少獲利百分比？輸入 0 代表進場價，最大 5。", "0"); if (input === null) return; const pct = Number(input); if (!Number.isFinite(pct) || pct < 0 || pct > 5) { setError("保本鎖利百分比必須介於 0 到 5。"); return; } const stop = position.close_conditions?.find((condition) => condition.purpose === "stop_loss" && condition.enabled); if (!stop) { setError("找不到已啟用的停損條件。"); return; } if (!confirm(`將 OKX 保護停損移至進場價並鎖定 ${pct}%？`)) return; return command("break-even", () => moveLogicalPositionToBreakEven(position.id, { confirm: true, condition_id: stop.id, expected_position_updated_at: position.updated_at, expected_condition_updated_at: stop.updated_at, lock_in_pct: pct / 100, reason: "operator dashboard break-even" })); };
   return (
     <div className="position-detail">
       <section className="panel position-hero">

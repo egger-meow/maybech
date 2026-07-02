@@ -109,8 +109,13 @@ An item is necessary only if leaving it unfixed could cause one or more of these
   chart-anchored position sizing are available as non-mutating, lot-aligned
   proposals with structured stop expressions and evidence. BTC regime now
   contributes a visible, bounded confidence adjustment without becoming an
-  authority. True incremental recalculation and reviewed rule promotion
-  into strategy defaults or position overrides remain to be built.
+  authority. True incremental recalculation remains incomplete. Canonical
+  schema-v1 rules now persist the same typed purpose/style/trigger/action/
+  parameters/evidence definition for strategy defaults and position overrides,
+  with migrations for legacy records. Confirmed revision-bound backend
+  promotion is built for single-instrument strategy stops and exact-size
+  position stops; Market Analysis promotion controls and the remaining rule
+  lifecycles still need implementation.
 
   The goal is to design a coherent rule system for stop-loss, take-profit, break-even, optional trailing protection, and research-grade Support/Resistance evidence after a strategy opens a position or when the operator edits an existing logical position unit.
 
