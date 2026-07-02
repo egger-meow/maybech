@@ -196,7 +196,8 @@ The Strategy Management page has a persisted strategy definition contract now:
   logical-position history; signal-expression children cascade with it.
 - `GET /strategies/{strategy_id}/signals`: list persisted signal expressions.
 - `POST /strategies/{strategy_id}/signals`: create a persisted signal
-  expression.
+  expression with `confirm=true` and the exact
+  `expected_strategy_updated_at` parent revision.
 - `GET /strategies/{strategy_id}/signals/{expression_id}`: inspect one child
   expression.
 - `PATCH /strategies/{strategy_id}/signals/{expression_id}`: edit its purpose
@@ -209,6 +210,9 @@ The Strategy Management page has a persisted strategy definition contract now:
 Signal-expression edits and deletes automatically disable an enabled parent
 strategy if the resulting execution contract is incomplete. Strategy and
 signal mutations write durable audit evidence.
+Every child create/update/delete also advances the parent strategy revision in
+the same transaction, so a stale full-strategy editor cannot overwrite a child
+change that occurred after it loaded.
 
 An executable strategy uses this persisted shape:
 

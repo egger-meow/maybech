@@ -1679,10 +1679,32 @@ def test_api_creates_and_lists_strategy_signal_expressions(monkeypatch, tmp_path
     store.create(id="breakout", name="Breakout", enabled=True)
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
+    parent_version = store.get("breakout").updated_at
+
+    unconfirmed = client.post(
+        "/strategies/breakout/signals",
+        json={
+            "confirm": False,
+            "expected_strategy_updated_at": parent_version,
+            "purpose": "entry",
+            "expression": {"type": "price_above", "symbol": "self", "value": 1},
+        },
+    )
+    stale = client.post(
+        "/strategies/breakout/signals",
+        json={
+            "confirm": True,
+            "expected_strategy_updated_at": "stale",
+            "purpose": "entry",
+            "expression": {"type": "price_above", "symbol": "self", "value": 1},
+        },
+    )
 
     created = client.post(
         "/strategies/breakout/signals",
         json={
+            "confirm": True,
+            "expected_strategy_updated_at": parent_version,
             "purpose": "entry",
             "expression": {
                 "op": "and",
@@ -1694,11 +1716,14 @@ def test_api_creates_and_lists_strategy_signal_expressions(monkeypatch, tmp_path
     )
     listed = client.get("/strategies/breakout/signals")
 
+    assert unconfirmed.status_code == 422
+    assert stale.status_code == 409
     assert created.status_code == 201
     assert created.json()["strategy_id"] == "breakout"
     assert created.json()["expression"]["op"] == "and"
     assert listed.status_code == 200
     assert listed.json()[0]["id"] == created.json()["id"]
+    assert store.get("breakout").updated_at != parent_version
 
 
 def test_api_rejects_invalid_strategy_signal_expression(monkeypatch, tmp_path):
@@ -1709,7 +1734,12 @@ def test_api_rejects_invalid_strategy_signal_expression(monkeypatch, tmp_path):
 
     response = client.post(
         "/strategies/breakout/signals",
-        json={"purpose": "entry", "expression": {"type": "unknown_signal"}},
+        json={
+            "confirm": True,
+            "expected_strategy_updated_at": store.get("breakout").updated_at,
+            "purpose": "entry",
+            "expression": {"type": "unknown_signal"},
+        },
     )
 
     assert response.status_code == 400

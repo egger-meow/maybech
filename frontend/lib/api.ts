@@ -42,7 +42,7 @@ import type {
   ServiceStatusResponse,
   SignalEvaluationRequest,
   SignalEvaluationResponse,
-  SignalExpressionCreate,
+  SignalExpressionCreateCommand,
   SignalExpressionDeleteCommand,
   SignalExpressionResponse,
   SignalExpressionUpdate,
@@ -106,7 +106,7 @@ export type {
   ServiceStatusResponse as ServiceStatus,
   SignalEvaluationRequest,
   SignalEvaluationResponse,
-  SignalExpressionCreate,
+  SignalExpressionCreateCommand,
   SignalExpressionDeleteCommand,
   SignalExpressionResponse as SignalExpression,
   SignalExpressionUpdate,
@@ -375,7 +375,7 @@ export const listStrategySignals = (strategyId: string): Promise<SignalExpressio
 
 export const createStrategySignal = (
   strategyId: string,
-  payload: SignalExpressionCreate,
+  payload: SignalExpressionCreateCommand,
 ): Promise<SignalExpressionResponse> =>
   postData<SignalExpressionResponse>(`/strategies/${encodeURIComponent(strategyId)}/signals`, payload);
 

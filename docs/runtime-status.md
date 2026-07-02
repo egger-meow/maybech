@@ -100,6 +100,9 @@ Frontends must use `active`; there is no `state` field.
   exit expressions retain their newer value when an older editor submits.
 - Child signal deletion requires a typed confirmation body bound to that
   expression's current revision; accidental or stale DELETE requests fail.
+- Child signal creation requires confirmation against the parent strategy
+  revision. Every child mutation advances that parent revision atomically, so
+  the strategy's `updated_at` covers its full persisted definition graph.
 - `GET /positions/logical` returns typed read-only logical position units from
   `LogicalPositionStore`, with compatibility backfill from `TradeStore` records.
   These include persisted close signal conditions, legacy trade rule groups,

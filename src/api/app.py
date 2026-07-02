@@ -108,7 +108,7 @@ from src.api.schemas import (
     ServiceStatusResponse,
     SignalEvaluationRequest,
     SignalEvaluationResponse,
-    SignalExpressionCreate,
+    SignalExpressionCreateCommand,
     SignalExpressionDeleteCommand,
     SignalExpressionResponse,
     SignalExpressionUpdate,
@@ -1674,7 +1674,7 @@ def create_app(
     )
     def create_strategy_signal(
         strategy_id: str,
-        payload: SignalExpressionCreate,
+        payload: SignalExpressionCreateCommand,
     ) -> SignalExpressionResponse:
         store = StrategyStore()
         audit_store = AuditEventStore(store.db_path)
@@ -1685,6 +1685,17 @@ def create_app(
                 detail={"message": "Signal expression validation failed", "errors": validation.errors},
             )
         with store.transaction() as connection:
+            strategy = store.get(strategy_id)
+            if strategy is None:
+                raise HTTPException(status_code=404, detail="Strategy not found")
+            if payload.expected_strategy_updated_at != strategy.updated_at:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Strategy changed since child signal creation was confirmed",
+                        "current_updated_at": strategy.updated_at,
+                    },
+                )
             expression = store.create_signal_expression(
                 strategy_id=strategy_id,
                 purpose=payload.purpose,
@@ -1692,6 +1703,7 @@ def create_app(
             )
             if expression is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")
+            store.update(strategy_id)
             _record_definition_audit(
                 audit_store,
                 event_type="signal_expression.created",
@@ -1750,6 +1762,7 @@ def create_app(
             )
             if expression is None:
                 raise HTTPException(status_code=404, detail="Signal expression not found")
+            store.update(strategy_id)
             strategy = store.get(strategy_id)
             auto_disabled = False
             if strategy is not None and strategy.enabled:
@@ -1796,6 +1809,7 @@ def create_app(
                 )
             if not store.delete_signal_expression(strategy_id, expression_id):
                 raise HTTPException(status_code=404, detail="Signal expression not found")
+            store.update(strategy_id)
             strategy = store.get(strategy_id)
             auto_disabled = False
             if strategy is not None and strategy.enabled:

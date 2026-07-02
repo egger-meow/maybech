@@ -3233,8 +3233,18 @@
         "title": "SignalEvaluationResponse",
         "type": "object"
       },
-      "SignalExpressionCreate": {
+      "SignalExpressionCreateCommand": {
         "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "expected_strategy_updated_at": {
+            "minLength": 1,
+            "title": "Expected Strategy Updated At",
+            "type": "string"
+          },
           "expression": {
             "additionalProperties": true,
             "title": "Expression",
@@ -3258,7 +3268,11 @@
             "title": "Purpose"
           }
         },
-        "title": "SignalExpressionCreate",
+        "required": [
+          "confirm",
+          "expected_strategy_updated_at"
+        ],
+        "title": "SignalExpressionCreateCommand",
         "type": "object"
       },
       "SignalExpressionDeleteCommand": {
@@ -6929,7 +6943,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SignalExpressionCreate"
+                "$ref": "#/components/schemas/SignalExpressionCreateCommand"
               }
             }
           },

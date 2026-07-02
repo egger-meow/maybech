@@ -139,7 +139,7 @@ function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
   );
 }
 
-function ChildSignal({ strategyId, signal, onSaved }: { strategyId: string; signal?: PersistedSignalExpression; onSaved: () => Promise<unknown> }) {
+function ChildSignal({ strategyId, strategyUpdatedAt, strategyEnabled, signal, onSaved }: { strategyId: string; strategyUpdatedAt: string; strategyEnabled: boolean; signal?: PersistedSignalExpression; onSaved: () => Promise<unknown> }) {
   const [purpose, setPurpose] = useState(signal?.purpose ?? "filter");
   const [expression, setExpression] = useState<SignalExpression>(object(signal?.expression).type || object(signal?.expression).op ? object(signal?.expression) : { type: "price_above", symbol: "BTC-USDT-SWAP", value: 0 });
   const [dirty, setDirty] = useState(!signal);
@@ -151,7 +151,11 @@ function ChildSignal({ strategyId, signal, onSaved }: { strategyId: string; sign
       const validation = await validateSignal({ expression });
       if (!validation.valid) throw new Error(validation.errors?.join("；") || "規則格式不正確");
       if (signal) await updateStrategySignal(strategyId, signal.id, { expected_updated_at: signal.updated_at, purpose, expression: validation.normalized ?? expression });
-      else await createStrategySignal(strategyId, { purpose, expression: validation.normalized ?? expression });
+      else {
+        if (!strategyUpdatedAt) throw new Error("策略版本時間缺失，無法安全新增子訊號。請重新整理。");
+        if (strategyEnabled && !confirm("此策略已啟用。新增子訊號會改變下一次進場／出場條件；確定新增至目前檢視的策略版本？")) return;
+        await createStrategySignal(strategyId, { confirm: true, expected_strategy_updated_at: strategyUpdatedAt, purpose, expression: validation.normalized ?? expression });
+      }
       setDirty(false); await onSaved();
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   };
@@ -290,8 +294,8 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       {strategy && <>
         <div className="section-divider"><div><h3>附加訊號</h3><p>Entry／Filter 會與主要訊號以 AND 組合；Exit 會複製至新部位。</p></div><button type="button" className="btn btn-outline" onClick={() => setNewSignal(true)}><CirclePlus size={15} /> 新增訊號</button></div>
         <div className="rule-stack">
-          {strategy.signal_expressions?.map((signal) => <ChildSignal key={signal.id} strategyId={strategy.id} signal={signal} onSaved={() => onSaved(strategy.id)} />)}
-          {newSignal && <ChildSignal strategyId={strategy.id} onSaved={async () => { setNewSignal(false); return onSaved(strategy.id); }} />}
+          {strategy.signal_expressions?.map((signal) => <ChildSignal key={signal.id} strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} signal={signal} onSaved={() => onSaved(strategy.id)} />)}
+          {newSignal && <ChildSignal strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} onSaved={async () => { setNewSignal(false); return onSaved(strategy.id); }} />}
           {!strategy.signal_expressions?.length && !newSignal && <div className="empty-state">沒有附加訊號；主要進場訊號仍會獨立運作。</div>}
         </div>
         <div className="danger-zone strategy-delete"><div><strong>永久刪除策略</strong><p>只有已停用且沒有任何邏輯部位或舊交易歷史的策略才能刪除。</p></div><button type="button" className="btn btn-danger" disabled={busy || strategy.enabled} onClick={remove}><Trash2 size={15} /> 刪除策略</button></div>
