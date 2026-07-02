@@ -2168,14 +2168,20 @@ def test_api_manages_logical_position_close_conditions(monkeypatch, tmp_path):
     assert listed.status_code == 200
     assert listed.json()[0]["id"] == condition_id
 
+    stale = client.patch(
+        f"/positions/logical/unit-a/close-conditions/{condition_id}",
+        json={"expected_updated_at": "stale", "enabled": False},
+    )
     updated = client.patch(
         f"/positions/logical/unit-a/close-conditions/{condition_id}",
         json={
+            "expected_updated_at": created.json()["updated_at"],
             "enabled": False,
             "expression": {"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 2910},
         },
     )
 
+    assert stale.status_code == 409
     assert updated.status_code == 200
     assert updated.json()["enabled"] is False
     assert updated.json()["expression"]["value"] == 2910
@@ -2315,6 +2321,7 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
     generic = client.patch(
         path,
         json={
+            "expected_updated_at": condition.updated_at,
             "expression": {
                 "type": "price_below",
                 "symbol": "ETH-USDT-SWAP",

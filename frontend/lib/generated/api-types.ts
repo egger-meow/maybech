@@ -276,6 +276,7 @@ export type LogicalPositionCloseConditionResponse = {
 };
 
 export type LogicalPositionCloseConditionUpdate = {
+  "expected_updated_at": string;
   "purpose"?: "stop_loss" | "take_profit" | "trailing" | "break_even" | "manual_review" | "exit" | string | null;
   "expression"?: Record<string, unknown> | null;
   "enabled"?: boolean | null;

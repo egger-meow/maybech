@@ -354,7 +354,8 @@ The Position Management page has a logical-position contract now:
 - `POST /positions/logical/{position_id}/close-conditions`: create a validated
   close signal expression for one logical unit.
 - `PATCH /positions/logical/{position_id}/close-conditions/{condition_id}`:
-  edit purpose, expression, enabled state, or metadata.
+  edit purpose, expression, enabled state, or metadata with the exact
+  `expected_updated_at`; stale tabs receive `409` without overwriting the rule.
 - `DELETE /positions/logical/{position_id}/close-conditions/{condition_id}`:
   remove one close signal condition.
 - `POST /positions/logical/{position_id}/close`: explicitly confirmed manual

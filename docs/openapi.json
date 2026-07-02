@@ -1477,6 +1477,11 @@
             ],
             "title": "Enabled"
           },
+          "expected_updated_at": {
+            "minLength": 1,
+            "title": "Expected Updated At",
+            "type": "string"
+          },
           "expression": {
             "anyOf": [
               {
@@ -1524,6 +1529,9 @@
             "title": "Purpose"
           }
         },
+        "required": [
+          "expected_updated_at"
+        ],
         "title": "LogicalPositionCloseConditionUpdate",
         "type": "object"
       },

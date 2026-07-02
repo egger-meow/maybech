@@ -2571,6 +2571,14 @@ def create_app(
                 existing = position_store.get_close_condition(position.id, condition_id)
                 if existing is None:
                     raise HTTPException(status_code=404, detail="Close condition not found")
+                if payload.expected_updated_at != existing.updated_at:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "message": "Close condition changed since it was loaded",
+                            "current_updated_at": existing.updated_at,
+                        },
+                    )
                 definition_changed = any(
                     value is not None
                     for value in (payload.purpose, payload.expression, payload.enabled)

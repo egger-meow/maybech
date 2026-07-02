@@ -48,6 +48,7 @@ function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     const detail = object(error.info).detail;
     if (typeof detail === "string") return detail;
+    if (error.status === 409 && object(detail).current_updated_at) return `後端規則已在 ${new Date(String(object(detail).current_updated_at)).toLocaleString("zh-TW")} 更新。草稿未寫入；請重新整理並核對後再儲存。`;
     const message = object(detail).message;
     if (typeof message === "string") return message;
   }
@@ -206,7 +207,7 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
         if (!confirm("此停損擁有真實 OKX 保護單。系統會先驗證舊保護，再修改並確認新價位；確定繼續？")) return;
         await amendLogicalPositionStop(position.id, { confirm: true, condition_id: condition.id, expression: normalized, reason: "operator dashboard stop edit" });
       } else if (condition) {
-        await updateLogicalPositionCloseCondition(position.id, condition.id, { purpose, enabled, expression: normalized, metadata: condition.metadata });
+        await updateLogicalPositionCloseCondition(position.id, condition.id, { expected_updated_at: condition.updated_at, purpose, enabled, expression: normalized, metadata: condition.metadata });
       } else {
         await createLogicalPositionCloseCondition(position.id, { purpose, enabled, expression: normalized, metadata: {} });
       }
