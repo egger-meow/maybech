@@ -15,6 +15,7 @@ import type {
   InstrumentSizeQuoteRequest,
   InstrumentSizeQuoteResponse,
   LogicalPositionCloseConditionCreateCommand,
+  LogicalPositionCloseConditionDeleteCommand,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
   LogicalPositionCloseConditionUpdate,
   LogicalPositionCloseRequest,
@@ -80,6 +81,7 @@ export type {
   ManualPositionOpenRequest,
   LivePreflightResponse,
   LogicalPositionCloseConditionCreateCommand,
+  LogicalPositionCloseConditionDeleteCommand,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
   LogicalPositionCloseConditionUpdate,
   LogicalPositionCloseRequest,
@@ -522,9 +524,11 @@ export const updateLogicalPositionCloseCondition = (
 export const deleteLogicalPositionCloseCondition = (
   positionId: string,
   conditionId: string,
+  expectedUpdatedAt: string,
 ): Promise<{ status: string }> =>
   deleteData<{ status: string }>(
     `/positions/logical/${encodeURIComponent(positionId)}/close-conditions/${encodeURIComponent(conditionId)}`,
+    { confirm: true, expected_updated_at: expectedUpdatedAt } satisfies LogicalPositionCloseConditionDeleteCommand,
   );
 
 export const listLogicalPositionAllocations = (

@@ -273,6 +273,11 @@ export type LogicalPositionCloseConditionCreateCommand = {
   "expected_position_updated_at": string;
 };
 
+export type LogicalPositionCloseConditionDeleteCommand = {
+  "confirm": true;
+  "expected_updated_at": string;
+};
+
 export type LogicalPositionCloseConditionResponse = {
   "purpose"?: "stop_loss" | "take_profit" | "trailing" | "break_even" | "manual_review" | "exit" | string;
   "expression"?: Record<string, unknown>;
@@ -791,6 +796,7 @@ export type ApiSchemas = {
   "LogicalPositionChartResponse": LogicalPositionChartResponse;
   "LogicalPositionCloseConditionCreate": LogicalPositionCloseConditionCreate;
   "LogicalPositionCloseConditionCreateCommand": LogicalPositionCloseConditionCreateCommand;
+  "LogicalPositionCloseConditionDeleteCommand": LogicalPositionCloseConditionDeleteCommand;
   "LogicalPositionCloseConditionResponse": LogicalPositionCloseConditionResponse;
   "LogicalPositionCloseConditionUpdate": LogicalPositionCloseConditionUpdate;
   "LogicalPositionCloseRequest": LogicalPositionCloseRequest;

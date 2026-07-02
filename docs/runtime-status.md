@@ -118,9 +118,10 @@ Frontends must use `active`; there is no `state` field.
 - `GET/POST/PATCH/DELETE /positions/logical/{position_id}/close-conditions`
   manages validated per-unit close signal expressions without executing orders.
   POST is explicitly confirmed and bound to the exact logical-position
-  revision. PATCH is revision-bound; a stale non-protective rule editor cannot
-  replace a newer trailing, break-even, review, take-profit, or general exit
-  definition.
+  revision. PATCH and DELETE are revision-bound; a stale non-protective rule
+  editor cannot replace or remove a newer trailing, break-even, review,
+  take-profit, or general exit definition. DELETE also requires explicit
+  confirmation.
 - `GET/POST /positions/logical/{position_id}/allocations` lists or ingests
   confirmed execution fills. Fill IDs are idempotency keys; conflicting reuse
   returns `409`, and over-reduction is rejected before persistence.

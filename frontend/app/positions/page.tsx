@@ -218,7 +218,7 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
   const remove = async () => {
     if (!condition || !confirm(`刪除「${purposeLabel(condition.purpose ?? "exit")}」規則？此動作會留下稽核紀錄。`)) return;
     setBusy(true); setError("");
-    try { await deleteLogicalPositionCloseCondition(position.id, condition.id); await onSaved(); }
+    try { await deleteLogicalPositionCloseCondition(position.id, condition.id, condition.updated_at); await onSaved(); }
     catch (caught) { setError(errorMessage(caught)); setBusy(false); }
   };
   return (

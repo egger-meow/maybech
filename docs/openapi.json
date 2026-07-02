@@ -1456,6 +1456,26 @@
         "title": "LogicalPositionCloseConditionCreateCommand",
         "type": "object"
       },
+      "LogicalPositionCloseConditionDeleteCommand": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "expected_updated_at": {
+            "minLength": 1,
+            "title": "Expected Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "expected_updated_at"
+        ],
+        "title": "LogicalPositionCloseConditionDeleteCommand",
+        "type": "object"
+      },
       "LogicalPositionCloseConditionResponse": {
         "properties": {
           "created_at": {
@@ -5774,6 +5794,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogicalPositionCloseConditionDeleteCommand"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

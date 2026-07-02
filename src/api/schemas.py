@@ -536,6 +536,11 @@ class LogicalPositionCloseConditionUpdate(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+class LogicalPositionCloseConditionDeleteCommand(BaseModel):
+    confirm: Literal[True]
+    expected_updated_at: str = Field(min_length=1)
+
+
 class LogicalPositionCloseConditionResponse(LogicalPositionCloseConditionCreate):
     id: str
     position_id: str

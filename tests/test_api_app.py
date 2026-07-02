@@ -2241,7 +2241,23 @@ def test_api_manages_logical_position_close_conditions(monkeypatch, tmp_path):
     assert updated.json()["expression"]["value"] == 2910
     assert client.get("/positions/logical/unit-a/close-conditions?enabled=true").json() == []
 
-    deleted = client.delete(f"/positions/logical/unit-a/close-conditions/{condition_id}")
+    unconfirmed_delete = client.request(
+        "DELETE",
+        f"/positions/logical/unit-a/close-conditions/{condition_id}",
+        json={"confirm": False, "expected_updated_at": updated.json()["updated_at"]},
+    )
+    stale_delete = client.request(
+        "DELETE",
+        f"/positions/logical/unit-a/close-conditions/{condition_id}",
+        json={"confirm": True, "expected_updated_at": "stale"},
+    )
+    deleted = client.request(
+        "DELETE",
+        f"/positions/logical/unit-a/close-conditions/{condition_id}",
+        json={"confirm": True, "expected_updated_at": updated.json()["updated_at"]},
+    )
+    assert unconfirmed_delete.status_code == 422
+    assert stale_delete.status_code == 409
     assert deleted.status_code == 200
     assert client.get("/positions/logical/unit-a/close-conditions").json() == []
     event_types = {event.type for event in AuditEventStore(db_path).list(limit=10)}

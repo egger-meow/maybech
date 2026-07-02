@@ -364,7 +364,8 @@ The Position Management page has a logical-position contract now:
   edit purpose, expression, enabled state, or metadata with the exact
   `expected_updated_at`; stale tabs receive `409` without overwriting the rule.
 - `DELETE /positions/logical/{position_id}/close-conditions/{condition_id}`:
-  remove one close signal condition.
+  remove one close signal condition only with explicit `confirm: true` and its
+  exact `expected_updated_at`; stale deletion commands receive `409`.
 - `POST /positions/logical/{position_id}/close`: explicitly confirmed manual
   operator close. It delegates to the same reduce-only submission and confirmed
   fill lifecycle as automatic exits.

@@ -83,6 +83,7 @@ from src.api.schemas import (
     NotificationTestRequest,
     NotificationTestResponse,
     LogicalPositionCloseConditionCreateCommand,
+    LogicalPositionCloseConditionDeleteCommand,
     LogicalPositionCloseConditionResponse,
     LogicalPositionCloseConditionUpdate,
     LogicalPositionCloseRequest,
@@ -2654,7 +2655,11 @@ def create_app(
         return _close_condition_response(condition)
 
     @app.delete("/positions/logical/{position_id}/close-conditions/{condition_id}")
-    def delete_logical_position_close_condition(position_id: str, condition_id: str) -> dict:
+    def delete_logical_position_close_condition(
+        position_id: str,
+        condition_id: str,
+        payload: LogicalPositionCloseConditionDeleteCommand,
+    ) -> dict:
         store = TradeStore()
         position_store = LogicalPositionStore(store.db_path)
         position = _get_or_backfill_logical_position(
@@ -2670,6 +2675,14 @@ def create_app(
                 existing = position_store.get_close_condition(position.id, condition_id)
                 if existing is None:
                     raise HTTPException(status_code=404, detail="Close condition not found")
+                if payload.expected_updated_at != existing.updated_at:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "message": "Close condition changed since deletion was confirmed",
+                            "current_updated_at": existing.updated_at,
+                        },
+                    )
                 if _protected_stop_mutation_blocked(
                     position_store,
                     position,
