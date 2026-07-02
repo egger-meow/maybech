@@ -63,6 +63,14 @@ Run tests:
 `uv run pytest` is also valid when the uv cache is accessible. On this Windows
 workspace, using the activated `.venv` avoids local uv cache permission issues.
 
+Real OKX read-only integration tests are opt-in. Run them only with outbound
+network access and the intended Demo/production credential set:
+
+```powershell
+$env:MAYBECH_RUN_OKX_INTEGRATION = "1"
+.venv\Scripts\python.exe -m pytest tests/test_okx_integration.py -v
+```
+
 ## Run Locally
 
 Start the API-backed runtime:

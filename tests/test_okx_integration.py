@@ -2,6 +2,7 @@
 Integration tests — calls real OKX API (read-only, no orders placed).
 
 Prerequisites:
+  - MAYBECH_RUN_OKX_INTEGRATION=1 explicitly opts into network access
   - .env contains the credential set matching OKX_FLAG
   - OKX_FLAG=1 selects DEMO_OKX_API_KEY/SECRET/PASSPHRASE
   - OKX_FLAG=0 selects OKX_API_KEY/SECRET/PASSPHRASE
@@ -27,15 +28,19 @@ def _call_okx_access(func, *args, **kwargs):
     """Require configured private credentials to authenticate successfully."""
     return func(*args, **kwargs)
 
-# Skip entire module if API keys are not configured
+# Skip the entire module unless network integration is explicitly requested.
+_integration_enabled = os.getenv("MAYBECH_RUN_OKX_INTEGRATION", "0") == "1"
 _has_keys = bool(
     settings.OKX_API_KEY
     and settings.OKX_API_SECRET
     and settings.OKX_PASSPHRASE
 )
 pytestmark = pytest.mark.skipif(
-    not _has_keys,
-    reason="OKX API keys not configured in .env — skipping integration tests",
+    not (_integration_enabled and _has_keys),
+    reason=(
+        "OKX integration tests require MAYBECH_RUN_OKX_INTEGRATION=1 and "
+        "configured credentials"
+    ),
 )
 
 
