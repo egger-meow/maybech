@@ -35,6 +35,19 @@ An item is necessary only if leaving it unfixed could cause one or more of these
    experiments. Work in the ordered phases below and commit each verified
    milestone so progress stays reviewable and recoverable.
 
+  Operator priority clarification:
+
+    For this activated phase, the operator's highest-priority functional outcomes are:
+
+    1. 2B / structure-anchored fixed-risk stop-loss:
+      stop price should be based on prior high/prior low or clear market-structure invalidation. Each trade should risk a consistent configured amount, either a fixed USDT value or a default percentage of total equity, such as 2%. Position size must be derived from entry price, stop price, tick/lot rounding, fees/slippage assumptions, and configured allowed loss. The system must reject or reduce size when rounding would exceed allowed loss.
+
+    2. Break-even stop-loss:
+      after price moves favorably by a configured distance, percent, R-multiple, or evidence trigger, the system should arm/apply break-even protection. The protected stop should be fee/slippage-adjusted so expected realized PnL is at least zero or slightly positive, not blindly equal to raw entry price. Take-profit may remain farther away so trend trades can continue running.
+
+    Trailing stop/take-profit remains optional and lower priority. Do not implement or expand trailing before the two functions above are solid, tested, visible in UI/API, and restart-safe.
+
+
    Build plan:
 
    1. Evidence and fixed-risk foundation — in progress:
