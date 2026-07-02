@@ -14,6 +14,8 @@ import type {
   InstrumentContractQuoteRequest,
   InstrumentSizeQuoteRequest,
   InstrumentSizeQuoteResponse,
+  InstrumentRiskQuoteRequest,
+  InstrumentRiskQuoteResponse,
   LogicalPositionCloseConditionCreateCommand,
   LogicalPositionCloseConditionDeleteCommand,
   LogicalPositionCloseConditionResponse as LogicalPositionCloseCondition,
@@ -32,6 +34,7 @@ import type {
   NotificationTestRequest,
   NotificationTestResponse,
   MarketCandlesResponse,
+  SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
   PositionProtectionCommand,
@@ -78,6 +81,8 @@ export type {
   InstrumentContractQuoteRequest,
   InstrumentSizeQuoteRequest,
   InstrumentSizeQuoteResponse,
+  InstrumentRiskQuoteRequest,
+  InstrumentRiskQuoteResponse,
   LogicalPositionUnitResponse as LogicalPositionUnit,
   ManualPositionOpenRequest,
   LivePreflightResponse,
@@ -96,6 +101,7 @@ export type {
   NotificationTestRequest,
   NotificationTestResponse,
   MarketCandlesResponse,
+  SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
   PositionProtectionCommand,
@@ -272,6 +278,15 @@ export const quoteInstrumentContracts = (
     payload,
   );
 
+export const quoteInstrumentRisk = (
+  instId: string,
+  payload: InstrumentRiskQuoteRequest,
+): Promise<InstrumentRiskQuoteResponse> =>
+  postData<InstrumentRiskQuoteResponse>(
+    `/instruments/${encodeURIComponent(instId)}/risk-quote`,
+    payload,
+  );
+
 export const getExecutionFillStatus = (): Promise<ExecutionFillIngestionStatusResponse> =>
   fetcher<ExecutionFillIngestionStatusResponse>("/execution/fills/status");
 
@@ -286,6 +301,18 @@ export const getMarketCandles = (
   if (options.bar) params.set("bar", options.bar);
   if (options.limit) params.set("limit", String(options.limit));
   return fetcher<MarketCandlesResponse>(`/market/candles?${params.toString()}`);
+};
+
+export const getSupportResistanceAnalysis = (
+  instId: string,
+  options: { bar?: string; limit?: number } = {},
+): Promise<SupportResistanceAnalysisResponse> => {
+  const params = new URLSearchParams({ inst_id: instId });
+  if (options.bar) params.set("bar", options.bar);
+  if (options.limit) params.set("limit", String(options.limit));
+  return fetcher<SupportResistanceAnalysisResponse>(
+    `/market/analysis/support-resistance?${params.toString()}`,
+  );
 };
 
 export const listServices = (): Promise<Record<string, ServiceStatusResponse>> =>

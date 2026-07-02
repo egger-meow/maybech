@@ -37,6 +37,7 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /risk/entries`
 - `GET /instruments`
 - `POST /instruments/refresh`
+- `POST /instruments/{inst_id}/risk-quote`
 - `POST /risk/entries/enable`
 - `POST /risk/entries/kill`
 - `GET /events`
@@ -45,6 +46,7 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /account/exposure-reconciliation`
 - `GET /market/btc-regime`
 - `GET /market/candles`
+- `GET /market/analysis/support-resistance`
 - `GET /strategy/decisions`
 - `GET /strategies/{strategy_id}/decisions`
 - `GET /position/intents`
@@ -72,6 +74,16 @@ These endpoints currently exist or are already documented in runtime status:
 - `WS /ws/events`
 
 See `docs/runtime-status.md` for current payload behavior.
+
+`GET /market/analysis/support-resistance` returns bounded, research-only
+Support/Resistance evidence from 20–300 candles. The response includes explicit
+freshness, missing/duplicate/invalid candle counts, ATR context, touch/volume/
+wick/recency/invalidation evidence, and `fresh`, `partial`, or `unavailable`
+state. Current BTC regime is included as contextual evidence: it adjusts level
+confidence slightly but never acts as an authority. A short process-local cache bounds repeated public API work. The contract
+always marks results `research_only=true` and `eligible_as_live_rule=false`;
+turning a proposed level into a trading rule requires a separate persisted,
+revision-protected operator mutation.
 
 `GET /runtime/preflight` reports whether startup checks passed, whether order
 placement is armed, the four-mode contract, OKX account and position mode, and
@@ -137,6 +149,13 @@ or non-lot-aligned metadata returns a visible error and blocks submission.
 `POST /instruments/{inst_id}/contract-quote` performs the reverse mapping for
 persisted logical units, returning display quantity, notional, and optional
 rule-price PnL without changing the stored OKX contract quantity.
+`POST /instruments/{inst_id}/risk-quote` is a non-mutating proposal endpoint.
+In `fixed_loss` mode it derives a tick-aligned stop from allowed loss and target
+notional. In `chart_anchored` mode it derives the maximum lot-aligned position
+from allowed loss and an operator/evidence-selected stop. Both modes round so
+estimated loss cannot exceed the allowance and return the unused risk, a
+side-correct stop expression, timeframe, and structured source evidence. Stale
+instrument metadata blocks the calculation.
 
 Entry control is persisted separately from editable risk-limit values, so a
 risk-limit update cannot silently re-enable trading. Entries default to

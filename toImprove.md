@@ -1,17 +1,20 @@
 # To Improve
 
-Only current blockers to dependable real-money operation belong here.
+Current blockers to dependable real-money operation and explicitly activated
+major build phases belong here. An activated build phase remains a priority
+until its written acceptance gates are complete; do not silently return it to
+the backlog after a partial milestone.
 
 This file is a priority contract, not a feature wishlist. Always sort items by real operational danger before adding or editing them. Once written, an earlier priority item is always higher than a later priority item. Always do the higher priority item first.
 
 ## Priority Rules
 
-1. Add an item only if it is a concrete correctness, safety, or operator-control blocker.
+1. Add an item only if it is a concrete correctness, safety, or operator-control blocker, or the operator explicitly activates a major build phase with acceptance gates.
 2. Do not add general cleanup, speculative features, refactors, or nice-to-have work.
 3. If a new blocker is more dangerous than an existing item, explicitly reorder the list instead of appending it casually.
 4. Keep priority items in strict order from most urgent to least urgent.
 5. Remove an item when it is completed and verified. Do not automatically add a replacement item just because one was removed. The priority list does not need to stay the same length. After removal, close the gap, renumber the remaining items, and only add a new item if it independently qualifies as a necessary blocker under this document.
-6. If an item is not necessary, put it under `Non-Blocking / Later`, not under `Current Priorities`.
+6. If an item is neither necessary nor an explicitly activated build phase, put it under `Non-Blocking / Later`, not under `Current Priorities`.
 
 ## Necessary Blocker Definition
 
@@ -26,15 +29,88 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-None.
+1. Complete the activated position-rule and market-analysis build phase.
 
-## Non-Blocking / Later
+   This is one end-to-end product milestone, not a collection of optional UI
+   experiments. Work in the ordered phases below and commit each verified
+   milestone so progress stays reviewable and recoverable.
 
-Items here may be useful, but they must not interrupt `Current Priorities` while real-money safety blockers still exist.
+   Build plan:
 
-Add work here only when it is not required to prevent uncontrolled behavior, excessive loss, incorrect live execution, broken operator control, unexpected state, or hidden safety threats.
+   1. Evidence and fixed-risk foundation — in progress:
+      bounded Support/Resistance analysis, explicit degraded states, BTC-regime
+      context, fixed-loss stop derivation, chart-anchored sizing, and a
+      non-mutating operator calculator.
+   2. Persisted rule design and guarded promotion:
+      versioned typed rule definitions, structured evidence snapshots, and
+      explicit reviewed promotion into strategy defaults or one logical
+      position override. Research markers must remain non-executable until this
+      transition succeeds.
+   3. Initial protection and take-profit materialization:
+      materialize percent/absolute/evidence stop and target rules from actual
+      confirmed entry price; support fixed target, evidence target, staged
+      reduce targets, and a remainder that can continue running.
+   4. Break-even lifecycle:
+      persisted arming thresholds, fee/slippage-adjusted target calculation,
+      restart-safe state transitions, confirmed exchange protection amendment,
+      and visible evidence explaining armed/applied/blocked state.
+   5. Optional trailing lifecycle:
+      activation threshold, distance, timeframe, high/low-water persistence,
+      monotonic protection, restart recovery, stale-data fail-closed behavior,
+      and separation between trailing stop and trailing take-profit semantics.
+   6. Incremental market evidence:
+      durable or bounded reusable candle state, incremental recalculation,
+      cache/API/CPU limits, explicit invalidation, multi-evidence scoring, and
+      deterministic stale/missing/duplicate/API-failure behavior.
+   7. Integrated operator workflow:
+      Strategy Management defaults, Position Management overrides, Market
+      Analysis proposal selection, chart overlays for every active and executed
+      level, unsaved/revision-conflict handling, and manual-review state when
+      evidence conflicts or becomes stale.
+   8. Completion verification:
+      focused unit/integration/API/UI tests, generated-contract checks, full
+      backend and frontend gates, restart simulations, and documentation that
+      matches the actual shipped behavior.
 
-- Future position-rule design and Support/Resistance research: this is part of the next big product phase for post-entry logical-position management, not a standalone alert service and not a reason to delay current live-safety blockers.
+   Acceptance gates — all are required before removing this priority:
+
+   * strategy defaults and per-logical-position overrides use one typed,
+     revision-protected rule model
+   * fixed-loss and chart-anchored initial stops derive size without exceeding
+     configured allowed loss after tick/lot rounding
+   * take-profit supports fixed percent, fixed price, evidence target, staged
+     reduction, and an optional running remainder
+   * break-even is fee/slippage adjusted, persisted, restart-safe, and changes
+     live protection only after confirmed exchange amendment
+   * trailing protection is optional, monotonic, persisted, bounded, and fails
+     closed on stale or missing market data
+   * Support/Resistance evidence is cached, incrementally calculated, bounded,
+     freshness-aware, invalidated explicitly, and never directly executable
+   * the UI visibly distinguishes fresh, partial, stale, unavailable, proposed,
+     armed, applied, invalidated, and manual-review states
+   * entry/current/stop/target/break-even/trailing/reduce/close overlays come
+     from typed API data and confirmed execution evidence
+   * stale revisions cannot overwrite newer strategy or position rules
+   * tests cover stale/missing/duplicate candles, API failure, restart,
+     partial fills, staged exits, break-even, trailing monotonicity, and rule
+     promotion boundaries
+   * full backend tests, frontend contract/lint/typecheck/build, and a
+     requirement-by-requirement completion audit pass
+
+   Detailed product direction and current progress follow.
+
+  Phase progress: the backend now has a bounded, short-lived cached
+  `GET /market/analysis/support-resistance` research endpoint. It reports
+  freshness, missing/duplicate/invalid candle quality, clustered extrema, and
+  volume/wick/recency/ATR/invalidation-distance evidence, and is contractually
+  marked ineligible as a live rule. The responsive Market Analysis page now
+  exposes K-lines, level markers, evidence scores, and explicit
+  fresh/partial/unavailable state. Fixed-loss stop derivation and
+  chart-anchored position sizing are available as non-mutating, lot-aligned
+  proposals with structured stop expressions and evidence. BTC regime now
+  contributes a visible, bounded confidence adjustment without becoming an
+  authority. True incremental recalculation and reviewed rule promotion
+  into strategy defaults or position overrides remain to be built.
 
   The goal is to design a coherent rule system for stop-loss, take-profit, break-even, optional trailing protection, and research-grade Support/Resistance evidence after a strategy opens a position or when the operator edits an existing logical position unit.
 
@@ -82,7 +158,17 @@ Add work here only when it is not required to prevent uncontrolled behavior, exc
   * visible UI state when evidence is stale, partial, or unavailable
     Price logic used for actual trading must enter the persisted strategy / logical-position expression model with structured evidence. Research-only chart markers must not silently become live close rules.
 
-  This item may be promoted only after the current strategy-management and logical-position mutation APIs are safe, revision-protected, and tested. Until then, keep it as design guidance for the next phase rather than a build blocker.
+  The prerequisite strategy-management and logical-position mutation APIs are
+  now revision-protected and tested. This phase is therefore active and stays
+  in `Current Priorities` until every acceptance gate above is verified.
+
+## Non-Blocking / Later
+
+Items here may be useful, but they must not interrupt `Current Priorities`.
+
+Add work here only when it is outside the activated phase and is not required
+to prevent uncontrolled behavior, excessive loss, incorrect live execution,
+broken operator control, unexpected state, or hidden safety threats.
 
 - Frontend polish, broad architecture cleanup, and unrelated refactors remain
   deferred until the backend execution finish line is proven.

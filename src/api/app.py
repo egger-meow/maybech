@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from src.config.settings import settings
 from src.data.candles import CandleManager
 from src.data.simulation_market import SimulationMarketClient
+from src.market.support_resistance import SupportResistanceService
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
 from src.exchange.client import OKXClient, entry_order_placement_enabled
@@ -77,6 +78,8 @@ from src.api.schemas import (
     InstrumentContractQuoteRequest,
     InstrumentSizeQuoteRequest,
     InstrumentSizeQuoteResponse,
+    InstrumentRiskQuoteRequest,
+    InstrumentRiskQuoteResponse,
     LivePreflightResponse,
     LogicalPositionUnitResponse,
     ManualPositionOpenRequest,
@@ -95,6 +98,7 @@ from src.api.schemas import (
     LogicalPositionAllocationResponse,
     MutationStatusResponse,
     MarketCandlesResponse,
+    SupportResistanceAnalysisResponse,
     PositionGroupResponse,
     PositionChartOverlayResponse,
     PositionIntentResponse,
@@ -766,6 +770,8 @@ def create_app(
     def market_client():
         return SimulationMarketClient() if runtime_mode() == "simulation" else OKXClient()
 
+    support_resistance = SupportResistanceService(market_client)
+
     def exchange_client(*, require_orders: bool = False):
         mode = runtime_mode()
         if mode == "simulation":
@@ -1168,6 +1174,41 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return InstrumentSizeQuoteResponse(**quote.to_dict())
 
+    @app.post(
+        "/instruments/{inst_id}/risk-quote",
+        response_model=InstrumentRiskQuoteResponse,
+    )
+    def quote_instrument_risk(
+        inst_id: str,
+        payload: InstrumentRiskQuoteRequest,
+    ) -> InstrumentRiskQuoteResponse:
+        store = InstrumentMetadataStore()
+        metadata = store.get(inst_id)
+        if metadata is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Cached OKX metadata for {inst_id} is unavailable",
+            )
+        if store.cache_status(inst_type="SWAP")["stale"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Cached OKX instrument metadata is stale; refresh is required",
+            )
+        try:
+            quote = InstrumentSizer(metadata).quote_risk(
+                mode=payload.mode,
+                entry_price=payload.entry_price,
+                side=payload.side,
+                allowed_loss_usdt=payload.allowed_loss_usdt,
+                position_notional_usdt=payload.position_notional_usdt,
+                stop_price=payload.stop_price,
+                timeframe=payload.timeframe,
+                evidence=payload.evidence,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return InstrumentRiskQuoteResponse(**quote.to_dict())
+
     @app.get("/risk/entries", response_model=EntryControlResponse)
     def get_entry_control() -> EntryControlResponse:
         return EntryControlResponse(**EntryControlManager().status().to_dict())
@@ -1262,6 +1303,24 @@ def create_app(
             bar=bar,
             candles=_fetch_candle_rows(inst_id, bar=bar, limit=limit, client=market_client()),
             fetched_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    @app.get(
+        "/market/analysis/support-resistance",
+        response_model=SupportResistanceAnalysisResponse,
+    )
+    def get_support_resistance_analysis(
+        inst_id: str = Query(min_length=1, max_length=64),
+        bar: str = Query(default="15m", min_length=1, max_length=8),
+        limit: int = Query(default=200, ge=20, le=300),
+    ) -> SupportResistanceAnalysisResponse:
+        return SupportResistanceAnalysisResponse.model_validate(
+            support_resistance.analyze(
+                inst_id,
+                bar=bar,
+                limit=limit,
+                btc_regime=runner.runtime.get_value("market.btc_regime"),
+            )
         )
 
     @app.get("/strategy/decisions", response_model=list[StrategyDecisionResponse])

@@ -1,0 +1,71 @@
+"use client";
+
+import { AlertTriangle, BarChart3, Database, ShieldAlert } from "lucide-react";
+import { useMemo, useState, type FormEvent } from "react";
+import useSWR from "swr";
+
+import { getMarketCandles, getSupportResistanceAnalysis, quoteInstrumentRisk, type InstrumentRiskQuoteRequest, type MarketCandlesResponse, type SupportResistanceAnalysisResponse } from "@/lib/api";
+
+const bars = ["1m", "5m", "15m", "1H", "4H", "1D"];
+const format = (value: number | null | undefined, digits = 2) => value == null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("zh-TW", { maximumFractionDigits: digits }).format(value);
+const evidenceNumber = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
+
+function AnalysisChart({ candles, analysis }: { candles: MarketCandlesResponse; analysis: SupportResistanceAnalysisResponse }) {
+  const width = 960, height = 420, left = 18, right = 88, top = 22, bottom = 34;
+  const levels = analysis.levels ?? [];
+  const rows = candles.candles ?? [];
+  const prices = rows.flatMap((candle) => [candle.high, candle.low]).concat(levels.map((level) => level.price));
+  if (!prices.length) return <div className="empty-state">沒有可繪製的 K 線資料。</div>;
+  const minimum = Math.min(...prices), maximum = Math.max(...prices);
+  const span = Math.max(maximum - minimum, maximum * 0.001, 1);
+  const x = (index: number) => left + index / Math.max(rows.length - 1, 1) * (width - left - right);
+  const y = (price: number) => top + (maximum - price) / span * (height - top - bottom);
+  const candleWidth = Math.max(2, Math.min(8, (width - left - right) / Math.max(rows.length, 1) * 0.65));
+  return <div className="analysis-chart" role="img" aria-label={`${analysis.inst_id} 支撐與壓力研究圖`}><svg viewBox={`0 0 ${width} ${height}`}>
+    {levels.map((level, index) => { const color = level.kind === "support" ? "#10b981" : "#ef4444"; return <g key={`${level.kind}-${level.price}-${index}`}><line x1={left} x2={width - right} y1={y(level.price)} y2={y(level.price)} stroke={color} strokeWidth={1.5} strokeDasharray="7 5" /><circle cx={width - right} cy={y(level.price)} r={4 + level.score * 5} fill={color} fillOpacity={0.2} stroke={color} /><text x={width - right + 12} y={y(level.price) + 4} fill={color} fontSize="12">{format(level.price)}</text></g>; })}
+    {rows.map((candle, index) => { const color = candle.close >= candle.open ? "#10b981" : "#ef4444"; const bodyTop = y(Math.max(candle.open, candle.close)); return <g key={candle.timestamp}><line x1={x(index)} x2={x(index)} y1={y(candle.high)} y2={y(candle.low)} stroke={color} /><rect x={x(index) - candleWidth / 2} y={bodyTop} width={candleWidth} height={Math.max(1, Math.abs(y(candle.open) - y(candle.close)))} fill={color} opacity={candle.confirmed ? 0.9 : 0.35} /></g>; })}
+  </svg></div>;
+}
+
+function RiskSizing({ instrument, bar, latestPrice, selectedStop }: { instrument: string; bar: string; latestPrice?: number | null; selectedStop?: number | null }) {
+  const [mode, setMode] = useState<"fixed_loss" | "chart_anchored">("chart_anchored");
+  const [side, setSide] = useState<"long" | "short">("long");
+  const [entry, setEntry] = useState("");
+  const [loss, setLoss] = useState("100");
+  const [notional, setNotional] = useState("3000");
+  const [stop, setStop] = useState("");
+  const effectiveEntry = entry || (latestPrice ? String(latestPrice) : "");
+  const effectiveStop = stop || (selectedStop ? String(selectedStop) : "");
+  const ready = Boolean(effectiveEntry && loss && (mode === "fixed_loss" ? notional : effectiveStop));
+  const payload: InstrumentRiskQuoteRequest = { mode, entry_price: effectiveEntry, side, allowed_loss_usdt: loss, position_notional_usdt: mode === "fixed_loss" ? notional : null, stop_price: mode === "chart_anchored" ? effectiveStop : null, timeframe: bar, evidence: selectedStop ? { selected_research_level: selectedStop } : {} };
+  const quote = useSWR(ready ? ["risk-size", instrument, JSON.stringify(payload)] : null, () => quoteInstrumentRisk(instrument, payload));
+  return <section className="panel risk-sizing-panel"><div className="panel-heading"><div><h2><ShieldAlert size={20} /> 固定風險部位計算</h2><p>固定損失模式推導停損；圖表錨定模式依停損距離推導最大部位。</p></div></div><div className="risk-sizing-grid"><label className="field"><span>模式</span><select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}><option value="chart_anchored">圖表錨定停損</option><option value="fixed_loss">固定損失停損</option></select></label><label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as typeof side)}><option value="long">多單</option><option value="short">空單</option></select></label><label className="field"><span>進場價</span><input type="number" min="0" step="any" value={entry} placeholder={latestPrice ? String(latestPrice) : "輸入價格"} onChange={(event) => setEntry(event.target.value)} /></label><label className="field"><span>可接受損失 USDT</span><input type="number" min="0" step="any" value={loss} onChange={(event) => setLoss(event.target.value)} /></label>{mode === "fixed_loss" ? <label className="field"><span>目標名目 USDT</span><input type="number" min="0" step="any" value={notional} onChange={(event) => setNotional(event.target.value)} /></label> : <label className="field"><span>圖表停損價</span><input type="number" min="0" step="any" value={stop} placeholder={selectedStop ? String(selectedStop) : "點選下方層級"} onChange={(event) => setStop(event.target.value)} /></label>}</div>{quote.error && <div className="error-state"><AlertTriangle size={16} />目前輸入無法形成安全且符合 lot size 的部位。</div>}{quote.isLoading && <div className="loading-state">計算中…</div>}{quote.data && <div className="risk-sizing-result"><div><small>停損價</small><strong>{quote.data.stop_price}</strong></div><div><small>停損距離</small><strong>{format(Number(quote.data.stop_distance_pct) * 100, 2)}%</strong></div><div><small>最大名目</small><strong>{quote.data.estimated_notional_usdt} USDT</strong></div><div><small>OKX 數量</small><strong>{quote.data.api_quantity_contracts} 口</strong></div><div><small>估算損失</small><strong>{quote.data.estimated_loss_usdt} USDT</strong></div><div><small>未使用風險</small><strong>{quote.data.unused_risk_usdt} USDT</strong></div></div>}<div className="inline-warning">此處只產生計算與結構化規則提案，不會建立策略、修改部位或送出訂單。</div></section>;
+}
+
+export default function AnalysisPage() {
+  const [draft, setDraft] = useState("BTC-USDT-SWAP");
+  const [instrument, setInstrument] = useState("BTC-USDT-SWAP");
+  const [bar, setBar] = useState("15m");
+  const limit = 200;
+  const analysis = useSWR(["support-resistance", instrument, bar], () => getSupportResistanceAnalysis(instrument, { bar, limit }), { refreshInterval: 30_000 });
+  const candles = useSWR(["analysis-candles", instrument, bar], () => getMarketCandles(instrument, { bar, limit }), { refreshInterval: 30_000 });
+  const sortedLevels = useMemo(() => [...(analysis.data?.levels ?? [])].sort((a, b) => b.score - a.score), [analysis.data?.levels]);
+  const submit = (event: FormEvent) => { event.preventDefault(); const next = draft.trim().toUpperCase(); if (next) setInstrument(next); };
+  const stateClass = analysis.data?.status ?? "unavailable";
+  return <div className="page-stack">
+    <header className="page-header"><div><h1>市場分析</h1><p>把支撐與壓力當作研究證據，不直接當作交易指令。</p></div></header>
+    <section className="panel"><form onSubmit={submit} className="analysis-form"><label className="field"><span>OKX 商品</span><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={64} /></label><label className="field"><span>時間週期</span><select value={bar} onChange={(event) => setBar(event.target.value)}>{bars.map((item) => <option key={item}>{item}</option>)}</select></label><button className="btn btn-primary" type="submit"><BarChart3 size={16} /> 分析</button></form></section>
+    {analysis.error && <div className="error-state"><AlertTriangle size={17} />分析 API 無法連線；目前沒有可安全採用的證據。</div>}
+    {analysis.isLoading && <div className="loading-state">正在取得 K 線並計算研究證據…</div>}
+    {analysis.data && <>
+      <section className={`analysis-state ${stateClass}`}><div><strong>{analysis.data.status === "fresh" ? "資料新鮮" : analysis.data.status === "partial" ? "資料不完整" : "資料不可用"}</strong><p>最近 K 線：{analysis.data.freshness.latest_candle_at ? new Date(analysis.data.freshness.latest_candle_at).toLocaleString("zh-TW") : "無"} · 年齡 {format(analysis.data.freshness.age_seconds, 0)} 秒</p></div><span className="badge info">{analysis.data.cache_hit ? "快取結果" : "新計算"}</span></section>
+      {(analysis.data.errors ?? []).length > 0 && <div className="analysis-warnings">{analysis.data.errors?.map((error) => <div key={error}><AlertTriangle size={15} />{error}</div>)}</div>}
+      <div className="analysis-context"><strong>BTC 市場環境</strong><span>{String(analysis.data.context?.btc_direction ?? "unknown")}</span><small>只調整研究證據權重，不直接控制交易。</small></div>
+      <section className="analysis-metrics"><article className="panel"><Database size={20} /><small>可用 / 輸入 K 線</small><strong>{analysis.data.quality.usable_candles} / {analysis.data.quality.input_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>研究層級</small><strong>{sortedLevels.length}</strong></article><article className="panel"><ShieldAlert size={20} /><small>缺漏 / 重複</small><strong>{analysis.data.quality.missing_candles} / {analysis.data.quality.duplicate_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>ATR 波動</small><strong>{format(analysis.data.volatility_atr)}</strong></article></section>
+      <section className="panel"><div className="panel-heading"><div><h2><BarChart3 size={20} /> K 線與研究層級</h2><p>圓圈大小反映證據分數；虛線不是停損或停利命令。</p></div></div>{candles.error ? <div className="error-state">K 線圖不可用。</div> : candles.data ? <AnalysisChart candles={candles.data} analysis={analysis.data} /> : <div className="loading-state">正在繪製 K 線…</div>}</section>
+      <section className="panel"><div className="panel-heading"><div><h2>層級證據</h2><p>分數同時考慮觸碰、成交量、影線與近期性；仍需人工判讀。</p></div></div><div className="analysis-levels">{sortedLevels.map((level) => { const volume = evidenceNumber(level.evidence?.volume_ratio), wick = evidenceNumber(level.evidence?.wick_ratio), distance = evidenceNumber(level.evidence?.invalidation_distance_pct); return <article key={`${level.kind}-${level.price}`} className={level.kind}><div><span className={`badge ${level.kind === "support" ? "success" : "danger"}`}>{level.kind === "support" ? "支撐" : "壓力"}</span><strong>{format(level.price)}</strong></div><dl><div><dt>證據分數</dt><dd>{format(level.score * 100, 0)}%</dd></div><div><dt>觸碰次數</dt><dd>{level.touches}</dd></div><div><dt>成交量比</dt><dd>{format(volume)}×</dd></div><div><dt>影線比</dt><dd>{format(wick == null ? null : wick * 100, 1)}%</dd></div><div><dt>失效距離</dt><dd>{format(distance == null ? null : distance * 100, 2)}%</dd></div></dl></article>; })}{!sortedLevels.length && <div className="empty-state">目前資料沒有形成可顯示的研究層級。</div>}</div></section>
+      <div className="analysis-boundary"><ShieldAlert size={18} /><div><strong>研究與實盤隔離</strong><p>這些標記不能直接送出訂單，也不會靜默建立平倉規則。實盤價格邏輯必須另行儲存為有版本保護的策略或邏輯部位規則。</p></div></div>
+    </>}
+    {analysis.data && <RiskSizing instrument={instrument} bar={bar} latestPrice={analysis.data.latest_price} />}
+  </div>;
+}

@@ -1085,6 +1085,185 @@
         "title": "InstrumentMetadataResponse",
         "type": "object"
       },
+      "InstrumentRiskQuoteRequest": {
+        "properties": {
+          "allowed_loss_usdt": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Allowed Loss Usdt",
+            "type": "string"
+          },
+          "entry_price": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entry Price",
+            "type": "string"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "mode": {
+            "enum": [
+              "fixed_loss",
+              "chart_anchored"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "position_notional_usdt": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Notional Usdt"
+          },
+          "side": {
+            "enum": [
+              "long",
+              "short"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Price"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframe"
+          }
+        },
+        "required": [
+          "mode",
+          "entry_price",
+          "side",
+          "allowed_loss_usdt"
+        ],
+        "title": "InstrumentRiskQuoteRequest",
+        "type": "object"
+      },
+      "InstrumentRiskQuoteResponse": {
+        "properties": {
+          "allowed_loss_usdt": {
+            "title": "Allowed Loss Usdt",
+            "type": "string"
+          },
+          "api_quantity_contracts": {
+            "title": "Api Quantity Contracts",
+            "type": "string"
+          },
+          "display_currency": {
+            "title": "Display Currency",
+            "type": "string"
+          },
+          "display_quantity": {
+            "title": "Display Quantity",
+            "type": "string"
+          },
+          "entry_price": {
+            "title": "Entry Price",
+            "type": "string"
+          },
+          "estimated_loss_usdt": {
+            "title": "Estimated Loss Usdt",
+            "type": "string"
+          },
+          "estimated_notional_usdt": {
+            "title": "Estimated Notional Usdt",
+            "type": "string"
+          },
+          "estimated_pnl_usdt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Pnl Usdt"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "fixed_loss",
+              "chart_anchored"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "stop_distance_pct": {
+            "title": "Stop Distance Pct",
+            "type": "string"
+          },
+          "stop_expression": {
+            "additionalProperties": true,
+            "title": "Stop Expression",
+            "type": "object"
+          },
+          "stop_price": {
+            "title": "Stop Price",
+            "type": "string"
+          },
+          "unused_risk_usdt": {
+            "title": "Unused Risk Usdt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inst_id",
+          "display_quantity",
+          "display_currency",
+          "api_quantity_contracts",
+          "estimated_notional_usdt",
+          "entry_price",
+          "mode",
+          "allowed_loss_usdt",
+          "stop_price",
+          "stop_distance_pct",
+          "estimated_loss_usdt",
+          "unused_risk_usdt",
+          "stop_expression",
+          "evidence"
+        ],
+        "title": "InstrumentRiskQuoteResponse",
+        "type": "object"
+      },
       "InstrumentSizeQuoteRequest": {
         "properties": {
           "display_quantity": {
@@ -2275,6 +2454,90 @@
           "stop_loss_price"
         ],
         "title": "ManualPositionOpenRequest",
+        "type": "object"
+      },
+      "MarketAnalysisFreshnessResponse": {
+        "properties": {
+          "age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Seconds"
+          },
+          "evaluated_at": {
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "latest_candle_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Candle At"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "stale_after_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale After Seconds"
+          }
+        },
+        "required": [
+          "evaluated_at",
+          "stale"
+        ],
+        "title": "MarketAnalysisFreshnessResponse",
+        "type": "object"
+      },
+      "MarketAnalysisQualityResponse": {
+        "properties": {
+          "duplicate_candles": {
+            "title": "Duplicate Candles",
+            "type": "integer"
+          },
+          "input_candles": {
+            "title": "Input Candles",
+            "type": "integer"
+          },
+          "invalid_candles": {
+            "title": "Invalid Candles",
+            "type": "integer"
+          },
+          "missing_candles": {
+            "title": "Missing Candles",
+            "type": "integer"
+          },
+          "usable_candles": {
+            "title": "Usable Candles",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "input_candles",
+          "usable_candles",
+          "duplicate_candles",
+          "missing_candles",
+          "invalid_candles"
+        ],
+        "title": "MarketAnalysisQualityResponse",
         "type": "object"
       },
       "MarketCandlesResponse": {
@@ -4209,6 +4472,151 @@
         "title": "StrategyUpdate",
         "type": "object"
       },
+      "SupportResistanceAnalysisResponse": {
+        "properties": {
+          "bar": {
+            "title": "Bar",
+            "type": "string"
+          },
+          "cache_hit": {
+            "default": false,
+            "title": "Cache Hit",
+            "type": "boolean"
+          },
+          "context": {
+            "additionalProperties": true,
+            "title": "Context",
+            "type": "object"
+          },
+          "eligible_as_live_rule": {
+            "const": false,
+            "default": false,
+            "title": "Eligible As Live Rule",
+            "type": "boolean"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/MarketAnalysisFreshnessResponse"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "latest_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Price"
+          },
+          "levels": {
+            "items": {
+              "$ref": "#/components/schemas/SupportResistanceLevelResponse"
+            },
+            "title": "Levels",
+            "type": "array"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/MarketAnalysisQualityResponse"
+          },
+          "research_only": {
+            "const": true,
+            "default": true,
+            "title": "Research Only",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "fresh",
+              "partial",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "volatility_atr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volatility Atr"
+          }
+        },
+        "required": [
+          "inst_id",
+          "bar",
+          "status",
+          "freshness",
+          "quality"
+        ],
+        "title": "SupportResistanceAnalysisResponse",
+        "type": "object"
+      },
+      "SupportResistanceLevelResponse": {
+        "properties": {
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "kind": {
+            "enum": [
+              "support",
+              "resistance"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "latest_touch_at": {
+            "title": "Latest Touch At",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "invalidated"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "touches": {
+            "title": "Touches",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "state",
+          "price",
+          "score",
+          "touches",
+          "latest_touch_at"
+        ],
+        "title": "SupportResistanceLevelResponse",
+        "type": "object"
+      },
       "TradeDetailResponse": {
         "description": "Trade with its attached active rules.",
         "properties": {
@@ -4975,6 +5383,55 @@
         "summary": "Quote Instrument Contracts"
       }
     },
+    "/instruments/{inst_id}/risk-quote": {
+      "post": {
+        "operationId": "quote_instrument_risk_instruments__inst_id__risk_quote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inst_id",
+            "required": true,
+            "schema": {
+              "title": "Inst Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstrumentRiskQuoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentRiskQuoteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quote Instrument Risk"
+      }
+    },
     "/instruments/{inst_id}/size-quote": {
       "post": {
         "operationId": "quote_instrument_size_instruments__inst_id__size_quote_post",
@@ -5022,6 +5479,71 @@
           }
         },
         "summary": "Quote Instrument Size"
+      }
+    },
+    "/market/analysis/support-resistance": {
+      "get": {
+        "operationId": "get_support_resistance_analysis_market_analysis_support_resistance_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "inst_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Inst Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bar",
+            "required": false,
+            "schema": {
+              "default": "15m",
+              "maxLength": 8,
+              "minLength": 1,
+              "title": "Bar",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 300,
+              "minimum": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportResistanceAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Support Resistance Analysis"
       }
     },
     "/market/btc-regime": {

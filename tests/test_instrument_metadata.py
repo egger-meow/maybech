@@ -135,7 +135,7 @@ def test_instrument_api_exposes_cache_and_refresh_contract(monkeypatch, tmp_path
             return [_instrument("BTC-USDT-SWAP"), _instrument()]
 
     monkeypatch.setattr("src.api.app.OKXClient", FakeOKXClient)
-    client = TestClient(create_app(DaemonRunner()))
+    client = TestClient(create_app(DaemonRunner(), api_token=""))
 
     missing = client.get("/instruments")
     refreshed = client.post("/instruments/refresh")
@@ -182,6 +182,85 @@ def test_instrument_sizer_maps_base_quantity_to_contracts_and_pnl(tmp_path):
     assert reversed_quote.to_dict()["estimated_pnl_usdt"] == "25"
 
 
+def test_instrument_sizer_derives_fixed_loss_stop_and_chart_anchored_size(tmp_path):
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    metadata = store.replace_type("SWAP", [_instrument()])[0]
+    sizer = InstrumentSizer(metadata)
+
+    fixed = sizer.quote_risk(
+        mode="fixed_loss",
+        entry_price="3000",
+        side="long",
+        allowed_loss_usdt="25",
+        position_notional_usdt="750",
+    ).to_dict()
+    anchored = sizer.quote_risk(
+        mode="chart_anchored",
+        entry_price="3000",
+        side="long",
+        allowed_loss_usdt="20",
+        stop_price="2900",
+        timeframe="15m",
+        evidence={"level_price": 2900, "level_score": 0.8},
+    ).to_dict()
+
+    assert fixed["stop_price"] == "2900"
+    assert fixed["estimated_loss_usdt"] == "25"
+    assert fixed["stop_expression"] == {
+        "type": "price_below", "symbol": "self", "value": 2900.0
+    }
+    assert anchored["estimated_notional_usdt"] == "600"
+    assert anchored["api_quantity_contracts"] == "2"
+    assert anchored["evidence"]["timeframe"] == "15m"
+    assert anchored["evidence"]["level_score"] == 0.8
+
+
+def test_risk_sizer_rounds_down_size_without_exceeding_allowed_loss(tmp_path):
+    payload = _instrument()
+    payload["lotSz"] = "1"
+    payload["minSz"] = "1"
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    metadata = store.replace_type("SWAP", [payload])[0]
+
+    quote = InstrumentSizer(metadata).quote_risk(
+        mode="chart_anchored",
+        entry_price="3000",
+        side="long",
+        allowed_loss_usdt="21",
+        stop_price="2900",
+    ).to_dict()
+
+    assert quote["api_quantity_contracts"] == "2"
+    assert quote["estimated_loss_usdt"] == "20"
+    assert quote["unused_risk_usdt"] == "1"
+
+
+def test_risk_quote_api_returns_structured_stop_proposal(monkeypatch, tmp_path):
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    store.replace_type("SWAP", [_instrument()])
+    monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner(), api_token=""))
+
+    response = client.post(
+        "/instruments/ETH-USDT-SWAP/risk-quote",
+        json={
+            "mode": "chart_anchored",
+            "entry_price": "3000",
+            "side": "long",
+            "allowed_loss_usdt": "20",
+            "stop_price": "2900",
+            "timeframe": "15m",
+            "evidence": {"level_kind": "support", "level_score": 0.8},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["estimated_notional_usdt"] == "600"
+    assert body["estimated_loss_usdt"] == "20"
+    assert body["stop_expression"]["type"] == "price_below"
+
+
 def test_instrument_sizer_handles_quote_denominated_contracts(tmp_path):
     payload = _instrument("BTC-USD-SWAP")
     payload.update({"settleCcy": "BTC", "ctVal": "100", "ctValCcy": "USD"})
@@ -202,7 +281,7 @@ def test_size_quote_api_blocks_missing_or_non_aligned_metadata(monkeypatch, tmp_
     store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
     store.replace_type("SWAP", [_instrument()])
     monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: store)
-    client = TestClient(create_app(DaemonRunner()))
+    client = TestClient(create_app(DaemonRunner(), api_token=""))
 
     missing = client.post(
         "/instruments/BTC-USDT-SWAP/size-quote",

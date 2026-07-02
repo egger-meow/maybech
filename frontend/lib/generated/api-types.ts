@@ -204,6 +204,35 @@ export type InstrumentMetadataResponse = {
   "updated_at": string;
 };
 
+export type InstrumentRiskQuoteRequest = {
+  "mode": "fixed_loss" | "chart_anchored";
+  "entry_price": string;
+  "side": "long" | "short";
+  "allowed_loss_usdt": string;
+  "position_notional_usdt"?: string | null;
+  "stop_price"?: string | null;
+  "timeframe"?: string | null;
+  "evidence"?: Record<string, unknown>;
+};
+
+export type InstrumentRiskQuoteResponse = {
+  "inst_id": string;
+  "display_quantity": string;
+  "display_currency": string;
+  "api_quantity_contracts": string;
+  "estimated_notional_usdt": string;
+  "entry_price": string;
+  "estimated_pnl_usdt"?: string | null;
+  "mode": "fixed_loss" | "chart_anchored";
+  "allowed_loss_usdt": string;
+  "stop_price": string;
+  "stop_distance_pct": string;
+  "estimated_loss_usdt": string;
+  "unused_risk_usdt": string;
+  "stop_expression": Record<string, unknown>;
+  "evidence": Record<string, unknown>;
+};
+
 export type InstrumentSizeQuoteRequest = {
   "display_quantity": string;
   "entry_price": string;
@@ -394,6 +423,22 @@ export type ManualPositionOpenRequest = {
   "entry_price": string;
   "stop_loss_price": string;
   "take_profit_price"?: string | null;
+};
+
+export type MarketAnalysisFreshnessResponse = {
+  "evaluated_at": string;
+  "latest_candle_at"?: string | null;
+  "age_seconds"?: number | null;
+  "stale_after_seconds"?: number | null;
+  "stale": boolean;
+};
+
+export type MarketAnalysisQualityResponse = {
+  "input_candles": number;
+  "usable_candles": number;
+  "duplicate_candles": number;
+  "missing_candles": number;
+  "invalid_candles": number;
 };
 
 export type MarketCandlesResponse = {
@@ -724,6 +769,32 @@ export type StrategyUpdate = {
   "execution_delay_seconds"?: number | null;
 };
 
+export type SupportResistanceAnalysisResponse = {
+  "inst_id": string;
+  "bar": string;
+  "status": "fresh" | "partial" | "unavailable";
+  "freshness": MarketAnalysisFreshnessResponse;
+  "quality": MarketAnalysisQualityResponse;
+  "latest_price"?: number | null;
+  "volatility_atr"?: number | null;
+  "levels"?: SupportResistanceLevelResponse[];
+  "context"?: Record<string, unknown>;
+  "errors"?: string[];
+  "cache_hit"?: boolean;
+  "research_only"?: true;
+  "eligible_as_live_rule"?: false;
+};
+
+export type SupportResistanceLevelResponse = {
+  "kind": "support" | "resistance";
+  "state": "active" | "invalidated";
+  "price": number;
+  "score": number;
+  "touches": number;
+  "latest_touch_at": string;
+  "evidence"?: Record<string, unknown>;
+};
+
 export type TradeDetailResponse = {
   "id": string;
   "strategy_id": string;
@@ -798,6 +869,8 @@ export type ApiSchemas = {
   "InstrumentContractQuoteRequest": InstrumentContractQuoteRequest;
   "InstrumentMetadataListResponse": InstrumentMetadataListResponse;
   "InstrumentMetadataResponse": InstrumentMetadataResponse;
+  "InstrumentRiskQuoteRequest": InstrumentRiskQuoteRequest;
+  "InstrumentRiskQuoteResponse": InstrumentRiskQuoteResponse;
   "InstrumentSizeQuoteRequest": InstrumentSizeQuoteRequest;
   "InstrumentSizeQuoteResponse": InstrumentSizeQuoteResponse;
   "LivePreflightResponse": LivePreflightResponse;
@@ -815,6 +888,8 @@ export type ApiSchemas = {
   "LogicalPositionReduceResponse": LogicalPositionReduceResponse;
   "LogicalPositionUnitResponse": LogicalPositionUnitResponse;
   "ManualPositionOpenRequest": ManualPositionOpenRequest;
+  "MarketAnalysisFreshnessResponse": MarketAnalysisFreshnessResponse;
+  "MarketAnalysisQualityResponse": MarketAnalysisQualityResponse;
   "MarketCandlesResponse": MarketCandlesResponse;
   "MutationStatusResponse": MutationStatusResponse;
   "NotificationChannelHealthResponse": NotificationChannelHealthResponse;
@@ -853,6 +928,8 @@ export type ApiSchemas = {
   "StrategyRuntimeResponse": StrategyRuntimeResponse;
   "StrategySummaryResponse": StrategySummaryResponse;
   "StrategyUpdate": StrategyUpdate;
+  "SupportResistanceAnalysisResponse": SupportResistanceAnalysisResponse;
+  "SupportResistanceLevelResponse": SupportResistanceLevelResponse;
   "TradeDetailResponse": TradeDetailResponse;
   "TradeResponse": TradeResponse;
   "TradeRuleAttach": TradeRuleAttach;

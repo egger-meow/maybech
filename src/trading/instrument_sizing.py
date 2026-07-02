@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 
 from src.trading.instrument_metadata import InstrumentMetadata
 
@@ -46,6 +46,32 @@ class SizeQuote:
                 if self.estimated_pnl_usdt is not None
                 else None
             ),
+        }
+
+
+@dataclass(frozen=True)
+class RiskSizeQuote:
+    mode: str
+    size: SizeQuote
+    allowed_loss_usdt: Decimal
+    stop_price: Decimal
+    stop_distance_pct: Decimal
+    estimated_loss_usdt: Decimal
+    unused_risk_usdt: Decimal
+    stop_expression: dict
+    evidence: dict
+
+    def to_dict(self) -> dict:
+        return {
+            "mode": self.mode,
+            **self.size.to_dict(),
+            "allowed_loss_usdt": _render(self.allowed_loss_usdt),
+            "stop_price": _render(self.stop_price),
+            "stop_distance_pct": _render(self.stop_distance_pct),
+            "estimated_loss_usdt": _render(self.estimated_loss_usdt),
+            "unused_risk_usdt": _render(self.unused_risk_usdt),
+            "stop_expression": self.stop_expression,
+            "evidence": self.evidence,
         }
 
 
@@ -161,4 +187,118 @@ class InstrumentSizer:
             entry_price=price,
             side=side,
             rule_price=rule_price,
+        )
+
+    def quote_risk(
+        self,
+        *,
+        mode: str,
+        entry_price: object,
+        side: str,
+        allowed_loss_usdt: object,
+        position_notional_usdt: object | None = None,
+        stop_price: object | None = None,
+        timeframe: str | None = None,
+        evidence: dict | None = None,
+    ) -> RiskSizeQuote:
+        """Derive a lot-aligned size/stop without exceeding allowed loss."""
+        entry = _positive(entry_price, field="entry_price")
+        allowed_loss = _positive(allowed_loss_usdt, field="allowed_loss_usdt")
+        normalized_side = side.lower()
+        if normalized_side not in {"long", "short"}:
+            raise ValueError("side must be long or short")
+        tick = _positive(self.metadata.tick_size, field="tickSz")
+
+        if mode == "fixed_loss":
+            if position_notional_usdt is None:
+                raise ValueError("position_notional_usdt is required for fixed_loss mode")
+            requested_notional = _positive(
+                position_notional_usdt, field="position_notional_usdt"
+            )
+            if allowed_loss >= requested_notional:
+                raise ValueError("allowed loss must be smaller than position notional")
+            fraction = allowed_loss / requested_notional
+            raw_stop = entry * (
+                Decimal("1") - fraction
+                if normalized_side == "long"
+                else Decimal("1") + fraction
+            )
+            rounding = ROUND_CEILING if normalized_side == "long" else ROUND_FLOOR
+            normalized_stop = (raw_stop / tick).to_integral_value(rounding=rounding) * tick
+            target_notional = requested_notional
+        elif mode == "chart_anchored":
+            if stop_price is None:
+                raise ValueError("stop_price is required for chart_anchored mode")
+            raw_stop = _positive(stop_price, field="stop_price")
+            if normalized_side == "long" and raw_stop >= entry:
+                raise ValueError("long stop price must be below entry price")
+            if normalized_side == "short" and raw_stop <= entry:
+                raise ValueError("short stop price must be above entry price")
+            rounding = ROUND_FLOOR if normalized_side == "long" else ROUND_CEILING
+            normalized_stop = (raw_stop / tick).to_integral_value(rounding=rounding) * tick
+            distance_fraction = abs(entry - normalized_stop) / entry
+            target_notional = allowed_loss / distance_fraction
+        else:
+            raise ValueError("mode must be fixed_loss or chart_anchored")
+
+        if normalized_stop <= 0:
+            raise ValueError("derived stop price must be positive")
+        distance_fraction = abs(entry - normalized_stop) / entry
+        if distance_fraction <= 0:
+            raise ValueError("stop price must differ from entry price")
+        display = target_notional / entry
+        contracts = self._contracts_for(display=display, notional=target_notional)
+        contracts = (contracts / self.lot_size).to_integral_value(rounding=ROUND_FLOOR) * self.lot_size
+        if contracts < self.min_size:
+            raise ValueError(
+                "allowed loss and stop distance derive a size below the instrument minimum"
+            )
+        size = self.quote_contracts(
+            api_quantity_contracts=contracts,
+            entry_price=entry,
+            side=normalized_side,
+            rule_price=normalized_stop,
+        )
+        estimated_loss = abs(size.estimated_pnl_usdt or Decimal("0"))
+        if estimated_loss > allowed_loss:
+            raise ValueError("lot normalization would exceed allowed loss")
+        expression_type = "price_below" if normalized_side == "long" else "price_above"
+        structured_evidence = {
+            "source": "operator_fixed_loss" if mode == "fixed_loss" else "operator_chart_anchor",
+            "timeframe": timeframe,
+            "allowed_loss_usdt": _render(allowed_loss),
+            "requested_stop_price": _render(raw_stop),
+            **(evidence or {}),
+        }
+        return RiskSizeQuote(
+            mode=mode,
+            size=size,
+            allowed_loss_usdt=allowed_loss,
+            stop_price=normalized_stop,
+            stop_distance_pct=distance_fraction,
+            estimated_loss_usdt=estimated_loss,
+            unused_risk_usdt=allowed_loss - estimated_loss,
+            stop_expression={
+                "type": expression_type,
+                "symbol": "self",
+                "value": float(normalized_stop),
+            },
+            evidence=structured_evidence,
+        )
+
+    def _contracts_for(self, *, display: Decimal, notional: Decimal) -> Decimal:
+        contract_unit = self.contract_value * self.contract_multiplier
+        contract_ccy = self.metadata.contract_currency.upper()
+        if contract_ccy == self.base_currency.upper():
+            return display / contract_unit
+        if contract_ccy in {
+            self.metadata.quote_ccy.upper(),
+            self.metadata.settle_ccy.upper(),
+            "USDT",
+            "USDC",
+            "USD",
+        }:
+            return notional / contract_unit
+        raise ValueError(
+            f"{self.metadata.inst_id} contract currency cannot be mapped safely"
         )

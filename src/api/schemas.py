@@ -180,6 +180,28 @@ class InstrumentSizeQuoteResponse(BaseModel):
     estimated_pnl_usdt: str | None = None
 
 
+class InstrumentRiskQuoteRequest(BaseModel):
+    mode: Literal["fixed_loss", "chart_anchored"]
+    entry_price: str = Field(min_length=1, max_length=64)
+    side: Literal["long", "short"]
+    allowed_loss_usdt: str = Field(min_length=1, max_length=64)
+    position_notional_usdt: str | None = Field(default=None, min_length=1, max_length=64)
+    stop_price: str | None = Field(default=None, min_length=1, max_length=64)
+    timeframe: str | None = Field(default=None, min_length=1, max_length=16)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class InstrumentRiskQuoteResponse(InstrumentSizeQuoteResponse):
+    mode: Literal["fixed_loss", "chart_anchored"]
+    allowed_loss_usdt: str
+    stop_price: str
+    stop_distance_pct: str
+    estimated_loss_usdt: str
+    unused_risk_usdt: str
+    stop_expression: dict[str, Any]
+    evidence: dict[str, Any]
+
+
 class EntryControlCommand(BaseModel):
     confirm: Literal[True]
 
@@ -486,6 +508,48 @@ class MarketCandlesResponse(BaseModel):
     bar: str
     candles: list[CandleResponse] = Field(default_factory=list)
     fetched_at: str
+
+
+class MarketAnalysisFreshnessResponse(BaseModel):
+    evaluated_at: str
+    latest_candle_at: str | None = None
+    age_seconds: float | None = None
+    stale_after_seconds: float | None = None
+    stale: bool
+
+
+class MarketAnalysisQualityResponse(BaseModel):
+    input_candles: int
+    usable_candles: int
+    duplicate_candles: int
+    missing_candles: int
+    invalid_candles: int
+
+
+class SupportResistanceLevelResponse(BaseModel):
+    kind: Literal["support", "resistance"]
+    state: Literal["active", "invalidated"]
+    price: float
+    score: float
+    touches: int
+    latest_touch_at: str
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class SupportResistanceAnalysisResponse(BaseModel):
+    inst_id: str
+    bar: str
+    status: Literal["fresh", "partial", "unavailable"]
+    freshness: MarketAnalysisFreshnessResponse
+    quality: MarketAnalysisQualityResponse
+    latest_price: float | None = None
+    volatility_atr: float | None = None
+    levels: list[SupportResistanceLevelResponse] = Field(default_factory=list)
+    context: dict[str, Any] = Field(default_factory=dict)
+    errors: list[str] = Field(default_factory=list)
+    cache_hit: bool = False
+    research_only: Literal[True] = True
+    eligible_as_live_rule: Literal[False] = False
 
 
 class PositionChartOverlayResponse(BaseModel):
