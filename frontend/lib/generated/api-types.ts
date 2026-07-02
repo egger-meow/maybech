@@ -674,6 +674,11 @@ export type StrategyDecisionResponse = {
   "completed_at"?: string | null;
 };
 
+export type StrategyDeleteCommand = {
+  "confirm": true;
+  "expected_updated_at": string;
+};
+
 export type StrategyEnableCommand = {
   "confirm": true;
   "expected_updated_at": string;
@@ -839,6 +844,7 @@ export type ApiSchemas = {
   "SignalValidationResponse": SignalValidationResponse;
   "StrategyCreate": StrategyCreate;
   "StrategyDecisionResponse": StrategyDecisionResponse;
+  "StrategyDeleteCommand": StrategyDeleteCommand;
   "StrategyEnableCommand": StrategyEnableCommand;
   "StrategyRuntimeResponse": StrategyRuntimeResponse;
   "StrategySummaryResponse": StrategySummaryResponse;

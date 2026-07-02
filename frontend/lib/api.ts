@@ -52,6 +52,7 @@ import type {
   SignalValidationRequest,
   SignalValidationResponse,
   StrategyCreate,
+  StrategyDeleteCommand,
   StrategyDecisionResponse,
   StrategyEnableCommand,
   StrategySummaryResponse,
@@ -117,6 +118,7 @@ export type {
   SignalValidationRequest,
   SignalValidationResponse,
   StrategyCreate,
+  StrategyDeleteCommand,
   StrategyDecisionResponse as StrategyDecision,
   StrategyEnableCommand,
   StrategySummaryResponse as StrategySummary,
@@ -369,8 +371,11 @@ export const enableStrategy = (strategyId: string, expectedUpdatedAt: string): P
 export const disableStrategy = (strategyId: string): Promise<StrategySummaryResponse> =>
   postData<StrategySummaryResponse>(`/strategies/${encodeURIComponent(strategyId)}/disable`);
 
-export const deleteStrategy = (strategyId: string): Promise<MutationStatusResponse> =>
-  deleteData<MutationStatusResponse>(`/strategies/${encodeURIComponent(strategyId)}`);
+export const deleteStrategy = (strategyId: string, expectedUpdatedAt: string): Promise<MutationStatusResponse> =>
+  deleteData<MutationStatusResponse>(
+    `/strategies/${encodeURIComponent(strategyId)}`,
+    { confirm: true, expected_updated_at: expectedUpdatedAt } satisfies StrategyDeleteCommand,
+  );
 
 export const listStrategySignals = (strategyId: string): Promise<SignalExpressionResponse[]> =>
   fetcher<SignalExpressionResponse[]>(`/strategies/${encodeURIComponent(strategyId)}/signals`);

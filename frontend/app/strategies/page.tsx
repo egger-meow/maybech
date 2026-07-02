@@ -249,7 +249,10 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
   const remove = async () => {
     if (!strategy || !confirm(`永久刪除已停用的策略「${strategy.name}」？已有部位歷史時後端會拒絕。`)) return;
     setBusy(true); setError("");
-    try { await deleteStrategy(strategy.id); await onSaved(); }
+    try {
+      if (!strategy.updated_at) throw new Error("策略缺少版本時間，無法安全確認刪除；請重新整理後再試。");
+      await deleteStrategy(strategy.id, strategy.updated_at); await onSaved();
+    }
     catch (caught) { setError(errorMessage(caught)); setBusy(false); }
   };
   const updateRule = (index: number, next: CloseRule) => { const rules = [...draft.closeRules]; rules[index] = next; set("closeRules", rules); };

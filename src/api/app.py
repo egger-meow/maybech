@@ -118,6 +118,7 @@ from src.api.schemas import (
     SignalValidationRequest,
     SignalValidationResponse,
     StrategyCreate,
+    StrategyDeleteCommand,
     StrategyEnableCommand,
     StrategyDecisionResponse,
     StrategyRuntimeResponse,
@@ -1628,7 +1629,10 @@ def create_app(
         "/strategies/{strategy_id}",
         response_model=MutationStatusResponse,
     )
-    def delete_strategy(strategy_id: str) -> MutationStatusResponse:
+    def delete_strategy(
+        strategy_id: str,
+        payload: StrategyDeleteCommand,
+    ) -> MutationStatusResponse:
         store = StrategyStore()
         LogicalPositionStore(store.db_path)
         TradeStore(store.db_path)
@@ -1637,6 +1641,14 @@ def create_app(
             strategy = store.get(strategy_id)
             if strategy is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")
+            if payload.expected_updated_at != strategy.updated_at:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Strategy changed since deletion was confirmed",
+                        "current_updated_at": strategy.updated_at,
+                    },
+                )
             if strategy.enabled:
                 raise HTTPException(status_code=409, detail="Disable the strategy before deleting it")
             if store.has_position_history(strategy_id):

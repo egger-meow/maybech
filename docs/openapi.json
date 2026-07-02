@@ -3891,6 +3891,26 @@
         "title": "StrategyDecisionResponse",
         "type": "object"
       },
+      "StrategyDeleteCommand": {
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "expected_updated_at": {
+            "minLength": 1,
+            "title": "Expected Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "expected_updated_at"
+        ],
+        "title": "StrategyDeleteCommand",
+        "type": "object"
+      },
       "StrategyEnableCommand": {
         "properties": {
           "confirm": {
@@ -6669,6 +6689,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyDeleteCommand"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

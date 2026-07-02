@@ -1809,10 +1809,31 @@ def test_api_deletes_only_disabled_unreferenced_strategy(monkeypatch, tmp_path):
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
 
-    blocked = client.delete("/strategies/enabled")
-    deleted = client.delete("/strategies/unused")
+    unused_version = store.get("unused").updated_at
+    blocked = client.request(
+        "DELETE",
+        "/strategies/enabled",
+        json={"confirm": True, "expected_updated_at": store.get("enabled").updated_at},
+    )
+    unconfirmed = client.request(
+        "DELETE",
+        "/strategies/unused",
+        json={"confirm": False, "expected_updated_at": unused_version},
+    )
+    stale = client.request(
+        "DELETE",
+        "/strategies/unused",
+        json={"confirm": True, "expected_updated_at": "stale"},
+    )
+    deleted = client.request(
+        "DELETE",
+        "/strategies/unused",
+        json={"confirm": True, "expected_updated_at": unused_version},
+    )
 
     assert blocked.status_code == 409
+    assert unconfirmed.status_code == 422
+    assert stale.status_code == 409
     assert deleted.json() == {"status": "deleted", "id": "unused"}
     assert store.get("unused") is None
     events = AuditEventStore(store.db_path).list(event_type="strategy.deleted")
@@ -1837,7 +1858,11 @@ def test_api_rejects_strategy_delete_with_unbackfilled_legacy_trade(monkeypatch,
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
 
-    response = client.delete("/strategies/legacy")
+    response = client.request(
+        "DELETE",
+        "/strategies/legacy",
+        json={"confirm": True, "expected_updated_at": store.get("legacy").updated_at},
+    )
 
     assert response.status_code == 409
     assert store.get("legacy") is not None

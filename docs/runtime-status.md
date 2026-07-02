@@ -96,6 +96,9 @@ Frontends must use `active`; there is no `state` field.
 - `POST /strategies/{strategy_id}/enable` requires a typed `confirm=true` and
   the exact reviewed `expected_updated_at`. Create/PATCH cannot enable a
   strategy, and stale confirmations fail instead of enabling an unseen edit.
+- Strategy deletion also requires typed confirmation against the exact loaded
+  strategy revision, and still rejects enabled or historically referenced
+  strategies.
 - Child strategy-signal PATCH is also revision-bound. Entry, filter, and copied
   exit expressions retain their newer value when an older editor submits.
 - Child signal deletion requires a typed confirmation body bound to that

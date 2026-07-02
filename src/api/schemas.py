@@ -735,6 +735,11 @@ class StrategyEnableCommand(BaseModel):
     expected_updated_at: str = Field(min_length=1)
 
 
+class StrategyDeleteCommand(BaseModel):
+    confirm: Literal[True]
+    expected_updated_at: str = Field(min_length=1)
+
+
 class StrategySummaryResponse(BaseModel):
     id: str
     name: str

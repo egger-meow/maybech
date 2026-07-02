@@ -26,10 +26,8 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
 ## Current Priorities
 
-1. Strategy deletion uses an unconfirmed DELETE with no expected strategy
-   revision. Although enabled or historically referenced strategies are
-   protected, an accidental request can still erase a newer disabled strategy
-   definition that another operator is editing.
+None. Add a new item only when it meets the necessary-blocker definition and
+the operator-approved finish-line gate.
 
 ## Non-Blocking / Later
 

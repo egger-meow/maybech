@@ -193,7 +193,9 @@ The Strategy Management page has a persisted strategy definition contract now:
   `expected_updated_at`, mark the reviewed persisted strategy enabled.
 - `POST /strategies/{strategy_id}/disable`: mark a persisted strategy disabled.
 - `DELETE /strategies/{strategy_id}`: delete only a disabled strategy with no
-  logical-position history; signal-expression children cascade with it.
+  logical-position history. It requires explicit `confirm: true` and the exact
+  `expected_updated_at`; stale requests receive `409`. Signal-expression
+  children cascade with the confirmed deletion.
 - `GET /strategies/{strategy_id}/signals`: list persisted signal expressions.
 - `POST /strategies/{strategy_id}/signals`: create a persisted signal
   expression with `confirm=true` and the exact
