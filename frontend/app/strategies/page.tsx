@@ -57,6 +57,94 @@ const blankDraft = (): Draft => ({
   ],
 });
 
+function priceExpression(purpose: string, side: "long" | "short", value: number): SignalExpression {
+  const above = (purpose === "take_profit" && side === "long") || (purpose === "stop_loss" && side === "short");
+  return { type: above ? "price_above" : "price_below", symbol: "self", value };
+}
+
+function ruleDefinition(rule: CloseRule): Record<string, unknown> {
+  return object(object(rule.metadata).rule_definition);
+}
+
+function ruleParameters(rule: CloseRule): Record<string, unknown> {
+  const metadata = object(rule.metadata);
+  return Object.keys(object(metadata.parameters)).length
+    ? object(metadata.parameters)
+    : object(ruleDefinition(rule).parameters);
+}
+
+function ruleStyle(rule: CloseRule): string {
+  return String(ruleDefinition(rule).style ?? ((rule.purpose === "stop_loss" || rule.purpose === "take_profit") ? "absolute_price" : rule.purpose === "break_even" ? "break_even_threshold" : "signal_triggered"));
+}
+
+function withTypedRule(
+  rule: CloseRule,
+  style: string,
+  parameters: Record<string, unknown>,
+  action?: Record<string, unknown>,
+): CloseRule {
+  const metadata = object(rule.metadata);
+  const definition = ruleDefinition(rule);
+  const nextAction = action ?? object(definition.action);
+  return {
+    ...rule,
+    metadata: {
+      ...metadata,
+      parameters,
+      evidence: object(metadata.evidence),
+      rule_definition: {
+        ...definition,
+        schema_version: 1,
+        purpose: rule.purpose,
+        style,
+        enabled: rule.enabled,
+        trigger: rule.expression,
+        action: Object.keys(nextAction).length ? nextAction : rule.purpose === "break_even" ? { type: "amend_stop" } : { type: "close_position" },
+        parameters,
+        evidence: object(metadata.evidence),
+      },
+    },
+  };
+}
+
+function defaultCloseRule(purpose: string, side: "long" | "short"): CloseRule {
+  const expression = priceExpression(purpose, side, 1);
+  if (purpose === "break_even") return withTypedRule({ purpose, enabled: true, expression }, "break_even_threshold", { activation_profit_pct: "0.01", entry_fee_rate: "0.0005", exit_fee_rate: "0.0005", slippage_rate: "0.0005", lock_in_pct: "0" }, { type: "amend_stop" });
+  if (purpose === "stop_loss" || purpose === "take_profit") return withTypedRule({ purpose, enabled: true, expression }, "fixed_percent", { offset_pct: purpose === "stop_loss" ? "0.01" : "0.02" }, { type: "close_position" });
+  return { purpose, enabled: true, expression };
+}
+
+function validateTypedCloseRules(rules: CloseRule[]): void {
+  let initialReduction = 0;
+  for (const rule of rules.filter((item) => item.enabled)) {
+    const style = ruleStyle(rule);
+    const parameters = ruleParameters(rule);
+    const action = object(ruleDefinition(rule).action);
+    if ((rule.purpose === "stop_loss" || rule.purpose === "take_profit") && style === "fixed_percent") {
+      const offset = Number(parameters.offset_pct);
+      if (!Number.isFinite(offset) || offset <= 0 || offset >= 1) throw new Error(`${rule.purpose === "stop_loss" ? "停損" : "停利"}百分比必須大於 0 且小於 100%。`);
+    }
+    if ((rule.purpose === "stop_loss" || rule.purpose === "take_profit") && style !== "fixed_percent") {
+      const target = Number(parameters.target_price ?? rule.expression.value);
+      if (!Number.isFinite(target) || target <= 0) throw new Error(`${rule.purpose === "stop_loss" ? "停損" : "停利"}價格必須大於 0。`);
+    }
+    if (rule.purpose === "break_even") {
+      const activation = Number(parameters.activation_profit_pct);
+      const fees = ["entry_fee_rate", "exit_fee_rate", "slippage_rate"].map((key) => Number(parameters[key]));
+      const lock = Number(parameters.lock_in_pct);
+      if (!Number.isFinite(activation) || activation <= 0 || activation > 1) throw new Error("保本啟動距離必須大於 0 且不超過 100%。");
+      if (fees.some((value) => !Number.isFinite(value) || value < 0 || value > .02)) throw new Error("保本手續費與滑價必須介於 0% 到 2%。");
+      if (!Number.isFinite(lock) || lock < 0 || lock > .05) throw new Error("保本額外鎖利必須介於 0% 到 5%。");
+    }
+    if (rule.purpose === "take_profit" && action.type === "reduce_position" && action.quantity_basis === "initial") {
+      const fraction = Number(action.quantity_fraction);
+      if (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) throw new Error("分段停利比例必須大於 0% 且小於 100%。");
+      initialReduction += fraction;
+    }
+  }
+  if (initialReduction > 1 + 1e-12) throw new Error("所有依初始部位計算的分段停利比例總和不得超過 100%。");
+}
+
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -111,6 +199,41 @@ function SizeQuotePreview({ instrument, quantity, price, side }: { instrument: s
   if (quote.error) return <small className="size-quote blocked">無法安全換算；此策略目前不能儲存。</small>;
   if (!quote.data) return <small className="size-quote pending">正在換算…</small>;
   return <small className="size-quote ready">OKX API：{quote.data.api_quantity_contracts} 口 · 約 {quote.data.estimated_notional_usdt} USDT</small>;
+}
+
+function TypedCloseRuleEditor({ rule, side, onChange }: { rule: CloseRule; side: "long" | "short"; onChange: (rule: CloseRule) => void }) {
+  const style = ruleStyle(rule);
+  const parameters = ruleParameters(rule);
+  const definition = ruleDefinition(rule);
+  const action = object(definition.action);
+  const setParameters = (next: Record<string, unknown>, nextAction?: Record<string, unknown>) => onChange(withTypedRule(rule, style, next, nextAction ?? action));
+  const setStyle = (nextStyle: string) => {
+    if (nextStyle === "fixed_percent") onChange(withTypedRule({ ...rule, expression: priceExpression(rule.purpose, side, 1) }, nextStyle, { offset_pct: String(parameters.offset_pct ?? (rule.purpose === "stop_loss" ? "0.01" : "0.02")) }, action));
+    else onChange(withTypedRule(rule, nextStyle, { target_price: String(parameters.target_price ?? rule.expression.value ?? "") }, action));
+  };
+  if (rule.purpose === "stop_loss" || rule.purpose === "take_profit") {
+    const staged = rule.purpose === "take_profit" && String(action.type ?? "close_position") === "reduce_position";
+    const price = String(parameters.target_price ?? rule.expression.value ?? "");
+    return <div className="typed-rule-grid">
+      <label className="field"><span>計算方式</span><select value={style === "fixed_percent" ? "fixed_percent" : "fixed_price"} onChange={(event) => setStyle(event.target.value)}><option value="fixed_percent">依進場價百分比</option><option value="fixed_price">固定價格</option></select></label>
+      {style === "fixed_percent" ? <label className="field"><span>{rule.purpose === "stop_loss" ? "停損距離" : "獲利目標"}</span><span className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={String(Number(parameters.offset_pct ?? 0) * 100)} onChange={(event) => setParameters({ ...parameters, offset_pct: String(Number(event.target.value) / 100) })} /><small>%</small></span></label> : <label className="field"><span>{rule.purpose === "stop_loss" ? "停損價" : "停利價"}</span><input type="number" min="0" step="any" value={price} onChange={(event) => { const value = event.target.value; onChange(withTypedRule({ ...rule, expression: priceExpression(rule.purpose, side, Number(value)) }, "fixed_price", { ...parameters, target_price: value }, action)); }} /></label>}
+      {rule.purpose === "take_profit" && <label className="check-field"><input type="checkbox" checked={staged} onChange={(event) => onChange(withTypedRule(rule, style, parameters, event.target.checked ? { type: "reduce_position", quantity_fraction: 0.5, quantity_basis: "initial" } : { type: "close_position" }))} /> 分段減倉，保留剩餘部位續跑</label>}
+      {staged && <><label className="field"><span>減倉比例</span><span className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={String(Number(action.quantity_fraction ?? 0.5) * 100)} onChange={(event) => onChange(withTypedRule(rule, style, parameters, { ...action, quantity_fraction: Number(event.target.value) / 100, quantity_basis: String(action.quantity_basis ?? "initial") }))} /><small>%</small></span></label><label className="field"><span>比例基準</span><select value={String(action.quantity_basis ?? "initial")} onChange={(event) => onChange(withTypedRule(rule, style, parameters, { ...action, quantity_basis: event.target.value }))}><option value="initial">初始部位</option><option value="remaining">當時剩餘部位</option></select></label></>}
+      <div className="inline-warning">相對價格會在確認成交均價後重新物化；固定價格仍會驗證多空方向。</div>
+    </div>;
+  }
+  if (rule.purpose === "break_even") {
+    const percentField = (key: string, label: string, max: number) => <label className="field"><span>{label}</span><span className="input-with-suffix"><input type="number" min="0" max={max} step="0.001" value={String(Number(parameters[key] ?? 0) * 100)} onChange={(event) => setParameters({ ...parameters, [key]: String(Number(event.target.value) / 100) }, { type: "amend_stop" })} /><small>%</small></span></label>;
+    return <div className="typed-rule-grid">
+      <label className="field"><span>啟動獲利距離</span><span className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={String(Number(parameters.activation_profit_pct ?? 0.01) * 100)} onChange={(event) => setParameters({ ...parameters, activation_profit_pct: String(Number(event.target.value) / 100) }, { type: "amend_stop" })} /><small>%</small></span></label>
+      {percentField("entry_fee_rate", "進場手續費", 2)}
+      {percentField("exit_fee_rate", "出場手續費", 2)}
+      {percentField("slippage_rate", "每側滑價", 2)}
+      {percentField("lock_in_pct", "額外鎖利", 5)}
+      <div className="inline-warning">保本價不是原始進場價；後端會計入進出場手續費、雙側滑價與鎖利，並只在交易所確認修改停損後標記完成。</div>
+    </div>;
+  }
+  return <ExpressionEditor value={rule.expression} onChange={(expression) => onChange({ ...rule, expression })} label={`${rule.purpose.replaceAll("_", " ")} 條件`} />;
 }
 
 function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
@@ -205,6 +328,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       if (outsideAllowlist.length) throw new Error(`商品超出帳戶風險 allowlist：${outsideAllowlist.join("、")}`);
       const executionDelaySeconds = Number(draft.executionDelaySeconds);
       if (!Number.isInteger(executionDelaySeconds) || executionDelaySeconds < 0 || executionDelaySeconds > 86400) throw new Error("執行延遲必須是 0 到 86400 秒的整數。");
+      validateTypedCloseRules(draft.closeRules);
       const expressions = [draft.entrySignal, ...draft.closeRules.map((rule) => rule.expression)];
       const validated = await Promise.all(expressions.map((expression) => validateSignal({ expression })));
       const invalid = validated.find((result) => !result.valid);
@@ -274,16 +398,16 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
 
       {strategy?.runtime?.pending_executions?.length ? <div className="pending-execution-list">{strategy.runtime.pending_executions.map((pending) => <article key={String(pending.correlation_id)}><span className="badge warning">等待重新驗證</span><strong>{String(pending.inst_id)}</strong><small>預定：{new Date(String(pending.due_at)).toLocaleString("zh-TW")}</small><small className="mono">{String(pending.correlation_id)}</small></article>)}</div> : null}
 
-      <div className="section-divider"><div><h3>預設部位規則</h3><p>每次進場都會複製一份至新的 Maybech 邏輯部位，不會共用同一筆規則。</p></div><button type="button" className="btn btn-outline" onClick={() => set("closeRules", [...draft.closeRules, { purpose: "exit", enabled: true, expression: { type: "price_below", symbol: "self", value: 0 } }])}><CirclePlus size={15} /> 新增規則</button></div>
+      <div className="section-divider"><div><h3>預設部位規則</h3><p>每次進場都會複製一份至新的 Maybech 邏輯部位；停損、停利與保本使用後端可物化的型別化參數。</p></div><button type="button" className="btn btn-outline" onClick={() => set("closeRules", [...draft.closeRules, defaultCloseRule("break_even", draft.side)])}><CirclePlus size={15} /> 新增保本規則</button></div>
       <div className="rule-stack">
         {draft.closeRules.map((rule, index) => (
           <div className="sub-editor" key={index}>
             <div className="sub-editor-head">
-              <label className="field"><span>規則類型</span><select value={rule.purpose} onChange={(event) => updateRule(index, { ...rule, purpose: event.target.value })}><option value="stop_loss">停損</option><option value="take_profit">停利</option><option value="trailing">移動停損</option><option value="break_even">保本</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option></select></label>
+              <label className="field"><span>規則類型</span><select value={rule.purpose} onChange={(event) => updateRule(index, defaultCloseRule(event.target.value, draft.side))}><option value="stop_loss">停損</option><option value="take_profit">停利／分段停利</option><option value="break_even">自動保本</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option><option value="trailing">移動停損（後續）</option></select></label>
               <label className="check-field"><input type="checkbox" checked={rule.enabled} onChange={(event) => updateRule(index, { ...rule, enabled: event.target.checked })} /> 啟用</label>
               <button type="button" className="icon-button danger-ghost" aria-label="移除規則" onClick={() => set("closeRules", draft.closeRules.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} /></button>
             </div>
-            <ExpressionEditor value={rule.expression} onChange={(expression) => updateRule(index, { ...rule, expression })} label={`${rule.purpose.replaceAll("_", " ")} 條件`} />
+            <TypedCloseRuleEditor rule={rule} side={draft.side} onChange={(next) => updateRule(index, next)} />
           </div>
         ))}
       </div>

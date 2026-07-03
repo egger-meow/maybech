@@ -344,6 +344,8 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .sub-editor-head { display: flex; align-items: flex-end; gap: .75rem; flex-wrap: wrap; }
 .sub-editor-head .field { min-width: 210px; }
 .sub-editor-head .dirty-note, .sub-editor-head .saved-note { margin-left: auto; margin-right: 0; }
+.typed-rule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .85rem; align-items: end; }
+.typed-rule-grid .inline-warning { grid-column: 1 / -1; }
 .check-field { display: inline-flex; align-items: center; gap: .45rem; min-height: 42px; font-weight: 700; }
 .check-field input { width: 18px; height: 18px; }
 .strategy-delete { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.25rem; }

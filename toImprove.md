@@ -143,6 +143,11 @@ An item is necessary only if leaving it unfixed could cause one or more of these
   an exact-size logical-position override with revision checks; rejected
   resizing remains visible instead of being applied silently. Strategy-default
   promotion UI and the remaining integrated workflow are still incomplete.
+  Strategy Management now authors typed default stop-loss, take-profit, staged
+  reductions, running remainder, and automatic break-even parameters directly;
+  it no longer requires operators to express these cases as raw signal JSON.
+  It validates percent/price/cost bounds and the aggregate initial staged-exit
+  fraction before sending the revision-protected strategy mutation.
 
   The goal is to design a coherent rule system for stop-loss, take-profit, break-even, optional trailing protection, and research-grade Support/Resistance evidence after a strategy opens a position or when the operator edits an existing logical position unit.
 
