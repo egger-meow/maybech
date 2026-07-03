@@ -25,7 +25,7 @@ def _risk_payload(**extra):
         "mode": "chart_anchored",
         "entry_price": "3000",
         "side": "long",
-        "allowed_loss_usdt": "20",
+        "allowed_loss_usdt": "21.2",
         "stop_price": "2900",
         "timeframe": "15m",
         "evidence": {"level_kind": "support", "level_score": 0.8},

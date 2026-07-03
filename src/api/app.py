@@ -822,6 +822,9 @@ def create_app(
                 stop_price=payload.stop_price,
                 timeframe=payload.timeframe,
                 evidence=payload.evidence,
+                entry_fee_rate=payload.entry_fee_rate,
+                exit_fee_rate=payload.exit_fee_rate,
+                slippage_rate=payload.slippage_rate,
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -2632,6 +2635,7 @@ def create_app(
                 payload.condition_id,
                 expression=payload.expression,
                 reason=payload.reason,
+                condition_metadata=payload.metadata,
                 expected_position_updated_at=payload.expected_position_updated_at,
                 expected_condition_updated_at=payload.expected_condition_updated_at,
             )

@@ -184,14 +184,38 @@ function MiniChart({ chart }: { chart: LogicalPositionChartResponse }) {
 }
 
 function RuleEditor({ position, condition, onSaved, onCancel }: { position: LogicalPositionUnit; condition?: LogicalPositionCloseCondition; onSaved: () => Promise<unknown>; onCancel?: () => void }) {
+  const initialDefinition = object(condition?.rule_definition);
+  const initialParameters = object(initialDefinition.parameters);
+  const initialAction = object(initialDefinition.action);
   const [purpose, setPurpose] = useState(condition?.purpose ?? "exit");
   const [enabled, setEnabled] = useState(condition?.enabled ?? true);
   const [expression, setExpression] = useState<SignalExpression>(() => Object.keys(object(condition?.expression)).length ? object(condition?.expression) : { type: "price_below", symbol: "self", value: 0 });
   const [dirty, setDirty] = useState(!condition);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [style, setStyle] = useState(String(initialDefinition.style ?? "absolute_price"));
+  const [offsetPct, setOffsetPct] = useState(String(Number(initialParameters.offset_pct ?? .01) * 100));
+  const [targetPrice, setTargetPrice] = useState(String(initialParameters.target_price ?? condition?.expression?.value ?? ""));
+  const [reduceOnly, setReduceOnly] = useState(initialAction.type === "reduce_position");
+  const [reducePct, setReducePct] = useState(String(Number(initialAction.quantity_fraction ?? .5) * 100));
   const ownedStop = Boolean(condition && condition.purpose === "stop_loss" && position.protection && ["active", "amending", "canceling"].includes(position.protection.status));
-  const rulePrice = !Array.isArray(expression.conditions) && Number(expression.value) > 0 ? String(expression.value) : "";
+  const typedPurpose = purpose === "stop_loss" || purpose === "take_profit";
+  const offset = Number(offsetPct) / 100;
+  const typedPrice = style === "fixed_percent"
+    ? position.entry_price * (((purpose === "take_profit") === (position.side === "long")) ? 1 + offset : 1 - offset)
+    : Number(targetPrice);
+  const typedExpression: SignalExpression = {
+    type: ((purpose === "take_profit") === (position.side === "long")) ? "price_above" : "price_below",
+    symbol: position.inst_id,
+    value: typedPrice,
+  };
+  const typedAction = purpose === "take_profit" && reduceOnly
+    ? { type: "reduce_position", quantity_fraction: Number(reducePct) / 100, quantity_basis: "remaining" }
+    : { type: "close_position" };
+  const typedParameters = style === "fixed_percent" ? { offset_pct: String(offset) } : { target_price: String(targetPrice) };
+  const typedEvidence = { source: "operator_position_rule_editor" };
+  const typedMetadata = { ...object(condition?.metadata), parameters: typedParameters, evidence: typedEvidence, rule_definition: { schema_version: 1, purpose, style, enabled, trigger: typedExpression, action: typedAction, parameters: typedParameters, evidence: typedEvidence } };
+  const rulePrice = typedPurpose && Number.isFinite(typedPrice) && typedPrice > 0 ? String(typedPrice) : !Array.isArray(expression.conditions) && Number(expression.value) > 0 ? String(expression.value) : "";
   const ruleQuote = useSWR(
     rulePrice && (position.remaining_quantity ?? 0) > 0 ? ["rule-pnl-quote", position.id, condition?.id ?? "new", position.remaining_quantity, rulePrice] : null,
     () => quoteInstrumentContracts(position.inst_id, { api_quantity_contracts: String(position.remaining_quantity), entry_price: String(position.entry_price), side: position.side as "long" | "short", rule_price: rulePrice }),
@@ -200,17 +224,22 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
   const save = async () => {
     setBusy(true); setError("");
     try {
-      const validation = await validateSignal({ expression });
+      if (typedPurpose && style === "fixed_percent" && (!Number.isFinite(offset) || offset <= 0 || offset >= 1)) throw new Error("百分比必須大於 0 且小於 100%。");
+      if (typedPurpose && (!Number.isFinite(typedPrice) || typedPrice <= 0)) throw new Error("規則價格必須大於 0。");
+      if (purpose === "take_profit" && reduceOnly && (!Number.isFinite(Number(reducePct)) || Number(reducePct) <= 0 || Number(reducePct) >= 100)) throw new Error("減倉比例必須大於 0% 且小於 100%。");
+      const candidateExpression = typedPurpose ? typedExpression : expression;
+      const candidateMetadata = typedPurpose ? typedMetadata : object(condition?.metadata);
+      const validation = await validateSignal({ expression: candidateExpression });
       if (!validation.valid) throw new Error(validation.errors?.join("；") || "規則格式不正確");
       const normalized = validation.normalized ?? expression;
       if (ownedStop && condition) {
         if (!confirm("此停損擁有真實 OKX 保護單。系統會先驗證舊保護，再修改並確認新價位；確定繼續？")) return;
-        await amendLogicalPositionStop(position.id, { confirm: true, condition_id: condition.id, expected_position_updated_at: position.updated_at, expected_condition_updated_at: condition.updated_at, expression: normalized, reason: "operator dashboard stop edit" });
+        await amendLogicalPositionStop(position.id, { confirm: true, condition_id: condition.id, expected_position_updated_at: position.updated_at, expected_condition_updated_at: condition.updated_at, expression: normalized, metadata: candidateMetadata, reason: "operator dashboard stop edit" });
       } else if (condition) {
-        await updateLogicalPositionCloseCondition(position.id, condition.id, { expected_updated_at: condition.updated_at, purpose, enabled, expression: normalized, metadata: condition.metadata });
+        await updateLogicalPositionCloseCondition(position.id, condition.id, { expected_updated_at: condition.updated_at, purpose, enabled, expression: normalized, metadata: candidateMetadata });
       } else {
         if (enabled && !confirm("新增已啟用規則後，條件成立時可能立即觸發自動減倉／平倉。確定新增至目前檢視的邏輯部位版本？")) return;
-        await createLogicalPositionCloseCondition(position.id, { confirm: true, expected_position_updated_at: position.updated_at, purpose, enabled, expression: normalized, metadata: {} });
+        await createLogicalPositionCloseCondition(position.id, { confirm: true, expected_position_updated_at: position.updated_at, purpose, enabled, expression: normalized, metadata: candidateMetadata });
       }
       setDirty(false); await onSaved(); onCancel?.();
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
@@ -224,12 +253,18 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
   return (
     <div className="sub-editor">
       <div className="sub-editor-head">
-        <label className="field"><span>規則類型</span><select disabled={ownedStop} value={purpose} onChange={(event) => { setPurpose(event.target.value); setDirty(true); }}><option value="stop_loss">停損</option><option value="take_profit">停利</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option></select></label>
+        <label className="field"><span>規則類型</span><select disabled={ownedStop} value={purpose} onChange={(event) => { const next = event.target.value; setPurpose(next); if (next === "stop_loss" || next === "take_profit") { setStyle("fixed_percent"); setOffsetPct(next === "stop_loss" ? "1" : "2"); } setDirty(true); }}><option value="stop_loss">停損</option><option value="take_profit">停利</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option></select></label>
         <label className="check-field"><input type="checkbox" disabled={ownedStop} checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setDirty(true); }} /> 啟用</label>
         {ownedStop && <span className="badge warning"><ShieldCheck size={13} /> OKX 保護單專用修改</span>}
         <span className={dirty ? "dirty-note" : "saved-note"}>{dirty ? "尚未儲存" : "已儲存"}</span>
       </div>
-      <ExpressionEditor value={expression} onChange={change} label={`${purposeLabel(purpose)}條件`} />
+      {typedPurpose ? <div className="typed-rule-grid">
+        <label className="field"><span>計算方式</span><select value={style === "fixed_percent" ? "fixed_percent" : "fixed_price"} onChange={(event) => { setStyle(event.target.value); setDirty(true); }}><option value="fixed_percent">依確認進場價百分比</option><option value="fixed_price">固定價格</option></select></label>
+        {style === "fixed_percent" ? <label className="field"><span>{purpose === "stop_loss" ? "停損距離" : "獲利目標"}</span><span className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={offsetPct} onChange={(event) => { setOffsetPct(event.target.value); setDirty(true); }} /><small>%</small></span></label> : <label className="field"><span>{purpose === "stop_loss" ? "停損價" : "停利價"}</span><input type="number" min="0" step="any" value={targetPrice} onChange={(event) => { setTargetPrice(event.target.value); setDirty(true); }} /></label>}
+        {purpose === "take_profit" && <label className="check-field"><input type="checkbox" checked={reduceOnly} onChange={(event) => { setReduceOnly(event.target.checked); setDirty(true); }} /> 只減倉並保留剩餘部位</label>}
+        {purpose === "take_profit" && reduceOnly && <label className="field"><span>減倉比例</span><span className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={reducePct} onChange={(event) => { setReducePct(event.target.value); setDirty(true); }} /><small>%</small></span></label>}
+        <div className="inline-warning">相對百分比以此邏輯部位的確認進場均價計算；受保護停損會先完成交易所修改確認，再更新型別化規則 metadata。</div>
+      </div> : <ExpressionEditor value={expression} onChange={change} label={`${purposeLabel(purpose)}條件`} />}
       {ruleQuote.data && <div className="rule-pnl-estimate"><span>依剩餘 {ruleQuote.data.display_quantity} {ruleQuote.data.display_currency} 估算</span><strong className={Number(ruleQuote.data.estimated_pnl_usdt) < 0 ? "negative" : "positive"}>{ruleQuote.data.estimated_pnl_usdt} USDT</strong></div>}
       {!rulePrice && <div className="inline-warning">此規則沒有單一絕對價位，無法顯示單值 USDT 損益；實際條件仍會完整評估。</div>}
       {rulePrice && ruleQuote.error && <div className="inline-warning">缺少或無法解讀商品單位 metadata，USDT 損益估算不可用。</div>}

@@ -792,6 +792,13 @@ class LogicalPositionStore:
             for condition in conditions:
                 if condition.position_id != position.id:
                     raise ValueError("Close condition belongs to another position")
+                condition.metadata_json = _json_dumps(normalize_position_rule(
+                    purpose=str(condition.purpose),
+                    expression=condition.expression,
+                    enabled=condition.enabled,
+                    metadata=condition.metadata,
+                ))
+                condition.updated_at = datetime.now(timezone.utc).isoformat()
                 conn.execute(
                     """INSERT INTO logical_position_close_conditions
                        (id, position_id, purpose, expression_json, enabled,

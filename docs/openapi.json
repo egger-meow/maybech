@@ -1144,6 +1144,13 @@
             "title": "Allowed Loss Usdt",
             "type": "string"
           },
+          "entry_fee_rate": {
+            "default": "0.0005",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entry Fee Rate",
+            "type": "string"
+          },
           "entry_price": {
             "maxLength": 64,
             "minLength": 1,
@@ -1154,6 +1161,13 @@
             "additionalProperties": true,
             "title": "Evidence",
             "type": "object"
+          },
+          "exit_fee_rate": {
+            "default": "0.0005",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Exit Fee Rate",
+            "type": "string"
           },
           "mode": {
             "enum": [
@@ -1182,6 +1196,13 @@
               "short"
             ],
             "title": "Side",
+            "type": "string"
+          },
+          "slippage_rate": {
+            "default": "0.0005",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Slippage Rate",
             "type": "string"
           },
           "stop_price": {
@@ -1278,6 +1299,14 @@
             "title": "Mode",
             "type": "string"
           },
+          "modeled_cost_usdt": {
+            "title": "Modeled Cost Usdt",
+            "type": "string"
+          },
+          "price_loss_usdt": {
+            "title": "Price Loss Usdt",
+            "type": "string"
+          },
           "stop_distance_pct": {
             "title": "Stop Distance Pct",
             "type": "string"
@@ -1308,6 +1337,8 @@
           "stop_price",
           "stop_distance_pct",
           "estimated_loss_usdt",
+          "price_loss_usdt",
+          "modeled_cost_usdt",
           "unused_risk_usdt",
           "stop_expression",
           "evidence"
@@ -3259,6 +3290,13 @@
             "title": "Confirm",
             "type": "boolean"
           },
+          "entry_fee_rate": {
+            "default": "0.0005",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entry Fee Rate",
+            "type": "string"
+          },
           "entry_price": {
             "maxLength": 64,
             "minLength": 1,
@@ -3269,6 +3307,13 @@
             "additionalProperties": true,
             "title": "Evidence",
             "type": "object"
+          },
+          "exit_fee_rate": {
+            "default": "0.0005",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Exit Fee Rate",
+            "type": "string"
           },
           "expected_condition_updated_at": {
             "anyOf": [
@@ -3321,6 +3366,13 @@
               "short"
             ],
             "title": "Side",
+            "type": "string"
+          },
+          "slippage_rate": {
+            "default": "0.0005",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Slippage Rate",
             "type": "string"
           },
           "stop_price": {
@@ -3571,6 +3623,18 @@
             "additionalProperties": true,
             "title": "Expression",
             "type": "object"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
           },
           "reason": {
             "maxLength": 256,
@@ -4599,6 +4663,13 @@
             "title": "Confirm",
             "type": "boolean"
           },
+          "entry_fee_rate": {
+            "default": "0.0005",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entry Fee Rate",
+            "type": "string"
+          },
           "entry_price": {
             "maxLength": 64,
             "minLength": 1,
@@ -4609,6 +4680,13 @@
             "additionalProperties": true,
             "title": "Evidence",
             "type": "object"
+          },
+          "exit_fee_rate": {
+            "default": "0.0005",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Exit Fee Rate",
+            "type": "string"
           },
           "expected_updated_at": {
             "minLength": 1,
@@ -4648,6 +4726,13 @@
               "short"
             ],
             "title": "Side",
+            "type": "string"
+          },
+          "slippage_rate": {
+            "default": "0.0005",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Slippage Rate",
             "type": "string"
           },
           "stop_price": {

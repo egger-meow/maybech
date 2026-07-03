@@ -2459,6 +2459,7 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
             "expected_position_updated_at": position_store.get("protected-unit").updated_at,
             "expected_condition_updated_at": condition.updated_at,
             "expression": {"type": "price_below", "symbol": "self", "value": 2850},
+            "metadata": {"operator_style": "fixed_percent"},
             "reason": "tighten operator stop",
         },
     )
@@ -2499,6 +2500,7 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
     assert generic.status_code == 409
     assert unconfirmed.status_code == 422
     assert amended.status_code == 200
+    assert amended_condition["metadata"]["operator_style"] == "fixed_percent"
     assert stale_amend.status_code == 409
     assert unconfirmed_break_even.status_code == 422
     assert break_even.status_code == 200

@@ -189,6 +189,9 @@ class InstrumentRiskQuoteRequest(BaseModel):
     stop_price: str | None = Field(default=None, min_length=1, max_length=64)
     timeframe: str | None = Field(default=None, min_length=1, max_length=16)
     evidence: dict[str, Any] = Field(default_factory=dict)
+    entry_fee_rate: str = Field(default="0.0005", min_length=1, max_length=64)
+    exit_fee_rate: str = Field(default="0.0005", min_length=1, max_length=64)
+    slippage_rate: str = Field(default="0.0005", min_length=1, max_length=64)
 
 
 class InstrumentRiskQuoteResponse(InstrumentSizeQuoteResponse):
@@ -197,6 +200,8 @@ class InstrumentRiskQuoteResponse(InstrumentSizeQuoteResponse):
     stop_price: str
     stop_distance_pct: str
     estimated_loss_usdt: str
+    price_loss_usdt: str
+    modeled_cost_usdt: str
     unused_risk_usdt: str
     stop_expression: dict[str, Any]
     evidence: dict[str, Any]
@@ -803,6 +808,7 @@ class PositionStopAmendCommand(BaseModel):
     expected_position_updated_at: str = Field(min_length=1)
     expected_condition_updated_at: str = Field(min_length=1)
     expression: dict[str, Any]
+    metadata: dict[str, Any] | None = None
     reason: str = Field(min_length=1, max_length=256)
 
 

@@ -223,6 +223,9 @@ export type InstrumentRiskQuoteRequest = {
   "stop_price"?: string | null;
   "timeframe"?: string | null;
   "evidence"?: Record<string, unknown>;
+  "entry_fee_rate"?: string;
+  "exit_fee_rate"?: string;
+  "slippage_rate"?: string;
 };
 
 export type InstrumentRiskQuoteResponse = {
@@ -238,6 +241,8 @@ export type InstrumentRiskQuoteResponse = {
   "stop_price": string;
   "stop_distance_pct": string;
   "estimated_loss_usdt": string;
+  "price_loss_usdt": string;
+  "modeled_cost_usdt": string;
   "unused_risk_usdt": string;
   "stop_expression": Record<string, unknown>;
   "evidence": Record<string, unknown>;
@@ -565,6 +570,9 @@ export type PositionRiskStopPromotionCommand = {
   "stop_price"?: string | null;
   "timeframe"?: string | null;
   "evidence"?: Record<string, unknown>;
+  "entry_fee_rate"?: string;
+  "exit_fee_rate"?: string;
+  "slippage_rate"?: string;
   "confirm": true;
   "expected_position_updated_at": string;
   "expected_condition_updated_at"?: string | null;
@@ -610,6 +618,7 @@ export type PositionStopAmendCommand = {
   "expected_position_updated_at": string;
   "expected_condition_updated_at": string;
   "expression": Record<string, unknown>;
+  "metadata"?: Record<string, unknown> | null;
   "reason": string;
 };
 
@@ -799,6 +808,9 @@ export type StrategyRiskStopPromotionCommand = {
   "stop_price"?: string | null;
   "timeframe"?: string | null;
   "evidence"?: Record<string, unknown>;
+  "entry_fee_rate"?: string;
+  "exit_fee_rate"?: string;
+  "slippage_rate"?: string;
   "confirm": true;
   "expected_updated_at": string;
   "inst_id": string;

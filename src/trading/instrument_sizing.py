@@ -18,6 +18,16 @@ def _positive(value: object, *, field: str) -> Decimal:
     return number
 
 
+def _cost_rate(value: object, *, field: str) -> Decimal:
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"Invalid {field}: {value!r}") from exc
+    if not number.is_finite() or number < 0 or number > Decimal("0.02"):
+        raise ValueError(f"{field} must be between 0 and 0.02")
+    return number
+
+
 def _render(value: Decimal) -> str:
     rendered = format(value, "f")
     return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
@@ -57,6 +67,8 @@ class RiskSizeQuote:
     stop_price: Decimal
     stop_distance_pct: Decimal
     estimated_loss_usdt: Decimal
+    price_loss_usdt: Decimal
+    modeled_cost_usdt: Decimal
     unused_risk_usdt: Decimal
     stop_expression: dict
     evidence: dict
@@ -69,6 +81,8 @@ class RiskSizeQuote:
             "stop_price": _render(self.stop_price),
             "stop_distance_pct": _render(self.stop_distance_pct),
             "estimated_loss_usdt": _render(self.estimated_loss_usdt),
+            "price_loss_usdt": _render(self.price_loss_usdt),
+            "modeled_cost_usdt": _render(self.modeled_cost_usdt),
             "unused_risk_usdt": _render(self.unused_risk_usdt),
             "stop_expression": self.stop_expression,
             "evidence": self.evidence,
@@ -200,6 +214,9 @@ class InstrumentSizer:
         stop_price: object | None = None,
         timeframe: str | None = None,
         evidence: dict | None = None,
+        entry_fee_rate: object = "0.0005",
+        exit_fee_rate: object = "0.0005",
+        slippage_rate: object = "0.0005",
     ) -> RiskSizeQuote:
         """Derive a lot-aligned size/stop without exceeding allowed loss."""
         entry = _positive(entry_price, field="entry_price")
@@ -208,6 +225,10 @@ class InstrumentSizer:
         if normalized_side not in {"long", "short"}:
             raise ValueError("side must be long or short")
         tick = _positive(self.metadata.tick_size, field="tickSz")
+        entry_fee = _cost_rate(entry_fee_rate, field="entry_fee_rate")
+        exit_fee = _cost_rate(exit_fee_rate, field="exit_fee_rate")
+        slippage = _cost_rate(slippage_rate, field="slippage_rate")
+        total_cost_rate = entry_fee + exit_fee + slippage * Decimal("2")
 
         if mode == "fixed_loss":
             if position_notional_usdt is None:
@@ -217,7 +238,10 @@ class InstrumentSizer:
             )
             if allowed_loss >= requested_notional:
                 raise ValueError("allowed loss must be smaller than position notional")
-            fraction = allowed_loss / requested_notional
+            price_loss_budget = allowed_loss - requested_notional * total_cost_rate
+            if price_loss_budget <= 0:
+                raise ValueError("fees and slippage consume the entire allowed loss")
+            fraction = price_loss_budget / requested_notional
             raw_stop = entry * (
                 Decimal("1") - fraction
                 if normalized_side == "long"
@@ -237,7 +261,7 @@ class InstrumentSizer:
             rounding = ROUND_FLOOR if normalized_side == "long" else ROUND_CEILING
             normalized_stop = (raw_stop / tick).to_integral_value(rounding=rounding) * tick
             distance_fraction = abs(entry - normalized_stop) / entry
-            target_notional = allowed_loss / distance_fraction
+            target_notional = allowed_loss / (distance_fraction + total_cost_rate)
         else:
             raise ValueError("mode must be fixed_loss or chart_anchored")
 
@@ -259,7 +283,9 @@ class InstrumentSizer:
             side=normalized_side,
             rule_price=normalized_stop,
         )
-        estimated_loss = abs(size.estimated_pnl_usdt or Decimal("0"))
+        price_loss = abs(size.estimated_pnl_usdt or Decimal("0"))
+        modeled_cost = size.estimated_notional_usdt * total_cost_rate
+        estimated_loss = price_loss + modeled_cost
         if estimated_loss > allowed_loss:
             raise ValueError("lot normalization would exceed allowed loss")
         expression_type = "price_below" if normalized_side == "long" else "price_above"
@@ -268,6 +294,10 @@ class InstrumentSizer:
             "timeframe": timeframe,
             "allowed_loss_usdt": _render(allowed_loss),
             "requested_stop_price": _render(raw_stop),
+            "entry_fee_rate": _render(entry_fee),
+            "exit_fee_rate": _render(exit_fee),
+            "slippage_rate": _render(slippage),
+            "modeled_round_trip_cost_rate": _render(total_cost_rate),
             **(evidence or {}),
         }
         return RiskSizeQuote(
@@ -277,6 +307,8 @@ class InstrumentSizer:
             stop_price=normalized_stop,
             stop_distance_pct=distance_fraction,
             estimated_loss_usdt=estimated_loss,
+            price_loss_usdt=price_loss,
+            modeled_cost_usdt=modeled_cost,
             unused_risk_usdt=allowed_loss - estimated_loss,
             stop_expression={
                 "type": expression_type,

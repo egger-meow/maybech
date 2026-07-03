@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from src.api.app import create_app
 from src.daemon.service import DaemonRunner
 from src.daemon.account_service import AccountSnapshotService
@@ -204,13 +206,17 @@ def test_instrument_sizer_derives_fixed_loss_stop_and_chart_anchored_size(tmp_pa
         evidence={"level_price": 2900, "level_score": 0.8},
     ).to_dict()
 
-    assert fixed["stop_price"] == "2900"
+    assert fixed["stop_price"] == "2906"
     assert fixed["estimated_loss_usdt"] == "25"
+    assert fixed["price_loss_usdt"] == "23.5"
+    assert fixed["modeled_cost_usdt"] == "1.5"
     assert fixed["stop_expression"] == {
-        "type": "price_below", "symbol": "self", "value": 2900.0
+        "type": "price_below", "symbol": "self", "value": 2906.0
     }
-    assert anchored["estimated_notional_usdt"] == "600"
-    assert anchored["api_quantity_contracts"] == "2"
+    assert anchored["estimated_notional_usdt"] == "564"
+    assert anchored["api_quantity_contracts"] == "1.88"
+    assert anchored["estimated_loss_usdt"] == "19.928"
+    assert anchored["modeled_cost_usdt"] == "1.128"
     assert anchored["evidence"]["timeframe"] == "15m"
     assert anchored["evidence"]["level_score"] == 0.8
 
@@ -230,9 +236,36 @@ def test_risk_sizer_rounds_down_size_without_exceeding_allowed_loss(tmp_path):
         stop_price="2900",
     ).to_dict()
 
-    assert quote["api_quantity_contracts"] == "2"
-    assert quote["estimated_loss_usdt"] == "20"
-    assert quote["unused_risk_usdt"] == "1"
+    assert quote["api_quantity_contracts"] == "1"
+    assert quote["estimated_loss_usdt"] == "10.6"
+    assert quote["unused_risk_usdt"] == "10.4"
+
+
+def test_risk_sizer_rejects_when_cost_assumptions_consume_loss_budget(tmp_path):
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    metadata = store.replace_type("SWAP", [_instrument()])[0]
+    sizer = InstrumentSizer(metadata)
+
+    with pytest.raises(ValueError, match="consume the entire allowed loss"):
+        sizer.quote_risk(
+            mode="fixed_loss",
+            entry_price="3000",
+            side="long",
+            allowed_loss_usdt="1",
+            position_notional_usdt="1000",
+            entry_fee_rate="0.001",
+            exit_fee_rate="0.001",
+            slippage_rate="0.001",
+        )
+    with pytest.raises(ValueError, match="between 0 and 0.02"):
+        sizer.quote_risk(
+            mode="chart_anchored",
+            entry_price="3000",
+            side="long",
+            allowed_loss_usdt="20",
+            stop_price="2900",
+            slippage_rate="0.03",
+        )
 
 
 def test_risk_quote_api_returns_structured_stop_proposal(monkeypatch, tmp_path):
@@ -256,8 +289,9 @@ def test_risk_quote_api_returns_structured_stop_proposal(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["estimated_notional_usdt"] == "600"
-    assert body["estimated_loss_usdt"] == "20"
+    assert body["estimated_notional_usdt"] == "564"
+    assert body["estimated_loss_usdt"] == "19.928"
+    assert body["modeled_cost_usdt"] == "1.128"
     assert body["stop_expression"]["type"] == "price_below"
 
 
