@@ -141,8 +141,10 @@ An item is necessary only if leaving it unfixed could cause one or more of these
   state. Market Analysis now lets the operator select a structure level as a
   reviewed stop anchor and explicitly promote the server-recalculated quote to
   an exact-size logical-position override with revision checks; rejected
-  resizing remains visible instead of being applied silently. Strategy-default
-  promotion UI and the remaining integrated workflow are still incomplete.
+  resizing remains visible instead of being applied silently. The same workflow
+  now promotes to a matching single-instrument strategy revision and visibly
+  warns that an enabled strategy is disabled for review. Remaining integrated
+  chart/evidence-state work is still incomplete.
   Strategy Management now authors typed default stop-loss, take-profit, staged
   reductions, running remainder, and automatic break-even parameters directly;
   it no longer requires operators to express these cases as raw signal JSON.
