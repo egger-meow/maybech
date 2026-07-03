@@ -5,143 +5,64 @@ major build phases belong here. An activated build phase remains a priority
 until its written acceptance gates are complete; do not silently return it to
 the backlog after a partial milestone.
 
-This file is a priority contract, not a feature wishlist. Always sort items by real operational danger before adding or editing them. Once written, an earlier priority item is always higher than a later priority item. Always do the higher priority item first.
+This file is a priority contract, not a feature wishlist. Always sort items by
+real operational danger before adding or editing them. Once written, an earlier
+priority item is always higher than a later priority item.
 
 ## Priority Rules
 
-1. Add an item only if it is a concrete correctness, safety, or operator-control blocker, or the operator explicitly activates a major build phase with acceptance gates.
-2. Do not add general cleanup, speculative features, refactors, or nice-to-have work.
-3. If a new blocker is more dangerous than an existing item, explicitly reorder the list instead of appending it casually.
+1. Add an item only if it is a concrete correctness, safety, or
+   operator-control blocker, or the operator explicitly activates a major build
+   phase with acceptance gates.
+2. Do not add general cleanup, speculative features, refactors, or nice-to-have
+   work.
+3. If a new blocker is more dangerous than an existing item, explicitly
+   reorder the list instead of appending it casually.
 4. Keep priority items in strict order from most urgent to least urgent.
-5. Remove an item when it is completed and verified. Do not automatically add a replacement item just because one was removed. The priority list does not need to stay the same length. After removal, close the gap, renumber the remaining items, and only add a new item if it independently qualifies as a necessary blocker under this document.
-6. If an item is neither necessary nor an explicitly activated build phase, put it under `Non-Blocking / Later`, not under `Current Priorities`.
-7. Treat every checklist as a shrinking queue. Once a step or acceptance gate is
-   verified, remove it from the active checklist instead of appending a progress
-   narrative. Do not replace removed work with speculative follow-up work.
-8. Keep historical implementation evidence in Git commits and
-   `docs/build-status.md`. At most one short current-state note may remain here
-   when it directly explains an unresolved gate; this file is not a changelog.
+5. Remove an item when it is completed and verified. Do not automatically add
+   a replacement item. Close the gap, renumber the remaining items, and only
+   add new work if it independently qualifies under this document.
+6. If an item is neither necessary nor an explicitly activated build phase,
+   put it under `Non-Blocking / Later`, not under `Current Priorities`.
+7. Treat every checklist as a shrinking queue. Once a step or acceptance gate
+   is verified, remove it instead of appending a progress narrative. Do not
+   replace removed work with speculative follow-up work.
+8. Keep historical implementation evidence in Git commits and canonical docs.
+   This file is not a changelog.
 
 ## Necessary Blocker Definition
 
-An item is necessary only if leaving it unfixed could cause one or more of these:
+An item is necessary only if leaving it unfixed could cause one or more of:
 
 1. Uncontrolled trading behavior.
-2. Loss beyond the configured risk or stop settings.
-3. Live-account behavior that differs from the operator's expectation.
-4. Incorrect state after order placement, cancellation, partial fill, close, or restart recovery.
-5. Missing or stale UI/runtime information that prevents fluent operator control.
-6. A hidden or underlying safety threat that could become dangerous during real-money operation.
+2. Loss beyond configured risk or stop settings.
+3. Live-account behavior that differs from operator expectation.
+4. Incorrect state after placement, cancellation, partial fill, close, or
+   restart recovery.
+5. Missing or stale UI/runtime information that prevents fluent control.
+6. A hidden safety threat that could become dangerous in real-money operation.
 
 ## Current Priorities
 
-1. Complete the activated position-rule and market-analysis build phase.
-
-   This is one end-to-end product milestone, not a collection of optional UI
-   experiments. Work in the ordered phases below and commit each verified
-   milestone so progress stays reviewable and recoverable.
-
-  Operator priority clarification:
-
-    For this activated phase, the operator's highest-priority functional outcomes are:
-
-    1. 2B / structure-anchored fixed-risk stop-loss:
-      stop price should be based on prior high/prior low or clear market-structure invalidation. Each trade should risk a consistent configured amount, either a fixed USDT value or a default percentage of total equity, such as 2%. Position size must be derived from entry price, stop price, tick/lot rounding, fees/slippage assumptions, and configured allowed loss. The system must reject or reduce size when rounding would exceed allowed loss.
-
-    2. Break-even stop-loss:
-      after price moves favorably by a configured distance, percent, R-multiple, or evidence trigger, the system should arm/apply break-even protection. The protected stop should be fee/slippage-adjusted so expected realized PnL is at least zero or slightly positive, not blindly equal to raw entry price. Take-profit may remain farther away so trend trades can continue running.
-
-    Trailing stop/take-profit remains optional and lower priority. Do not implement or expand trailing before the two functions above are solid, tested, visible in UI/API, and restart-safe.
-
-
-   Remaining build plan:
-
-   1. Completion verification:
-      focused unit/integration/API/UI tests, generated-contract checks, full
-      backend and frontend gates, restart simulations, and documentation that
-      matches the actual shipped behavior.
-
-   Remaining acceptance gates:
-
-   * tests cover stale/missing/duplicate candles, API failure, restart,
-     partial fills, staged exits, break-even, trailing monotonicity, and rule
-     promotion boundaries
-   * full backend tests, frontend contract/lint/typecheck/build, and a
-     requirement-by-requirement completion audit pass
-
-   Completed milestones are deliberately removed from this active checklist.
-   Their verification evidence is retained in Git and `docs/build-status.md`.
-
-   Detailed product direction follows.
-
-  The goal is to design a coherent rule system for stop-loss, take-profit, break-even, optional trailing protection, and research-grade Support/Resistance evidence after a strategy opens a position or when the operator edits an existing logical position unit.
-
-  This work should eventually support both strategy default rules and per-logical-position overrides:
-
-  * initial stop-loss rules
-  * take-profit / stop-win rules
-  * break-even arming rules
-  * optional trailing stop / trailing take-profit rules
-  * manual-review rules when evidence conflicts or data is stale
-  * chart overlays for entry, current price, stop-loss, take-profit, break-even, and executed reduce/close markers
-    Stop-loss design should support at least two modes:
-
-  1. Fixed-loss stop mode:
-     the operator chooses a fixed acceptable loss amount for the unit, and the system derives or displays the stop level / distance clearly. This is fast and simple, but may ignore market structure.
-
-  2. Chart-anchored stop mode:
-     the operator chooses or the system proposes a stop near market structure, such as prior high / prior low, 2B invalidation level, recent swing level, or Support/Resistance level across an explicit timeframe. The position size should then be calculated from the fixed allowed loss at that stop level.
-
-     Example principle:
-     `position_value = allowed_loss / (abs(entry_price - stop_price) / entry_price)`
-
-     If BTC is 65,000, the selected long stop is 60,800, and allowed loss is 2,000 USDT, the system should derive the max position value from that distance instead of letting arbitrary size create arbitrary loss.
-     Break-even design should be first-class. After sufficient favorable movement, such as real PnL reaching a configured percent or price reaching a configured evidence level, the system may arm or move the stop-loss to a fee/slippage-adjusted break-even level. Break-even should protect the position so expected realized PnL is at least zero or slightly positive after fees and slippage, not blindly equal to raw entry price.
-
-  Take-profit / stop-win design should support multiple future styles:
-
-  * fixed percent from actual entry price
-  * fixed price level after entry is known
-  * chart/evidence target, such as next Support/Resistance, prior high/low, or operator-selected level
-  * staged reduce targets for partial exits
-  * trend-following mode where only part of the position is reduced and the rest is allowed to run
-    Trailing stop / trailing take-profit is useful but lower priority than initial stop-loss and break-even. It must be optional because aggressive trailing can close trend trades too early during normal volatility. If implemented, it should expose distance, activation threshold, timeframe, and evidence clearly.
-
-  (New page for market analysis, and data also related to above) Support/Resistance analysis should be treated as an evidence provider, not an authority. It may revisit peak/valley detection and draw circles, markers, and level values over K-lines, but it must combine extrema with broader technical market evidence such as timeframe, volume, recency, repeated touches, wick/body behavior, BTC regime, volatility, and invalidation distance. One extrema algorithm must not directly control trading.
-
-  Any market-data analyzer built for this must have:
-
-  * cached market fetches
-  * incremental calculations
-  * explicit freshness timestamps
-  * bounded CPU and API usage
-  * invalidation rules
-  * test coverage for stale data, missing candles, duplicated candles, and API failure
-  * visible UI state when evidence is stale, partial, or unavailable
-    Price logic used for actual trading must enter the persisted strategy / logical-position expression model with structured evidence. Research-only chart markers must not silently become live close rules.
-
-  The prerequisite strategy-management and logical-position mutation APIs are
-  now revision-protected and tested. This phase is therefore active and stays
-  in `Current Priorities` until every acceptance gate above is verified.
+No active priorities. The completed position-rule and market-analysis phase is
+audited in `docs/position-rule-phase-audit.md`.
 
 ## Non-Blocking / Later
 
 Items here may be useful, but they must not interrupt `Current Priorities`.
 
-Add work here only when it is outside the activated phase and is not required
-to prevent uncontrolled behavior, excessive loss, incorrect live execution,
+Add work here only when it is outside an activated phase and is not required to
+prevent uncontrolled behavior, excessive loss, incorrect live execution,
 broken operator control, unexpected state, or hidden safety threats.
 
 - Frontend polish, broad architecture cleanup, and unrelated refactors remain
-  deferred until the backend execution finish line is proven.
-- The execution-leader/read-replica boundary now exists, and replica SQLite
+  deferred until independently prioritized.
+- The execution-leader/read-replica boundary exists and replica SQLite
   connections are database-enforced read-only. Keep SQLite replicas same-host;
   PostgreSQL plus distributed leader routing is still required before
   multi-host or mutating replicas can share one account.
-- Backtesting is documented as a future Strategy Management capability, but no
-  current backtest engine exists in `src/`; do not expose a fake API or block
-  live position management on rebuilding that research subsystem.
-- Notification delivery is intentionally basic: configured LINE/Gmail sends,
-  bounded retry, backlog, and last health are sufficient for now. Canary
-  probes, full attempt history, and manual-test health isolation are deferred
-  unless notification reliability becomes an explicit product priority.
+- Backtesting is a future Strategy Management capability, but no current engine
+  exists in `src/`; do not expose a fake API.
+- Notification delivery intentionally remains basic: configured LINE/Gmail
+  sends, bounded retry, backlog, and last health are sufficient unless
+  notification reliability becomes an explicit priority.

@@ -14,6 +14,8 @@ frontend workflows.
 - `runtime-status.md`: currently implemented runtime/API behavior and safety
   limits.
 - `build-status.md`: what is built, partial, planned, or intentionally blocked.
+- `position-rule-phase-audit.md`: requirement-by-requirement completion evidence
+  for the position-rule and market-analysis phase.
 - `api-spec.md`: target API surface for strategy, signal, position, and chart
   workflows.
 - `storage.md`: SQLite persistence and schema-management direction.

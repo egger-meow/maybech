@@ -132,7 +132,8 @@ Frontends must use `active`; there is no `state` field.
   records a confirmed simulated allocation and durable audit event. Demo/real
   calls are rejected before persistence in this build.
 - `GET /positions/logical/{position_id}/chart` returns recent candles plus
-  entry, current, enabled rule, break-even, and confirmed execution overlays.
+  entry, current, stop, target, break-even, trailing candidate, and confirmed
+  reduce/close execution overlays.
 - `GET/POST/PATCH/DELETE /positions/logical/{position_id}/close-conditions`
   manages validated per-unit close signal expressions without executing orders.
   POST is explicitly confirmed and bound to the exact logical-position
@@ -248,6 +249,13 @@ protected-profit stops through that same confirmed amendment path. It requires
 explicit confirmation and a favorable current ticker beyond the
 directionally-rounded target, then persists break-even evidence on the stop
 condition and audit record.
+Persisted automatic break-even rules model entry/exit fees and two-sided
+slippage before applying optional lock-in. Optional trailing rules separately
+model monotonic protective-stop amendments and retracement-based take-profit;
+they persist favorable water marks across restart and freeze on missing or
+stale account observations. Strategy and position editors expose the same typed
+parameters. Confirmed owned-stop amendments may update typed metadata only in
+the same verified exchange-amend transaction.
 `ExecutionFillService` polls authenticated three-month SWAP fill history every
 five seconds. It also consumes authenticated private `orders/SWAP` events every
 daemon cycle for low-latency fills and terminal cancellations. Login and
@@ -324,7 +332,10 @@ support/resistance levels as executable rules or emits independent rapid-price a
 volume conditions belong only inside persisted strategy/position expressions.
 The separate `GET /market/analysis/support-resistance` research endpoint may
 propose bounded candle-derived levels with freshness and data-quality evidence.
-Its response is explicitly ineligible as a live rule and performs no mutation.
+Its cache enforces row/market bounds, overlap refreshes incrementally rescan only
+the changed pivot boundary, and responses disclose fetch/scan capacity. Its
+response is explicitly ineligible as a live rule and performs no mutation;
+promotion APIs reject stale, missing, invalidated, or BTC-conflicting research.
 `LifecycleNotificationService` reads new durable audit events and subscribes to
 runtime service failures. It routes only strategy created/enabled/disabled,
 entry submitted/executed/blocked, position opened/reduced/closed, manual
