@@ -10,6 +10,7 @@ const bars = ["1m", "5m", "15m", "1H", "4H", "1D"];
 const format = (value: number | null | undefined, digits = 2) => value == null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("zh-TW", { maximumFractionDigits: digits }).format(value);
 const evidenceNumber = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+type ResearchLevel = NonNullable<SupportResistanceAnalysisResponse["levels"]>[number];
 
 function AnalysisChart({ candles, analysis }: { candles: MarketCandlesResponse; analysis: SupportResistanceAnalysisResponse }) {
   const width = 960, height = 420, left = 18, right = 88, top = 22, bottom = 34;
@@ -28,7 +29,7 @@ function AnalysisChart({ candles, analysis }: { candles: MarketCandlesResponse; 
   </svg></div>;
 }
 
-function RiskSizing({ instrument, bar, latestPrice, selectedStop }: { instrument: string; bar: string; latestPrice?: number | null; selectedStop?: number | null }) {
+function RiskSizing({ instrument, bar, latestPrice, selectedStop, selectedLevel, analysisState, evaluatedAt }: { instrument: string; bar: string; latestPrice?: number | null; selectedStop?: number | null; selectedLevel?: ResearchLevel | null; analysisState: string; evaluatedAt?: string }) {
   const [mode, setMode] = useState<"fixed_loss" | "chart_anchored">("chart_anchored");
   const [side, setSide] = useState<"long" | "short">("long");
   const [entry, setEntry] = useState("");
@@ -37,7 +38,7 @@ function RiskSizing({ instrument, bar, latestPrice, selectedStop }: { instrument
   const [stop, setStop] = useState("");
   const [positionId, setPositionId] = useState("");
   const [strategyId, setStrategyId] = useState("");
-  const [promotionState, setPromotionState] = useState("");
+  const [promotionMessage, setPromotionState] = useState("");
   const positions = useSWR("analysis-open-positions", () => listLogicalPositions("open"));
   const strategies = useSWR("analysis-strategies", listStrategies);
   const eligiblePositions = (positions.data ?? []).filter((item) => item.inst_id === instrument && item.status === "open");
@@ -51,11 +52,15 @@ function RiskSizing({ instrument, bar, latestPrice, selectedStop }: { instrument
   const effectiveEntry = targetEntry || entry || (latestPrice ? String(latestPrice) : "");
   const effectiveSide = targetSide === "short" ? "short" : targetSide === "long" ? "long" : side;
   const effectiveStop = stop || (selectedStop ? String(selectedStop) : "");
-  const ready = Boolean(effectiveEntry && loss && (mode === "fixed_loss" ? notional : effectiveStop));
-  const payload: InstrumentRiskQuoteRequest = { mode, entry_price: effectiveEntry, side: effectiveSide, allowed_loss_usdt: loss, position_notional_usdt: mode === "fixed_loss" ? notional : null, stop_price: mode === "chart_anchored" ? effectiveStop : null, timeframe: bar, evidence: selectedStop ? { selected_research_level: selectedStop } : {} };
+  const evidenceConflict = selectedLevel?.evidence?.btc_regime_alignment === "conflicting";
+  const researchSelected = selectedStop != null;
+  const proposalEligible = !researchSelected || Boolean(selectedLevel && selectedLevel.state === "active" && analysisState === "fresh" && !evidenceConflict);
+  const promotionState = !proposalEligible ? "manual-review: selected research is stale, missing, invalidated, or conflicts with BTC regime" : promotionMessage;
+  const ready = Boolean(effectiveEntry && loss && (mode === "fixed_loss" ? notional : effectiveStop)) && proposalEligible;
+  const payload: InstrumentRiskQuoteRequest = { mode, entry_price: effectiveEntry, side: effectiveSide, allowed_loss_usdt: loss, position_notional_usdt: mode === "fixed_loss" ? notional : null, stop_price: mode === "chart_anchored" ? effectiveStop : null, timeframe: bar, evidence: selectedStop ? { selected_research_level: selectedStop, level_state: selectedLevel?.state ?? "missing", level_score: selectedLevel?.score ?? null, btc_regime_alignment: selectedLevel?.evidence?.btc_regime_alignment ?? "unknown", analysis_state: analysisState, analysis_evaluated_at: evaluatedAt ?? null } : {} };
   const quote = useSWR(ready ? ["risk-size", instrument, JSON.stringify(payload)] : null, () => quoteInstrumentRisk(instrument, payload));
   const promote = async () => {
-    if ((!selectedPosition && !selectedStrategy) || !quote.data) return;
+    if ((!selectedPosition && !selectedStrategy) || !quote.data || !proposalEligible) return;
     const targetLabel = selectedPosition ? `logical position ${selectedPosition.id}` : `strategy ${selectedStrategy?.id}`;
     if (!confirm(`Promote reviewed stop ${quote.data.stop_price} to ${targetLabel}?`)) return;
     setPromotionState("Promoting…");
@@ -75,6 +80,19 @@ function RiskSizing({ instrument, bar, latestPrice, selectedStop }: { instrument
   return <section className="panel risk-sizing-panel"><div className="panel-heading"><div><h2><ShieldAlert size={20} /> 固定風險部位計算</h2><p>固定損失模式推導停損；圖表錨定模式依停損距離推導最大部位。</p></div></div><div className="risk-sizing-grid"><label className="field"><span>模式</span><select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}><option value="chart_anchored">圖表錨定停損</option><option value="fixed_loss">固定損失停損</option></select></label><label className="field"><span>方向</span><select disabled={targetSelected} value={effectiveSide} onChange={(event) => setSide(event.target.value as typeof side)}><option value="long">多單</option><option value="short">空單</option></select></label><label className="field"><span>進場價</span><input disabled={targetSelected} type="number" min="0" step="any" value={targetSelected ? targetEntry : entry} placeholder={latestPrice ? String(latestPrice) : "輸入價格"} onChange={(event) => setEntry(event.target.value)} /></label><label className="field"><span>可接受損失 USDT</span><input type="number" min="0" step="any" value={loss} onChange={(event) => setLoss(event.target.value)} /></label>{mode === "fixed_loss" ? <label className="field"><span>目標名目 USDT</span><input type="number" min="0" step="any" value={notional} onChange={(event) => setNotional(event.target.value)} /></label> : <label className="field"><span>圖表停損價</span><input type="number" min="0" step="any" value={stop} placeholder={selectedStop ? String(selectedStop) : "點選下方層級"} onChange={(event) => setStop(event.target.value)} /></label>}</div>{quote.error && <div className="error-state"><AlertTriangle size={16} />目前輸入無法形成安全且符合 lot size 的部位。</div>}{quote.isLoading && <div className="loading-state">計算中…</div>}{quote.data && <div className="risk-sizing-result"><div><small>停損價</small><strong>{quote.data.stop_price}</strong></div><div><small>停損距離</small><strong>{format(Number(quote.data.stop_distance_pct) * 100, 2)}%</strong></div><div><small>最大名目</small><strong>{quote.data.estimated_notional_usdt} USDT</strong></div><div><small>OKX 數量</small><strong>{quote.data.api_quantity_contracts} 口</strong></div><div><small>估算損失</small><strong>{quote.data.estimated_loss_usdt} USDT</strong></div><div><small>未使用風險</small><strong>{quote.data.unused_risk_usdt} USDT</strong></div></div>}<div className="sub-editor"><div className="risk-sizing-grid"><label className="field"><span>Promote to strategy default</span><select value={strategyId} onChange={(event) => { setStrategyId(event.target.value); setPositionId(""); setPromotionState(""); }}><option value="">No strategy target</option>{eligibleStrategies.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.enabled ? "enabled (will disable)" : "disabled"}</option>)}</select></label><label className="field"><span>Promote to open logical position</span><select value={positionId} onChange={(event) => { setPositionId(event.target.value); setStrategyId(""); setPromotionState(""); }}><option value="">No position target</option>{eligiblePositions.map((item) => <option key={item.id} value={item.id}>{item.id} · {item.side} · {item.remaining_quantity} contracts</option>)}</select></label></div><div className="inline-warning">Strategy promotion requires exactly one matching instrument and disables an enabled strategy for review. Position promotion requires the reviewed quantity to equal existing exposure. All promotions reject stale revisions.</div>{selectedStrategy && !targetEntry && <div className="error-state">The strategy has no sizing reference price for this instrument; update it in Strategy Management first.</div>}{promotionState && <div className="analysis-context"><span>{promotionState}</span></div>}<div className="form-actions"><button type="button" className="btn btn-primary" disabled={!targetSelected || !quote.data || !targetEntry} onClick={promote}>Promote reviewed stop</button></div></div><div className="inline-warning">Without explicit promotion this remains a non-executable research proposal.</div></section>;
 }
 
+function ResearchLevelCard({ level, selected, onSelect }: { level: ResearchLevel; selected: boolean; onSelect: () => void }) {
+  const volume = evidenceNumber(level.evidence?.volume_ratio);
+  const wick = evidenceNumber(level.evidence?.wick_ratio);
+  const distance = evidenceNumber(level.evidence?.invalidation_distance_pct);
+  const conflicting = level.evidence?.btc_regime_alignment === "conflicting";
+  return <article className={`${level.kind} ${selected ? "selected" : ""}`}>
+    <div><span className={`badge ${level.kind === "support" ? "success" : "danger"}`}>{level.kind === "support" ? "支撐" : "壓力"}</span><strong>{format(level.price)}</strong></div>
+    <div className="status-row"><span className={`badge ${level.state === "invalidated" ? "danger" : "success"}`}>{level.state}</span>{selected && <span className="badge info">proposed</span>}{conflicting && <span className="badge danger">manual-review</span>}</div>
+    <dl><div><dt>證據分數</dt><dd>{format(level.score * 100, 0)}%</dd></div><div><dt>觸碰次數</dt><dd>{level.touches}</dd></div><div><dt>成交量比</dt><dd>{format(volume)}×</dd></div><div><dt>影線比</dt><dd>{format(wick == null ? null : wick * 100, 1)}%</dd></div><div><dt>失效距離</dt><dd>{format(distance == null ? null : distance * 100, 2)}%</dd></div></dl>
+    <button type="button" className="btn btn-outline" onClick={onSelect}>Use as stop anchor</button>
+  </article>;
+}
+
 export default function AnalysisPage() {
   const [draft, setDraft] = useState("BTC-USDT-SWAP");
   const [instrument, setInstrument] = useState("BTC-USDT-SWAP");
@@ -84,22 +102,23 @@ export default function AnalysisPage() {
   const analysis = useSWR(["support-resistance", instrument, bar], () => getSupportResistanceAnalysis(instrument, { bar, limit }), { refreshInterval: 30_000 });
   const candles = useSWR(["analysis-candles", instrument, bar], () => getMarketCandles(instrument, { bar, limit }), { refreshInterval: 30_000 });
   const sortedLevels = useMemo(() => [...(analysis.data?.levels ?? [])].sort((a, b) => b.score - a.score), [analysis.data?.levels]);
+  const selectedLevel = sortedLevels.find((level) => level.price === selectedStop) ?? null;
   const submit = (event: FormEvent) => { event.preventDefault(); const next = draft.trim().toUpperCase(); if (next) { setInstrument(next); setSelectedStop(null); } };
-  const stateClass = analysis.data?.status ?? "unavailable";
+  const stateClass = analysis.data?.freshness.stale ? "stale" : analysis.data?.status ?? "unavailable";
   return <div className="page-stack">
     <header className="page-header"><div><h1>市場分析</h1><p>把支撐與壓力當作研究證據，不直接當作交易指令。</p></div></header>
     <section className="panel"><form onSubmit={submit} className="analysis-form"><label className="field"><span>OKX 商品</span><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={64} /></label><label className="field"><span>時間週期</span><select value={bar} onChange={(event) => setBar(event.target.value)}>{bars.map((item) => <option key={item}>{item}</option>)}</select></label><button className="btn btn-primary" type="submit"><BarChart3 size={16} /> 分析</button></form></section>
     {analysis.error && <div className="error-state"><AlertTriangle size={17} />分析 API 無法連線；目前沒有可安全採用的證據。</div>}
     {analysis.isLoading && <div className="loading-state">正在取得 K 線並計算研究證據…</div>}
     {analysis.data && <>
-      <section className={`analysis-state ${stateClass}`}><div><strong>{analysis.data.status === "fresh" ? "資料新鮮" : analysis.data.status === "partial" ? "資料不完整" : "資料不可用"}</strong><p>最近 K 線：{analysis.data.freshness.latest_candle_at ? new Date(analysis.data.freshness.latest_candle_at).toLocaleString("zh-TW") : "無"} · 年齡 {format(analysis.data.freshness.age_seconds, 0)} 秒</p></div><span className="badge info">{analysis.data.cache_hit ? "快取結果" : "新計算"}</span></section>
+      <section className={`analysis-state ${stateClass}`}><div><strong>{stateClass === "fresh" ? "資料新鮮" : stateClass === "stale" ? "資料過期" : stateClass === "partial" ? "資料不完整" : "資料不可用"}</strong><p>最近 K 線：{analysis.data.freshness.latest_candle_at ? new Date(analysis.data.freshness.latest_candle_at).toLocaleString("zh-TW") : "無"} · 年齡 {format(analysis.data.freshness.age_seconds, 0)} 秒</p></div><span className={`badge ${stateClass === "stale" || stateClass === "unavailable" ? "danger" : "info"}`}>{stateClass}</span></section>
       {(analysis.data.errors ?? []).length > 0 && <div className="analysis-warnings">{analysis.data.errors?.map((error) => <div key={error}><AlertTriangle size={15} />{error}</div>)}</div>}
       <div className="analysis-context"><strong>BTC 市場環境</strong><span>{String(analysis.data.context?.btc_direction ?? "unknown")}</span><small>只調整研究證據權重，不直接控制交易。</small></div>
       <section className="analysis-metrics"><article className="panel"><Database size={20} /><small>可用 / 輸入 K 線</small><strong>{analysis.data.quality.usable_candles} / {analysis.data.quality.input_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>研究層級</small><strong>{sortedLevels.length}</strong></article><article className="panel"><ShieldAlert size={20} /><small>缺漏 / 重複</small><strong>{analysis.data.quality.missing_candles} / {analysis.data.quality.duplicate_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>ATR 波動</small><strong>{format(analysis.data.volatility_atr)}</strong></article></section>
       <section className="panel"><div className="panel-heading"><div><h2><BarChart3 size={20} /> K 線與研究層級</h2><p>圓圈大小反映證據分數；虛線不是停損或停利命令。</p></div></div>{candles.error ? <div className="error-state">K 線圖不可用。</div> : candles.data ? <AnalysisChart candles={candles.data} analysis={analysis.data} /> : <div className="loading-state">正在繪製 K 線…</div>}</section>
-      <section className="panel"><div className="panel-heading"><div><h2>層級證據</h2><p>選取結構失效層級作為停損錨點；選取本身不會修改交易規則。</p></div></div><div className="analysis-levels">{sortedLevels.map((level) => { const volume = evidenceNumber(level.evidence?.volume_ratio), wick = evidenceNumber(level.evidence?.wick_ratio), distance = evidenceNumber(level.evidence?.invalidation_distance_pct); return <article key={`${level.kind}-${level.price}`} className={`${level.kind} ${selectedStop === level.price ? "selected" : ""}`}><div><span className={`badge ${level.kind === "support" ? "success" : "danger"}`}>{level.kind === "support" ? "支撐" : "壓力"}</span><strong>{format(level.price)}</strong></div><dl><div><dt>證據分數</dt><dd>{format(level.score * 100, 0)}%</dd></div><div><dt>觸碰次數</dt><dd>{level.touches}</dd></div><div><dt>成交量比</dt><dd>{format(volume)}×</dd></div><div><dt>影線比</dt><dd>{format(wick == null ? null : wick * 100, 1)}%</dd></div><div><dt>失效距離</dt><dd>{format(distance == null ? null : distance * 100, 2)}%</dd></div></dl><button type="button" className="btn btn-outline" onClick={() => setSelectedStop(level.price)}>Use as stop anchor</button></article>; })}{!sortedLevels.length && <div className="empty-state">目前資料沒有形成可顯示的研究層級。</div>}</div></section>
+      <section className="panel"><div className="panel-heading"><div><h2>層級證據</h2><p>選取結構失效層級作為停損錨點；失效、衝突或過期證據會進入人工檢查且不可推廣。</p></div></div><div className="analysis-levels">{sortedLevels.map((level) => <ResearchLevelCard key={`${level.kind}-${level.price}`} level={level} selected={selectedStop === level.price} onSelect={() => setSelectedStop(level.price)} />)}{!sortedLevels.length && <div className="empty-state">目前資料沒有形成可顯示的研究層級。</div>}</div></section>
       <div className="analysis-boundary"><ShieldAlert size={18} /><div><strong>研究與實盤隔離</strong><p>這些標記不能直接送出訂單，也不會靜默建立平倉規則。實盤價格邏輯必須另行儲存為有版本保護的策略或邏輯部位規則。</p></div></div>
     </>}
-    {analysis.data && <RiskSizing instrument={instrument} bar={bar} latestPrice={analysis.data.latest_price} selectedStop={selectedStop} />}
+    {analysis.data && <RiskSizing instrument={instrument} bar={bar} latestPrice={analysis.data.latest_price} selectedStop={selectedStop} selectedLevel={selectedLevel} analysisState={stateClass} evaluatedAt={analysis.data.freshness.evaluated_at} />}
   </div>;
 }

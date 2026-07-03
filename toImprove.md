@@ -56,19 +56,13 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
    Remaining build plan:
 
-   1. Remaining operator-state gaps:
-      explicit invalidated and manual-review presentation when market evidence
-      conflicts or becomes stale, with overlays sourced from typed API and
-      confirmed execution evidence.
-   2. Completion verification:
+   1. Completion verification:
       focused unit/integration/API/UI tests, generated-contract checks, full
       backend and frontend gates, restart simulations, and documentation that
       matches the actual shipped behavior.
 
    Remaining acceptance gates:
 
-   * the UI visibly distinguishes fresh, partial, stale, unavailable, proposed,
-     armed, applied, invalidated, and manual-review states
    * tests cover stale/missing/duplicate candles, API failure, restart,
      partial fills, staged exits, break-even, trailing monotonicity, and rule
      promotion boundaries

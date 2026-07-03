@@ -826,6 +826,27 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    def require_promotable_research(payload: InstrumentRiskQuoteRequest) -> None:
+        evidence = payload.evidence
+        if "selected_research_level" not in evidence:
+            return
+        blockers = []
+        if evidence.get("analysis_state") != "fresh":
+            blockers.append("analysis is not fresh")
+        if evidence.get("level_state") != "active":
+            blockers.append("level is missing or invalidated")
+        if evidence.get("btc_regime_alignment") == "conflicting":
+            blockers.append("BTC regime evidence conflicts")
+        if blockers:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Research proposal requires manual review",
+                    "state": "manual_review",
+                    "blockers": blockers,
+                },
+            )
+
     app = FastAPI(title="Maybech Runtime API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
@@ -1610,6 +1631,7 @@ def create_app(
         strategy_id: str,
         payload: StrategyRiskStopPromotionCommand,
     ) -> StrategySummaryResponse:
+        require_promotable_research(payload)
         quote = build_risk_quote(payload.inst_id, payload)
         store = StrategyStore()
         audit_store = AuditEventStore(store.db_path)
@@ -2455,6 +2477,7 @@ def create_app(
         position_id: str,
         payload: PositionRiskStopPromotionCommand,
     ) -> LogicalPositionUnitResponse:
+        require_promotable_research(payload)
         trade_store = TradeStore()
         position_store = LogicalPositionStore(trade_store.db_path)
         position = position_store.get(position_id)

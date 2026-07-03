@@ -45,6 +45,20 @@ def test_strategy_risk_stop_promotion_is_revision_bound_and_audited(monkeypatch,
     monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: metadata_store)
     client = TestClient(create_app(DaemonRunner(), api_token=""))
 
+    blocked_research = client.post(
+        "/strategies/strategy/risk-stop",
+        json=_risk_payload(
+            inst_id="ETH-USDT-SWAP",
+            expected_updated_at=strategy.updated_at,
+            evidence={
+                "selected_research_level": 2900,
+                "analysis_state": "stale",
+                "level_state": "active",
+                "btc_regime_alignment": "neutral",
+            },
+        ),
+    )
+
     stale = client.post(
         "/strategies/strategy/risk-stop",
         json=_risk_payload(inst_id="ETH-USDT-SWAP", expected_updated_at="stale"),
@@ -56,6 +70,8 @@ def test_strategy_risk_stop_promotion_is_revision_bound_and_audited(monkeypatch,
         ),
     )
 
+    assert blocked_research.status_code == 409
+    assert blocked_research.json()["detail"]["state"] == "manual_review"
     assert stale.status_code == 409
     assert response.status_code == 200
     rule = response.json()["default_rules"]["close_conditions"][0]
