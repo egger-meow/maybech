@@ -133,6 +133,9 @@ An item is necessary only if leaving it unfixed could cause one or more of these
   entry rematerializes relative rules and verified exchange amendment protects
   owned stops. Staged take-profit reductions are one-shot, allocation-confirmed,
   bounded to initial quantity, and retain an explicit running remainder.
+  Break-even now models entry/exit fees and slippage, persists armed/applied
+  state across restart, and routes live application exclusively through the
+  verified protection-amend lifecycle rather than a close action.
 
   The goal is to design a coherent rule system for stop-loss, take-profit, break-even, optional trailing protection, and research-grade Support/Resistance evidence after a strategy opens a position or when the operator edits an existing logical position unit.
 

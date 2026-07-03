@@ -1,6 +1,7 @@
 from src.daemon.events import RuntimeState
 from src.daemon.execution_fill_service import ExecutionFillService
 import json
+from decimal import Decimal
 
 from src.daemon.position_manager_service import PositionManagerService
 from src.trading.audit_event_store import AuditEventStore
@@ -556,6 +557,137 @@ def test_position_manager_executes_staged_take_profit_once_and_leaves_remainder(
     assert completed.enabled is False
     assert completed.metadata["execution_state"]["status"] == "completed"
     assert len(position_store.list_allocations("staged")) == 1
+
+
+def test_position_manager_applies_cost_adjusted_break_even_once_in_dry_run(tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save(LogicalPositionRecord(
+        id="break-even", source="manual", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=1, remaining_quantity=1, entry_price=100, status="open",
+    ))
+    stop = position_store.create_close_condition(
+        id="stop", position_id="break-even", purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 90},
+    )
+    rule = position_store.create_close_condition(
+        id="break-even-rule", position_id="break-even", purpose="break_even",
+        expression={"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 102},
+        metadata={"rule_definition": {
+            "style": "break_even_threshold", "action": {"type": "amend_stop"},
+            "parameters": {
+                "entry_fee_rate": 0.001, "exit_fee_rate": 0.001,
+                "slippage_rate": 0.001, "lock_in_pct": 0,
+            }, "evidence": {},
+        }},
+    )
+    service = PositionManagerService(store, dry_run=True)
+    service.runtime = RuntimeState()
+    service.runtime.set_value(
+        "account.snapshot",
+        {"positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "105"}]},
+    )
+
+    service.tick()
+    service.tick()
+
+    applied_stop = position_store.get_close_condition("break-even", stop.id)
+    applied_rule = position_store.get_close_condition("break-even", rule.id)
+    assert applied_stop.expression["value"] > 100
+    assert applied_rule.enabled is False
+    assert applied_rule.metadata["break_even_state"]["status"] == "applied"
+    assert applied_stop.metadata["break_even"]["costs"]["slippage_rate"] == "0.001"
+    assert service.runtime.get_value("position_manager.intents")[0]["action"] == "hold"
+    assert len(AuditEventStore(store.db_path).list(event_type="position.break_even_applied")) == 1
+
+
+def test_break_even_armed_state_survives_service_restart_until_cost_target_is_met(tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save(LogicalPositionRecord(
+        id="restart-be", source="manual", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=1, remaining_quantity=1, entry_price=100, status="open",
+    ))
+    position_store.create_close_condition(
+        id="stop", position_id="restart-be", purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 90},
+    )
+    rule = position_store.create_close_condition(
+        id="be", position_id="restart-be", purpose="break_even",
+        expression={"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 100.1},
+    )
+    first = PositionManagerService(store, dry_run=True)
+    first.runtime = RuntimeState()
+    first.runtime.set_value(
+        "account.snapshot",
+        {"positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "100.15"}]},
+    )
+
+    first.tick()
+
+    armed = position_store.get_close_condition("restart-be", rule.id)
+    assert armed.enabled is True
+    assert armed.metadata["break_even_state"]["status"] == "armed"
+
+    restarted = PositionManagerService(store, dry_run=True)
+    restarted.runtime = RuntimeState()
+    restarted.runtime.set_value(
+        "account.snapshot",
+        {"positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "101"}]},
+    )
+    restarted.tick()
+
+    applied = position_store.get_close_condition("restart-be", rule.id)
+    assert applied.enabled is False
+    assert applied.metadata["break_even_state"]["status"] == "applied"
+
+
+def test_live_break_even_rule_uses_protection_amend_lifecycle_not_close_executor(tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save(LogicalPositionRecord(
+        id="live-be", source="manual", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=1, remaining_quantity=1, entry_price=100, status="open",
+    ))
+    stop = position_store.create_close_condition(
+        id="stop", position_id="live-be", purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 90},
+    )
+    rule = position_store.create_close_condition(
+        id="be", position_id="live-be", purpose="break_even",
+        expression={"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 102},
+        metadata={"rule_definition": {
+            "style": "break_even_threshold", "action": {"type": "amend_stop"},
+            "parameters": {"lock_in_pct": 0.01, "slippage_rate": 0.001},
+            "evidence": {},
+        }},
+    )
+
+    class FakeProtection:
+        def __init__(self):
+            self.calls = []
+
+        def move_to_break_even(self, position_id, condition_id, **kwargs):
+            self.calls.append((position_id, condition_id, kwargs))
+            return position_store.get(position_id)
+
+    protection = FakeProtection()
+    service = PositionManagerService(
+        store, dry_run=False, close_executor=None, protection_service=protection
+    )
+    service.runtime = RuntimeState()
+    service.runtime.set_value(
+        "account.snapshot",
+        {"positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "105"}]},
+    )
+
+    service.tick()
+
+    assert protection.calls[0][0:2] == ("live-be", stop.id)
+    assert protection.calls[0][2]["lock_in_pct"] == Decimal("0.01")
+    assert protection.calls[0][2]["slippage_rate"] == Decimal("0.001")
+    assert position_store.get_close_condition("live-be", rule.id).enabled is False
+    assert not position_store.list_allocations("live-be")
 
 
 def test_position_manager_closes_manual_logical_position_without_trade_in_dry_run(tmp_path):

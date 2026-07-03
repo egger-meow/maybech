@@ -1,7 +1,7 @@
 import pytest
 
 from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
-from src.trading.position_rule_model import materialize_position_rule, normalize_default_rules, normalize_position_rule
+from src.trading.position_rule_model import calculate_break_even_target, materialize_position_rule, normalize_default_rules, normalize_position_rule
 from src.trading.strategy_store import StrategyStore
 
 
@@ -166,3 +166,42 @@ def test_staged_targets_bound_total_initial_quantity_and_expose_remainder():
     }
     with pytest.raises(ValueError, match="cannot exceed"):
         normalize_default_rules({"close_conditions": [stage(0.6), stage(0.5)]})
+
+
+def test_break_even_target_models_fees_slippage_and_lock_in_for_both_sides():
+    long_target, long_evidence = calculate_break_even_target(
+        entry_price=100, side="long", entry_fee_rate=0.001,
+        exit_fee_rate=0.001, slippage_rate=0.001, lock_in_pct=0.01,
+    )
+    short_target, short_evidence = calculate_break_even_target(
+        entry_price=100, side="short", entry_fee_rate=0.001,
+        exit_fee_rate=0.001, slippage_rate=0.001, lock_in_pct=0.01,
+    )
+
+    assert long_target > 101
+    assert short_target < 99
+    assert float(long_evidence["modeled_net_return_pct"]) >= 0.01
+    assert float(short_evidence["modeled_net_return_pct"]) >= 0.01
+
+
+def test_break_even_rule_materializes_activation_from_entry():
+    template = normalize_default_rules({"close_conditions": [{
+        "purpose": "break_even", "enabled": True,
+        "expression": {"type": "entry_relative", "symbol": "self"},
+        "metadata": {"rule_definition": {
+            "style": "break_even_threshold", "action": {"type": "amend_stop"},
+            "parameters": {"activation_profit_pct": 0.03}, "evidence": {},
+        }},
+    }]})["close_conditions"][0]
+
+    long = materialize_position_rule(
+        template, entry_price=100, inst_id="ETH-USDT-SWAP", side="long"
+    )
+    short = materialize_position_rule(
+        template, entry_price=100, inst_id="ETH-USDT-SWAP", side="short"
+    )
+
+    assert long["expression"]["type"] == "price_above"
+    assert long["expression"]["value"] == 103
+    assert short["expression"]["type"] == "price_below"
+    assert short["expression"]["value"] == 97

@@ -300,14 +300,15 @@ def test_break_even_reuses_confirmed_amend_and_persists_operation_evidence(tmp_p
         reason="protect one percent profit",
     )
 
-    assert client.amendments[0]["stop_trigger_px"] == "3030"
+    assert client.amendments[0]["stop_trigger_px"] == "3036.1"
     protection = store.get_protection(position.id)
-    assert protection.stop_loss == 3030
+    assert protection.stop_loss == 3036.1
     assert protection.metadata["stop_amend"]["operation"] == "break_even"
     saved_condition = store.get_close_condition(position.id, condition.id)
-    assert saved_condition.expression["value"] == 3030
+    assert saved_condition.expression["value"] == 3036.1
     assert saved_condition.metadata["break_even"]["status"] == "applied"
-    assert json.loads(updated.metadata_json)["exchange_protection"]["stop_loss"] == "3030"
+    assert saved_condition.metadata["break_even"]["costs"]["slippage_rate"] == "0.0005"
+    assert json.loads(updated.metadata_json)["exchange_protection"]["stop_loss"] == "3036.1"
 
 
 def test_break_even_rejects_unfavorable_current_price_without_amending(tmp_path):

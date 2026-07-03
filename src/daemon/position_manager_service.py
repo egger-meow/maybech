@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import time
 from collections import deque
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -30,6 +32,7 @@ from src.trading.position_protection import (
     PositionProtectionError,
     PositionProtectionService,
 )
+from src.trading.position_rule_model import calculate_break_even_target
 from src.trading.rules import RuleGroup
 from src.trading.signal_context import (
     build_signal_context_from_candles,
@@ -159,6 +162,14 @@ class PositionManagerService(DaemonService):
             if condition is not None and evaluation is not None:
                 rule_action = condition.metadata.get("rule_definition", {}).get("action", {})
                 action_type = str(rule_action.get("type") or "close_position")
+                if action_type == "amend_stop" and condition.purpose == "break_even":
+                    intents.append(self._handle_break_even_rule(
+                        position_store=position_store,
+                        position=position,
+                        condition=condition,
+                        current_price=current_price,
+                    ))
+                    continue
                 if action_type in {"amend_stop", "require_manual_review"}:
                     try:
                         position_metadata = json.loads(position.metadata_json or "{}")
@@ -270,6 +281,131 @@ class PositionManagerService(DaemonService):
             "open_count": len(open_positions),
             "intents": intents,
         })
+
+    def _handle_break_even_rule(
+        self,
+        *,
+        position_store: LogicalPositionStore,
+        position: LogicalPositionRecord,
+        condition: LogicalPositionCloseCondition,
+        current_price: float,
+    ) -> dict[str, Any]:
+        definition = condition.metadata.get("rule_definition", {})
+        parameters = definition.get("parameters", {})
+        stop_conditions = [
+            item for item in position_store.list_close_conditions(position.id, enabled=True)
+            if item.purpose == "stop_loss"
+        ]
+        base = {
+            "position_id": position.id,
+            "trade_id": position.trade_id,
+            "inst_id": position.inst_id,
+            "side": position.side,
+            "condition_id": condition.id,
+            "condition_purpose": condition.purpose,
+        }
+        if len(stop_conditions) != 1:
+            return {
+                **base,
+                "action": "manual_review",
+                "reason": "break-even requires exactly one enabled stop loss",
+            }
+        stop = stop_conditions[0]
+        try:
+            target, cost_evidence = calculate_break_even_target(
+                entry_price=position.entry_price,
+                side=position.side,
+                entry_fee_rate=parameters.get("entry_fee_rate", "0.0005"),
+                exit_fee_rate=parameters.get("exit_fee_rate", "0.0005"),
+                slippage_rate=parameters.get("slippage_rate", "0.0005"),
+                lock_in_pct=parameters.get("lock_in_pct", "0"),
+            )
+        except ValueError as exc:
+            return {**base, "action": "manual_review", "reason": str(exc)}
+        favorable = (
+            Decimal(str(current_price)) > target
+            if position.side == "long"
+            else Decimal(str(current_price)) < target
+        )
+        existing_state = condition.metadata.get("break_even_state", {})
+        armed_at = existing_state.get("armed_at")
+        state = {
+            "status": "armed",
+            "armed_at": armed_at or datetime.now(timezone.utc).isoformat(),
+            "target_stop": str(target),
+            "current_price": str(current_price),
+            "costs": cost_evidence,
+        }
+        armed = condition
+        if existing_state.get("status") != "armed":
+            armed = position_store.update_close_condition(
+                position.id,
+                condition.id,
+                metadata={**condition.metadata, "break_even_state": state},
+            )
+        if armed is None:
+            return {**base, "action": "manual_review", "reason": "break-even state disappeared"}
+        if not favorable:
+            return {
+                **base,
+                "action": "break_even_armed",
+                "reason": "activation fired but cost-adjusted target is not yet favorable",
+                "target_stop": float(target),
+            }
+        if self.dry_run:
+            expression = {
+                "type": "price_below" if position.side == "long" else "price_above",
+                "symbol": position.inst_id,
+                "value": float(target),
+            }
+            position_store.update_close_condition(
+                position.id,
+                stop.id,
+                expression=expression,
+                metadata={
+                    **stop.metadata,
+                    "break_even": {**state, "status": "applied"},
+                },
+            )
+        else:
+            if self.protection_service is None:
+                return {**base, "action": "manual_review", "reason": "protection service unavailable"}
+            try:
+                self.protection_service.move_to_break_even(
+                    position.id,
+                    stop.id,
+                    lock_in_pct=Decimal(str(parameters.get("lock_in_pct", "0"))),
+                    reason=f"automatic break-even rule {condition.id}",
+                    expected_position_updated_at=position.updated_at,
+                    expected_condition_updated_at=stop.updated_at,
+                    entry_fee_rate=Decimal(str(parameters.get("entry_fee_rate", "0.0005"))),
+                    exit_fee_rate=Decimal(str(parameters.get("exit_fee_rate", "0.0005"))),
+                    slippage_rate=Decimal(str(parameters.get("slippage_rate", "0.0005"))),
+                )
+            except PositionProtectionError as exc:
+                return {**base, "action": "manual_review", "reason": str(exc)}
+        applied_at = datetime.now(timezone.utc).isoformat()
+        position_store.update_close_condition(
+            position.id,
+            condition.id,
+            enabled=False,
+            metadata={
+                **armed.metadata,
+                "break_even_state": {
+                    **state,
+                    "status": "applied",
+                    "applied_at": applied_at,
+                },
+            },
+        )
+        payload = {
+            **base,
+            "action": "break_even_applied",
+            "target_stop": float(target),
+            "costs": cost_evidence,
+        }
+        self._publish_and_record_event("position.break_even_applied", payload)
+        return payload
 
     def request_close(self, position_id: str, *, reason: str) -> dict[str, Any]:
         """Submit or simulate one operator-confirmed logical-unit close."""

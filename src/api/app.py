@@ -2636,6 +2636,9 @@ def create_app(
                 reason=payload.reason,
                 expected_position_updated_at=payload.expected_position_updated_at,
                 expected_condition_updated_at=payload.expected_condition_updated_at,
+                entry_fee_rate=Decimal(str(payload.entry_fee_rate)),
+                exit_fee_rate=Decimal(str(payload.exit_fee_rate)),
+                slippage_rate=Decimal(str(payload.slippage_rate)),
             )
         except PositionProtectionError as exc:
             protection = position_store.get_protection(position_id)

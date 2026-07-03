@@ -225,7 +225,9 @@ def validate_strategy_for_execution(
             if isinstance(condition.get("metadata"), dict)
             else {}
         )
-        if definition.get("style") in {"fixed_percent", "fixed_price", "evidence_target"}:
+        if definition.get("style") in {
+            "fixed_percent", "fixed_price", "evidence_target", "break_even_threshold"
+        }:
             try:
                 materialized = materialize_position_rule(
                     condition,

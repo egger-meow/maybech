@@ -200,6 +200,70 @@ def materialize_position_rule(
         increase = (normalized_side == "long") == favorable
         price = entry * (Decimal("1") + offset if increase else Decimal("1") - offset)
         trigger = _price_trigger(purpose, normalized_side, inst_id, price)
+    elif style == "break_even_threshold":
+        activation_price = parameters.get("activation_price")
+        activation_pct = parameters.get("activation_profit_pct")
+        if activation_price is not None:
+            try:
+                threshold = Decimal(str(activation_price))
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError("break-even activation_price is invalid") from exc
+        else:
+            try:
+                threshold_pct = Decimal(str(activation_pct))
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError(
+                    "break-even rule requires activation_profit_pct or activation_price"
+                ) from exc
+            if not threshold_pct.is_finite() or threshold_pct <= 0 or threshold_pct > Decimal("1"):
+                raise ValueError("break-even activation_profit_pct must be between 0 and 1")
+            threshold = entry * (
+                Decimal("1") + threshold_pct
+                if normalized_side == "long"
+                else Decimal("1") - threshold_pct
+            )
+        if (
+            (normalized_side == "long" and threshold <= entry)
+            or (normalized_side == "short" and threshold >= entry)
+        ):
+            raise ValueError("break-even activation must be favorable to entry")
+        trigger = {
+            "type": "price_above" if normalized_side == "long" else "price_below",
+            "symbol": inst_id,
+            "value": float(threshold),
+        }
+    elif style == "break_even_threshold":
+        activation_price = parameters.get("activation_price")
+        activation_pct = parameters.get("activation_profit_pct")
+        if activation_price is not None:
+            try:
+                threshold = Decimal(str(activation_price))
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError("break-even activation_price is invalid") from exc
+        else:
+            try:
+                threshold_pct = Decimal(str(activation_pct))
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError(
+                    "break-even rule requires activation_profit_pct or activation_price"
+                ) from exc
+            if not threshold_pct.is_finite() or threshold_pct <= 0 or threshold_pct > Decimal("1"):
+                raise ValueError("break-even activation_profit_pct must be between 0 and 1")
+            threshold = entry * (
+                Decimal("1") + threshold_pct
+                if normalized_side == "long"
+                else Decimal("1") - threshold_pct
+            )
+        if (
+            (normalized_side == "long" and threshold <= entry)
+            or (normalized_side == "short" and threshold >= entry)
+        ):
+            raise ValueError("break-even activation must be favorable to entry")
+        trigger = {
+            "type": "price_above" if normalized_side == "long" else "price_below",
+            "symbol": inst_id,
+            "value": float(threshold),
+        }
     elif style in {"fixed_price", "evidence_target"}:
         value = parameters.get("target_price", parameters.get("price"))
         if value is None and isinstance(trigger, dict):
@@ -272,6 +336,61 @@ def _validate_price_side(
     if (must_be_above and price <= entry) or (not must_be_above and price >= entry):
         relation = "above" if must_be_above else "below"
         raise ValueError(f"{purpose} price must be {relation} entry for {side}")
+
+
+def calculate_break_even_target(
+    *,
+    entry_price: object,
+    side: str,
+    entry_fee_rate: object = "0.0005",
+    exit_fee_rate: object = "0.0005",
+    slippage_rate: object = "0.0005",
+    lock_in_pct: object = "0",
+) -> tuple[Decimal, dict[str, str]]:
+    """Return a target whose modeled net return is non-negative after costs."""
+    try:
+        entry = Decimal(str(entry_price))
+        entry_fee = Decimal(str(entry_fee_rate))
+        exit_fee = Decimal(str(exit_fee_rate))
+        slippage = Decimal(str(slippage_rate))
+        lock_in = Decimal(str(lock_in_pct))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("break-even inputs must be finite decimals") from exc
+    values = (entry, entry_fee, exit_fee, slippage, lock_in)
+    if any(not value.is_finite() for value in values) or entry <= 0:
+        raise ValueError("break-even inputs must be finite and entry must be positive")
+    if any(value < 0 or value > Decimal("0.02") for value in (entry_fee, exit_fee, slippage)):
+        raise ValueError("break-even fee and slippage rates must be between 0 and 0.02")
+    if lock_in < 0 or lock_in > Decimal("0.05"):
+        raise ValueError("break-even lock_in_pct must be between 0 and 0.05")
+    normalized_side = side.lower()
+    entry_cost = entry_fee + slippage
+    exit_cost = exit_fee + slippage
+    if normalized_side == "long":
+        if exit_cost >= 1:
+            raise ValueError("break-even exit costs are invalid")
+        target = entry * (Decimal("1") + entry_cost) / (Decimal("1") - exit_cost)
+        target *= Decimal("1") + lock_in
+        net_return = (
+            target * (Decimal("1") - exit_cost)
+            - entry * (Decimal("1") + entry_cost)
+        ) / (entry * (Decimal("1") + entry_cost))
+    elif normalized_side == "short":
+        target = entry * (Decimal("1") - entry_cost) / (Decimal("1") + exit_cost)
+        target *= Decimal("1") - lock_in
+        net_return = (
+            entry * (Decimal("1") - entry_cost)
+            - target * (Decimal("1") + exit_cost)
+        ) / (entry * (Decimal("1") - entry_cost))
+    else:
+        raise ValueError("break-even side must be long or short")
+    return target, {
+        "entry_fee_rate": str(entry_fee),
+        "exit_fee_rate": str(exit_fee),
+        "slippage_rate": str(slippage),
+        "lock_in_pct": str(lock_in),
+        "modeled_net_return_pct": str(net_return),
+    }
 
 
 def _infer_style(purpose: str, expression: dict[str, Any]) -> str:

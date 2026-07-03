@@ -810,6 +810,9 @@ class PositionBreakEvenCommand(BaseModel):
     expected_position_updated_at: str = Field(min_length=1)
     expected_condition_updated_at: str = Field(min_length=1)
     lock_in_pct: float = Field(default=0, ge=0, le=0.05)
+    entry_fee_rate: float = Field(default=0.0005, ge=0, le=0.02)
+    exit_fee_rate: float = Field(default=0.0005, ge=0, le=0.02)
+    slippage_rate: float = Field(default=0.0005, ge=0, le=0.02)
     reason: str = Field(default="operator break-even", min_length=1, max_length=256)
 
 

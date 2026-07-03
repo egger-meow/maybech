@@ -21,6 +21,7 @@ from src.trading.logical_position_store import (
     LogicalPositionStore,
 )
 from src.trading.position_reconciliation import PositionReconciler
+from src.trading.position_rule_model import calculate_break_even_target
 
 
 class PositionProtectionError(RuntimeError):
@@ -250,6 +251,9 @@ class PositionProtectionService:
         reason: str,
         expected_position_updated_at: str | None = None,
         expected_condition_updated_at: str | None = None,
+        entry_fee_rate: Decimal = Decimal("0.0005"),
+        exit_fee_rate: Decimal = Decimal("0.0005"),
+        slippage_rate: Decimal = Decimal("0.0005"),
     ) -> LogicalPositionRecord:
         """Move an owned stop to entry or a side-consistent protected profit."""
         with ENTRY_EXECUTION_LOCK:
@@ -270,13 +274,18 @@ class PositionProtectionService:
             if not entry.is_finite() or entry <= 0:
                 raise PositionProtectionError("logical position entry price must be positive")
 
-            multiplier = Decimal("1") + (
-                lock_in if position.side == "long" else -lock_in
-            )
             try:
+                raw_target, cost_evidence = calculate_break_even_target(
+                    entry_price=entry,
+                    side=position.side,
+                    entry_fee_rate=entry_fee_rate,
+                    exit_fee_rate=exit_fee_rate,
+                    slippage_rate=slippage_rate,
+                    lock_in_pct=lock_in,
+                )
                 constraints = self._constraints(position.inst_id)
                 target = constraints.normalize_break_even_price(
-                    entry * multiplier,
+                    raw_target,
                     position_side=position.side,
                 )
                 tickers = self.client.get_ticker(inst_id=position.inst_id)
@@ -310,6 +319,7 @@ class PositionProtectionService:
                 "target_stop": target,
                 "current_price": str(current),
                 "lock_in_pct": str(lock_in),
+                "costs": cost_evidence,
                 "applied_at": applied_at,
             }
             expression = {

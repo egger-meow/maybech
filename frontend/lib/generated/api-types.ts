@@ -502,6 +502,9 @@ export type PositionBreakEvenCommand = {
   "expected_position_updated_at": string;
   "expected_condition_updated_at": string;
   "lock_in_pct"?: number;
+  "entry_fee_rate"?: number;
+  "exit_fee_rate"?: number;
+  "slippage_rate"?: number;
   "reason"?: string;
 };
 

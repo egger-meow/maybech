@@ -2487,8 +2487,8 @@ def test_api_requires_confirmed_exchange_amend_for_owned_stop_edits(monkeypatch,
     assert unconfirmed_break_even.status_code == 422
     assert break_even.status_code == 200
     assert break_even.json()["protection"]["status"] == "active"
-    assert break_even.json()["protection"]["stop_loss"] == 3000
-    assert break_even.json()["close_conditions"][0]["expression"]["value"] == 3000
+    assert break_even.json()["protection"]["stop_loss"] == 3006.1
+    assert break_even.json()["close_conditions"][0]["expression"]["value"] == 3006.1
     assert break_even.json()["close_conditions"][0]["metadata"]["break_even"]["status"] == "applied"
     assert exchange.amendments[0]["confirm"] is True
     assert len(exchange.amendments) == 2

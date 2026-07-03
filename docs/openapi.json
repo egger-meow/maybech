@@ -2855,6 +2855,20 @@
             "title": "Confirm",
             "type": "boolean"
           },
+          "entry_fee_rate": {
+            "default": 0.0005,
+            "maximum": 0.02,
+            "minimum": 0.0,
+            "title": "Entry Fee Rate",
+            "type": "number"
+          },
+          "exit_fee_rate": {
+            "default": 0.0005,
+            "maximum": 0.02,
+            "minimum": 0.0,
+            "title": "Exit Fee Rate",
+            "type": "number"
+          },
           "expected_condition_updated_at": {
             "minLength": 1,
             "title": "Expected Condition Updated At",
@@ -2878,6 +2892,13 @@
             "minLength": 1,
             "title": "Reason",
             "type": "string"
+          },
+          "slippage_rate": {
+            "default": 0.0005,
+            "maximum": 0.02,
+            "minimum": 0.0,
+            "title": "Slippage Rate",
+            "type": "number"
           }
         },
         "required": [

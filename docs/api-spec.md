@@ -389,6 +389,12 @@ The Position Management page has a logical-position contract now:
   condition and audit event.
   Stop-amend and break-even commands are bound to both the reviewed logical
   position revision and stop-condition revision before any exchange mutation.
+  Break-even target calculation models entry fee, exit fee, slippage on both
+  sides, and optional locked profit. Defaults are conservative but explicit in
+  the request. Canonical `break_even_threshold` rules materialize their
+  activation from confirmed entry, persist `armed` state, survive restart, and
+  become `applied` only after the stop update succeeds. In live mode this uses
+  the same verified exchange-amend lifecycle and never submits a close order.
 
 - `GET /positions/logical`: list current logical position units persisted in
   SQLite, with compatibility backfill from `TradeStore` records, first-class
