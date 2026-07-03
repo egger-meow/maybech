@@ -15,6 +15,12 @@ This file is a priority contract, not a feature wishlist. Always sort items by r
 4. Keep priority items in strict order from most urgent to least urgent.
 5. Remove an item when it is completed and verified. Do not automatically add a replacement item just because one was removed. The priority list does not need to stay the same length. After removal, close the gap, renumber the remaining items, and only add a new item if it independently qualifies as a necessary blocker under this document.
 6. If an item is neither necessary nor an explicitly activated build phase, put it under `Non-Blocking / Later`, not under `Current Priorities`.
+7. Treat every checklist as a shrinking queue. Once a step or acceptance gate is
+   verified, remove it from the active checklist instead of appending a progress
+   narrative. Do not replace removed work with speculative follow-up work.
+8. Keep historical implementation evidence in Git commits and
+   `docs/build-status.md`. At most one short current-state note may remain here
+   when it directly explains an unresolved gate; this file is not a changelog.
 
 ## Necessary Blocker Definition
 
@@ -48,113 +54,37 @@ An item is necessary only if leaving it unfixed could cause one or more of these
     Trailing stop/take-profit remains optional and lower priority. Do not implement or expand trailing before the two functions above are solid, tested, visible in UI/API, and restart-safe.
 
 
-   Build plan:
+   Remaining build plan:
 
-   1. Evidence and fixed-risk foundation — in progress:
-      bounded Support/Resistance analysis, explicit degraded states, BTC-regime
-      context, fixed-loss stop derivation, chart-anchored sizing, and a
-      non-mutating operator calculator.
-   2. Persisted rule design and guarded promotion:
-      versioned typed rule definitions, structured evidence snapshots, and
-      explicit reviewed promotion into strategy defaults or one logical
-      position override. Research markers must remain non-executable until this
-      transition succeeds.
-   3. Initial protection and take-profit materialization:
-      materialize percent/absolute/evidence stop and target rules from actual
-      confirmed entry price; support fixed target, evidence target, staged
-      reduce targets, and a remainder that can continue running.
-   4. Break-even lifecycle:
-      persisted arming thresholds, fee/slippage-adjusted target calculation,
-      restart-safe state transitions, confirmed exchange protection amendment,
-      and visible evidence explaining armed/applied/blocked state.
-   5. Optional trailing lifecycle:
-      activation threshold, distance, timeframe, high/low-water persistence,
-      monotonic protection, restart recovery, stale-data fail-closed behavior,
-      and separation between trailing stop and trailing take-profit semantics.
-   6. Incremental market evidence:
+   1. Incremental market evidence:
       durable or bounded reusable candle state, incremental recalculation,
       cache/API/CPU limits, explicit invalidation, multi-evidence scoring, and
       deterministic stale/missing/duplicate/API-failure behavior.
-   7. Integrated operator workflow:
-      Strategy Management defaults, Position Management overrides, Market
-      Analysis proposal selection, chart overlays for every active and executed
-      level, unsaved/revision-conflict handling, and manual-review state when
-      evidence conflicts or becomes stale.
-   8. Completion verification:
+   2. Remaining operator-state gaps:
+      explicit invalidated and manual-review presentation when market evidence
+      conflicts or becomes stale, with overlays sourced from typed API and
+      confirmed execution evidence.
+   3. Completion verification:
       focused unit/integration/API/UI tests, generated-contract checks, full
       backend and frontend gates, restart simulations, and documentation that
       matches the actual shipped behavior.
 
-   Acceptance gates — all are required before removing this priority:
+   Remaining acceptance gates:
 
-   * strategy defaults and per-logical-position overrides use one typed,
-     revision-protected rule model
-   * fixed-loss and chart-anchored initial stops derive size without exceeding
-     configured allowed loss after tick/lot rounding
-   * take-profit supports fixed percent, fixed price, evidence target, staged
-     reduction, and an optional running remainder
-   * break-even is fee/slippage adjusted, persisted, restart-safe, and changes
-     live protection only after confirmed exchange amendment
-   * trailing protection is optional, monotonic, persisted, bounded, and fails
-     closed on stale or missing market data
    * Support/Resistance evidence is cached, incrementally calculated, bounded,
      freshness-aware, invalidated explicitly, and never directly executable
    * the UI visibly distinguishes fresh, partial, stale, unavailable, proposed,
      armed, applied, invalidated, and manual-review states
-   * entry/current/stop/target/break-even/trailing/reduce/close overlays come
-     from typed API data and confirmed execution evidence
-   * stale revisions cannot overwrite newer strategy or position rules
    * tests cover stale/missing/duplicate candles, API failure, restart,
      partial fills, staged exits, break-even, trailing monotonicity, and rule
      promotion boundaries
    * full backend tests, frontend contract/lint/typecheck/build, and a
      requirement-by-requirement completion audit pass
 
-   Detailed product direction and current progress follow.
+   Completed milestones are deliberately removed from this active checklist.
+   Their verification evidence is retained in Git and `docs/build-status.md`.
 
-  Phase progress: the backend now has a bounded, short-lived cached
-  `GET /market/analysis/support-resistance` research endpoint. It reports
-  freshness, missing/duplicate/invalid candle quality, clustered extrema, and
-  volume/wick/recency/ATR/invalidation-distance evidence, and is contractually
-  marked ineligible as a live rule. The responsive Market Analysis page now
-  exposes K-lines, level markers, evidence scores, and explicit
-  fresh/partial/unavailable state. Fixed-loss stop derivation and
-  chart-anchored position sizing are available as non-mutating, lot-aligned
-  proposals with structured stop expressions and evidence. BTC regime now
-  contributes a visible, bounded confidence adjustment without becoming an
-  authority. True incremental recalculation remains incomplete. Canonical
-  schema-v1 rules now persist the same typed purpose/style/trigger/action/
-  parameters/evidence definition for strategy defaults and position overrides,
-  with migrations for legacy records. Confirmed revision-bound backend
-  promotion is built for single-instrument strategy stops and exact-size
-  position stops; Market Analysis promotion controls and the remaining rule
-  lifecycles still need implementation. Backend rule materialization now covers
-  absolute, fixed-price, fixed-percent, and evidence targets. Confirmed average
-  entry rematerializes relative rules and verified exchange amendment protects
-  owned stops. Staged take-profit reductions are one-shot, allocation-confirmed,
-  bounded to initial quantity, and retain an explicit running remainder.
-  Break-even now models entry/exit fees and slippage, persists armed/applied
-  state across restart, and routes live application exclusively through the
-  verified protection-amend lifecycle rather than a close action. Position
-  Management now provides a dedicated automatic break-even form with explicit
-  activation, fee, slippage, lock-in, and persisted configured/armed/applied
-  state. Market Analysis now lets the operator select a structure level as a
-  reviewed stop anchor and explicitly promote the server-recalculated quote to
-  an exact-size logical-position override with revision checks; rejected
-  resizing remains visible instead of being applied silently. The same workflow
-  now promotes to a matching single-instrument strategy revision and visibly
-  warns that an enabled strategy is disabled for review. Remaining integrated
-  chart/evidence-state work is still incomplete.
-  Strategy Management now authors typed default stop-loss, take-profit, staged
-  reductions, running remainder, and automatic break-even parameters directly;
-  it no longer requires operators to express these cases as raw signal JSON.
-  It validates percent/price/cost bounds and the aggregate initial staged-exit
-  fraction before sending the revision-protected strategy mutation.
-  The optional trailing backend now has typed stop versus take-profit
-  semantics, entry-relative activation materialization, persisted favorable
-  water marks, monotonic stop tightening, confirmed live protection amendment,
-  restart recovery, and stale/missing observation fail-closed behavior.
-  Trailing authoring and lifecycle visibility in the UI remain incomplete.
+   Detailed product direction follows.
 
   The goal is to design a coherent rule system for stop-loss, take-profit, break-even, optional trailing protection, and research-grade Support/Resistance evidence after a strategy opens a position or when the operator edits an existing logical position unit.
 

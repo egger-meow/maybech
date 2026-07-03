@@ -575,6 +575,7 @@ class PositionChartOverlayResponse(BaseModel):
         "stop_loss",
         "take_profit",
         "break_even",
+        "trailing",
         "execution",
     ]
     price: float

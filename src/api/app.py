@@ -719,7 +719,7 @@ def _position_chart_overlays(
         )
 
     for condition in position_store.list_close_conditions(position.id, enabled=True):
-        if condition.purpose not in {"stop_loss", "take_profit", "break_even"}:
+        if condition.purpose not in {"stop_loss", "take_profit", "break_even", "trailing"}:
             continue
         value = _as_float(condition.expression.get("value"))
         if value is not None and value > 0:
@@ -740,6 +740,22 @@ def _position_chart_overlays(
                         price=target,
                         timestamp=str(break_even.get("applied_at") or "") or None,
                         label="Break Even",
+                    )
+                )
+        trailing = condition.metadata.get("trailing_state")
+        if isinstance(trailing, dict):
+            candidate = _as_float(trailing.get("candidate_price"))
+            if candidate is not None and candidate > 0:
+                overlays.append(
+                    PositionChartOverlayResponse(
+                        kind="trailing",
+                        price=candidate,
+                        timestamp=str(trailing.get("updated_at") or "") or None,
+                        label=(
+                            "Trailing Stop Candidate"
+                            if trailing.get("kind") == "stop"
+                            else "Trailing Take Profit Candidate"
+                        ),
                     )
                 )
 

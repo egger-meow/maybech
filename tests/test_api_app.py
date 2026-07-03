@@ -1141,6 +1141,20 @@ def test_api_returns_logical_position_chart_overlays(monkeypatch, tmp_path):
         purpose="take_profit",
         expression={"type": "price_above", "symbol": "self", "value": 120},
     )
+    position_store.create_close_condition(
+        position_id="unit-chart",
+        purpose="trailing",
+        expression={"type": "price_above", "symbol": "self", "value": 105},
+        metadata={
+            "rule_definition": {
+                "style": "trailing_threshold",
+                "action": {"type": "amend_stop"},
+                "parameters": {"trailing_kind": "stop", "activation_profit_pct": .05, "distance_pct": .02, "timeframe": "1m"},
+                "evidence": {},
+            },
+            "trailing_state": {"status": "active", "kind": "stop", "water_price": "112", "candidate_price": "109.76", "updated_at": "2026-01-01T00:04:00+00:00"},
+        },
+    )
     position_store.record_allocation(
         LogicalPositionAllocation(
             id="reduce-fill",
@@ -1173,7 +1187,7 @@ def test_api_returns_logical_position_chart_overlays(monkeypatch, tmp_path):
 
     monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
     monkeypatch.setattr("src.api.app.CandleManager", FakeCandleManager)
-    client = TestClient(create_app(DaemonRunner()))
+    client = TestClient(create_app(DaemonRunner(), api_token=""))
 
     response = client.get("/positions/logical/unit-chart/chart")
 
@@ -1186,9 +1200,11 @@ def test_api_returns_logical_position_chart_overlays(monkeypatch, tmp_path):
         "stop_loss",
         "take_profit",
         "break_even",
+        "trailing",
         "execution",
     }
     assert next(item for item in body["overlays"] if item["kind"] == "current")["price"] == 111
+    assert next(item for item in body["overlays"] if item["label"] == "Trailing Stop Candidate")["price"] == 109.76
 
 
 def test_api_reports_signal_validation_errors():

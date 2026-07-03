@@ -509,7 +509,7 @@ export type PositionBreakEvenCommand = {
 };
 
 export type PositionChartOverlayResponse = {
-  "kind": "entry" | "current" | "stop_loss" | "take_profit" | "break_even" | "execution";
+  "kind": "entry" | "current" | "stop_loss" | "take_profit" | "break_even" | "trailing" | "execution";
   "price": number;
   "timestamp"?: string | null;
   "label": string;

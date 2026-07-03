@@ -170,7 +170,7 @@ function MiniChart({ chart }: { chart: LogicalPositionChartResponse }) {
   const min = Math.min(...prices); const max = Math.max(...prices); const span = Math.max(max - min, .000001);
   const y = (price: number) => pad + ((max - price) / span) * (height - pad * 2);
   const step = (width - pad * 2) / candles.length; const bodyWidth = Math.max(2, Math.min(10, step * .6));
-  const overlayColors: Record<string, string> = { entry: "#3b82f6", current: "#8b5cf6", stop_loss: "#ef4444", take_profit: "#10b981", break_even: "#f59e0b", execution: "#64748b" };
+  const overlayColors: Record<string, string> = { entry: "#3b82f6", current: "#8b5cf6", stop_loss: "#ef4444", take_profit: "#10b981", break_even: "#f59e0b", trailing: "#06b6d4", execution: "#64748b" };
   return (
     <div className="chart-wrap">
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${chart.inst_id} 部位 K 線與規則價位`}>
@@ -224,7 +224,7 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
   return (
     <div className="sub-editor">
       <div className="sub-editor-head">
-        <label className="field"><span>規則類型</span><select disabled={ownedStop} value={purpose} onChange={(event) => { setPurpose(event.target.value); setDirty(true); }}><option value="stop_loss">停損</option><option value="take_profit">停利</option><option value="trailing">移動停損</option><option value="break_even">保本</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option></select></label>
+        <label className="field"><span>規則類型</span><select disabled={ownedStop} value={purpose} onChange={(event) => { setPurpose(event.target.value); setDirty(true); }}><option value="stop_loss">停損</option><option value="take_profit">停利</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option></select></label>
         <label className="check-field"><input type="checkbox" disabled={ownedStop} checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setDirty(true); }} /> 啟用</label>
         {ownedStop && <span className="badge warning"><ShieldCheck size={13} /> OKX 保護單專用修改</span>}
         <span className={dirty ? "dirty-note" : "saved-note"}>{dirty ? "尚未儲存" : "已儲存"}</span>
@@ -292,6 +292,62 @@ function BreakEvenLifecycle({ position, refresh }: { position: LogicalPositionUn
     {lifecycle.target_stop != null && <div className="rule-pnl-estimate"><span>Persisted target stop</span><strong>{String(lifecycle.target_stop)}</strong></div>}
     {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
     <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || position.status !== "open" || status === "applied"} onClick={save}><Save size={15} /> {busy ? "Saving…" : existing ? "Update break-even rule" : "Configure break-even rule"}</button></div>
+  </div>;
+}
+
+function TrailingLifecycle({ position, refresh }: { position: LogicalPositionUnit; refresh: () => Promise<unknown> }) {
+  const existing = position.close_conditions?.find((item) => item.purpose === "trailing");
+  const definition = object(existing?.rule_definition);
+  const parameters = object(definition.parameters);
+  const action = object(definition.action);
+  const lifecycle = object(object(existing?.metadata).trailing_state);
+  const [kind, setKind] = useState(String(parameters.trailing_kind ?? "stop"));
+  const [activationPct, setActivationPct] = useState(String(Number(parameters.activation_profit_pct ?? .03) * 100));
+  const [distancePct, setDistancePct] = useState(String(Number(parameters.distance_pct ?? .02) * 100));
+  const [timeframe, setTimeframe] = useState(String(parameters.timeframe ?? "1m"));
+  const [staleAfter, setStaleAfter] = useState(String(parameters.stale_after_seconds ?? 90));
+  const [reducePct, setReducePct] = useState(String(Number(action.quantity_fraction ?? .5) * 100));
+  const [reduceOnly, setReduceOnly] = useState(action.type === "reduce_position");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const save = async () => {
+    const activation = Number(activationPct) / 100;
+    const distance = Number(distancePct) / 100;
+    const staleSeconds = Number(staleAfter);
+    const fraction = Number(reducePct) / 100;
+    if (!Number.isFinite(activation) || activation <= 0 || activation > 1 || !Number.isFinite(distance) || distance <= 0 || distance > .5) { setError("Activation must be 0–100% and trailing distance 0–50%."); return; }
+    if (!Number.isInteger(staleSeconds) || staleSeconds < 5 || staleSeconds > 3600) { setError("Freshness timeout must be 5–3600 seconds."); return; }
+    if (kind === "take_profit" && reduceOnly && (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1)) { setError("Reduction must be greater than 0% and less than 100%."); return; }
+    if (kind === "stop" && !position.close_conditions?.some((item) => item.purpose === "stop_loss" && item.enabled)) { setError("Trailing stop requires exactly one enabled stop-loss rule."); return; }
+    const threshold = position.entry_price * (position.side === "long" ? 1 + activation : 1 - activation);
+    const expression: SignalExpression = { type: position.side === "long" ? "price_above" : "price_below", symbol: position.inst_id, value: threshold };
+    const nextAction = kind === "stop" ? { type: "amend_stop" } : reduceOnly ? { type: "reduce_position", quantity_fraction: fraction, quantity_basis: "remaining" } : { type: "close_position" };
+    const nextParameters = { trailing_kind: kind, activation_profit_pct: String(activation), distance_pct: String(distance), timeframe, stale_after_seconds: staleSeconds };
+    const evidence = { source: "operator_position_workflow", configured_at: new Date().toISOString() };
+    const metadata = { parameters: nextParameters, evidence, rule_definition: { schema_version: 1, purpose: "trailing", style: "trailing_threshold", enabled: true, trigger: expression, action: nextAction, parameters: nextParameters, evidence } };
+    setBusy(true); setError("");
+    try {
+      if (existing) await updateLogicalPositionCloseCondition(position.id, existing.id, { expected_updated_at: existing.updated_at, purpose: "trailing", enabled: true, expression, metadata });
+      else await createLogicalPositionCloseCondition(position.id, { confirm: true, expected_position_updated_at: position.updated_at, purpose: "trailing", enabled: true, expression, metadata });
+      await refresh();
+    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+  };
+  const status = String(lifecycle.status ?? (existing?.enabled ? "configured" : "not configured"));
+  return <div className="sub-editor">
+    <div className="sub-editor-head"><strong>Optional trailing lifecycle</strong><span className={`badge ${status === "stale" ? "danger" : status === "active" ? "success" : "info"}`}>{status}</span></div>
+    <div className="risk-sizing-grid">
+      <label className="field"><span>Semantics</span><select value={kind} onChange={(event) => setKind(event.target.value)}><option value="stop">Monotonic protective stop</option><option value="take_profit">Take profit after retracement</option></select></label>
+      <label className="field"><span>Activation profit</span><div className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={activationPct} onChange={(event) => setActivationPct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>Trailing distance</span><div className="input-with-suffix"><input type="number" min="0.0001" max="50" step="0.01" value={distancePct} onChange={(event) => setDistancePct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>Timeframe</span><select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1H">1H</option><option value="4H">4H</option></select></label>
+      <label className="field"><span>Freshness timeout</span><div className="input-with-suffix"><input type="number" min="5" max="3600" step="1" value={staleAfter} onChange={(event) => setStaleAfter(event.target.value)} /><small>sec</small></div></label>
+      {kind === "take_profit" && <label className="check-field"><input type="checkbox" checked={reduceOnly} onChange={(event) => setReduceOnly(event.target.checked)} /> Reduce only and leave a runner</label>}
+      {kind === "take_profit" && reduceOnly && <label className="field"><span>Reduction</span><div className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={reducePct} onChange={(event) => setReducePct(event.target.value)} /><small>%</small></div></label>}
+    </div>
+    {(lifecycle.water_price != null || lifecycle.candidate_price != null) && <div className="risk-sizing-result"><div><small>Favorable water mark</small><strong>{String(lifecycle.water_price ?? "—")}</strong></div><div><small>Current candidate</small><strong>{String(lifecycle.candidate_price ?? "—")}</strong></div><div><small>Last observation</small><strong>{lifecycle.observed_at ? new Date(String(lifecycle.observed_at)).toLocaleString("zh-TW") : "—"}</strong></div></div>}
+    <div className="inline-warning">Aggressive trailing can exit a valid trend early. Missing or stale observations freeze the lifecycle instead of moving protection.</div>
+    {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
+    <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || position.status !== "open"} onClick={save}><Save size={15} /> {busy ? "Saving…" : existing ? "Update trailing rule" : "Configure trailing rule"}</button></div>
   </div>;
 }
 
@@ -375,11 +431,12 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
         {position.protection ? <div className="metric-grid"><div><small>停損價</small><strong>{number(position.protection.stop_loss)}</strong></div><div><small>保護數量</small><strong>{number(position.protection.quantity)}</strong></div><div><small>Algo ID</small><strong className="mono">{position.protection.algo_id}</strong></div><div><small>觸發委託</small><strong className="mono">{position.protection.trigger_order_id || "尚未觸發"}</strong></div></div> : <div className="error-state">此單位沒有可見的 OKX 保護紀錄。</div>}
         <div className="form-actions"><button type="button" className="btn btn-outline" disabled={Boolean(busyAction) || position.status !== "open"} onClick={protect}><RotateCcw size={15} /> {busyAction === "protect" ? "驗證中…" : "重試／驗證保護"}</button><button type="button" className="btn btn-outline" disabled={Boolean(busyAction) || position.status !== "open" || position.protection?.status !== "active"} onClick={breakEven}><ShieldCheck size={15} /> {busyAction === "break-even" ? "修改中…" : "移至保本／鎖利"}</button></div>
         <BreakEvenLifecycle position={position} refresh={refresh} />
+        <TrailingLifecycle position={position} refresh={refresh} />
       </section>
 
       <section className="panel">
         <div className="panel-heading"><div><h2>單位專屬出場規則</h2><p>支援 AND、OR 與括號群組；規則只管理這一個 Maybech 邏輯單位。</p></div><button type="button" className="btn btn-outline" onClick={() => setNewRule(true)}><CirclePlus size={15} /> 新增規則</button></div>
-        <div className="rule-stack">{position.close_conditions?.map((condition) => <RuleEditor key={`${condition.id}-${condition.updated_at}`} position={position} condition={condition} onSaved={refresh} />)}{newRule && <RuleEditor position={position} onSaved={refresh} onCancel={() => setNewRule(false)} />}{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
+        <div className="rule-stack">{position.close_conditions?.filter((condition) => !["break_even", "trailing"].includes(condition.purpose ?? "")).map((condition) => <RuleEditor key={`${condition.id}-${condition.updated_at}`} position={position} condition={condition} onSaved={refresh} />)}{newRule && <RuleEditor position={position} onSaved={refresh} onCancel={() => setNewRule(false)} />}{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
       </section>
 
       <section className="panel danger-zone action-zone">

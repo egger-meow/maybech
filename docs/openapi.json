@@ -2930,6 +2930,7 @@
               "stop_loss",
               "take_profit",
               "break_even",
+              "trailing",
               "execution"
             ],
             "title": "Kind",

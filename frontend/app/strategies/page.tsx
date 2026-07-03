@@ -110,6 +110,7 @@ function withTypedRule(
 function defaultCloseRule(purpose: string, side: "long" | "short"): CloseRule {
   const expression = priceExpression(purpose, side, 1);
   if (purpose === "break_even") return withTypedRule({ purpose, enabled: true, expression }, "break_even_threshold", { activation_profit_pct: "0.01", entry_fee_rate: "0.0005", exit_fee_rate: "0.0005", slippage_rate: "0.0005", lock_in_pct: "0" }, { type: "amend_stop" });
+  if (purpose === "trailing") return withTypedRule({ purpose, enabled: true, expression: { type: side === "long" ? "price_above" : "price_below", symbol: "self", value: 1 } }, "trailing_threshold", { trailing_kind: "stop", activation_profit_pct: "0.03", distance_pct: "0.02", timeframe: "1m", stale_after_seconds: 90 }, { type: "amend_stop" });
   if (purpose === "stop_loss" || purpose === "take_profit") return withTypedRule({ purpose, enabled: true, expression }, "fixed_percent", { offset_pct: purpose === "stop_loss" ? "0.01" : "0.02" }, { type: "close_position" });
   return { purpose, enabled: true, expression };
 }
@@ -135,6 +136,15 @@ function validateTypedCloseRules(rules: CloseRule[]): void {
       if (!Number.isFinite(activation) || activation <= 0 || activation > 1) throw new Error("保本啟動距離必須大於 0 且不超過 100%。");
       if (fees.some((value) => !Number.isFinite(value) || value < 0 || value > .02)) throw new Error("保本手續費與滑價必須介於 0% 到 2%。");
       if (!Number.isFinite(lock) || lock < 0 || lock > .05) throw new Error("保本額外鎖利必須介於 0% 到 5%。");
+    }
+    if (rule.purpose === "trailing") {
+      const activation = Number(parameters.activation_profit_pct);
+      const distance = Number(parameters.distance_pct);
+      const staleAfter = Number(parameters.stale_after_seconds);
+      if (!Number.isFinite(activation) || activation <= 0 || activation > 1) throw new Error("移動規則啟動距離必須大於 0 且不超過 100%。");
+      if (!Number.isFinite(distance) || distance <= 0 || distance > .5) throw new Error("移動規則追蹤距離必須大於 0 且不超過 50%。");
+      if (!String(parameters.timeframe ?? "")) throw new Error("移動規則必須指定時間週期。");
+      if (!Number.isInteger(staleAfter) || staleAfter < 5 || staleAfter > 3600) throw new Error("移動規則資料逾時必須介於 5 到 3600 秒。");
     }
     if (rule.purpose === "take_profit" && action.type === "reduce_position" && action.quantity_basis === "initial") {
       const fraction = Number(action.quantity_fraction);
@@ -231,6 +241,21 @@ function TypedCloseRuleEditor({ rule, side, onChange }: { rule: CloseRule; side:
       {percentField("slippage_rate", "每側滑價", 2)}
       {percentField("lock_in_pct", "額外鎖利", 5)}
       <div className="inline-warning">保本價不是原始進場價；後端會計入進出場手續費、雙側滑價與鎖利，並只在交易所確認修改停損後標記完成。</div>
+    </div>;
+  }
+  if (rule.purpose === "trailing") {
+    const kind = String(parameters.trailing_kind ?? "stop");
+    const isReduce = kind === "take_profit" && action.type === "reduce_position";
+    const changeKind = (nextKind: string) => onChange(withTypedRule(rule, "trailing_threshold", { ...parameters, trailing_kind: nextKind }, nextKind === "stop" ? { type: "amend_stop" } : { type: "close_position" }));
+    return <div className="typed-rule-grid">
+      <label className="field"><span>追蹤用途</span><select value={kind} onChange={(event) => changeKind(event.target.value)}><option value="stop">單調收緊保護停損</option><option value="take_profit">回撤後停利</option></select></label>
+      <label className="field"><span>啟動獲利距離</span><span className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={String(Number(parameters.activation_profit_pct ?? .03) * 100)} onChange={(event) => setParameters({ ...parameters, activation_profit_pct: String(Number(event.target.value) / 100) })} /><small>%</small></span></label>
+      <label className="field"><span>追蹤距離</span><span className="input-with-suffix"><input type="number" min="0.0001" max="50" step="0.01" value={String(Number(parameters.distance_pct ?? .02) * 100)} onChange={(event) => setParameters({ ...parameters, distance_pct: String(Number(event.target.value) / 100) })} /><small>%</small></span></label>
+      <label className="field"><span>時間週期</span><select value={String(parameters.timeframe ?? "1m")} onChange={(event) => setParameters({ ...parameters, timeframe: event.target.value })}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1H">1H</option><option value="4H">4H</option></select></label>
+      <label className="field"><span>資料逾時</span><span className="input-with-suffix"><input type="number" min="5" max="3600" step="1" value={String(parameters.stale_after_seconds ?? 90)} onChange={(event) => setParameters({ ...parameters, stale_after_seconds: Number(event.target.value) })} /><small>秒</small></span></label>
+      {kind === "take_profit" && <label className="check-field"><input type="checkbox" checked={isReduce} onChange={(event) => onChange(withTypedRule(rule, "trailing_threshold", parameters, event.target.checked ? { type: "reduce_position", quantity_fraction: .5, quantity_basis: "remaining" } : { type: "close_position" }))} /> 只減倉，不全部平倉</label>}
+      {isReduce && <label className="field"><span>減倉比例</span><span className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={String(Number(action.quantity_fraction ?? .5) * 100)} onChange={(event) => onChange(withTypedRule(rule, "trailing_threshold", parameters, { ...action, quantity_fraction: Number(event.target.value) / 100, quantity_basis: "remaining" }))} /><small>%</small></span></label>}
+      <div className="inline-warning">移動停損只會收緊既有保護；移動停利則等待水位回撤後才平倉或減倉。缺少新鮮價格時兩者都不會前進。</div>
     </div>;
   }
   return <ExpressionEditor value={rule.expression} onChange={(expression) => onChange({ ...rule, expression })} label={`${rule.purpose.replaceAll("_", " ")} 條件`} />;
@@ -403,7 +428,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         {draft.closeRules.map((rule, index) => (
           <div className="sub-editor" key={index}>
             <div className="sub-editor-head">
-              <label className="field"><span>規則類型</span><select value={rule.purpose} onChange={(event) => updateRule(index, defaultCloseRule(event.target.value, draft.side))}><option value="stop_loss">停損</option><option value="take_profit">停利／分段停利</option><option value="break_even">自動保本</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option><option value="trailing">移動停損（後續）</option></select></label>
+              <label className="field"><span>規則類型</span><select value={rule.purpose} onChange={(event) => updateRule(index, defaultCloseRule(event.target.value, draft.side))}><option value="stop_loss">停損</option><option value="take_profit">停利／分段停利</option><option value="break_even">自動保本</option><option value="trailing">移動停損／移動停利</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option></select></label>
               <label className="check-field"><input type="checkbox" checked={rule.enabled} onChange={(event) => updateRule(index, { ...rule, enabled: event.target.checked })} /> 啟用</label>
               <button type="button" className="icon-button danger-ghost" aria-label="移除規則" onClick={() => set("closeRules", draft.closeRules.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} /></button>
             </div>
