@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -21,6 +22,19 @@ class AnalysisRequest:
     btc_direction: str
 
 
+@dataclass(frozen=True)
+class MarketWindow:
+    inst_id: str
+    bar: str
+
+
+@dataclass
+class CandleWindowState:
+    fetched_at: datetime
+    frame: pd.DataFrame
+    coverage: int
+
+
 class SupportResistanceService:
     """Fetch and analyze a small candle window with a process-local TTL cache."""
 
@@ -29,13 +43,24 @@ class SupportResistanceService:
         client_provider: Callable[[], object],
         *,
         cache_ttl: timedelta = timedelta(seconds=15),
+        incremental_fetch_limit: int = 32,
+        max_market_windows: int = 32,
+        max_state_candles: int = 300,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._client_provider = client_provider
         self._cache_ttl = cache_ttl
+        if incremental_fetch_limit < 5:
+            raise ValueError("incremental_fetch_limit must be at least 5")
+        if max_market_windows < 1 or max_state_candles < 20:
+            raise ValueError("market-state bounds are invalid")
+        self._incremental_fetch_limit = incremental_fetch_limit
+        self._max_market_windows = max_market_windows
+        self._max_state_candles = max_state_candles
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._manager: CandleManager | None = None
         self._cache: dict[AnalysisRequest, tuple[datetime, dict]] = {}
+        self._windows: OrderedDict[MarketWindow, CandleWindowState] = OrderedDict()
         self._lock = RLock()
 
     def analyze(
@@ -58,8 +83,45 @@ class SupportResistanceService:
             if self._manager is None:
                 self._manager = CandleManager(self._client_provider())
 
+            window = MarketWindow(inst_id=inst_id, bar=bar)
+            state = self._windows.get(window)
+            can_reuse = (
+                state is not None
+                and state.coverage >= limit
+                and now - state.fetched_at < self._cache_ttl
+            )
+            fetch_mode = "state_reuse" if can_reuse else "full"
+            api_requested_candles = 0
             try:
-                frame = self._manager.fetch(inst_id, bar=bar, limit=limit)
+                if can_reuse:
+                    frame = state.frame
+                else:
+                    incremental = state is not None and state.coverage >= limit
+                    api_requested_candles = (
+                        min(limit, self._incremental_fetch_limit) if incremental else limit
+                    )
+                    fetch_mode = "incremental_overlap" if incremental else "full"
+                    fetched = self._manager.fetch(
+                        inst_id, bar=bar, limit=api_requested_candles
+                    )
+                    frames = [state.frame, fetched] if state is not None else [fetched]
+                    frame = pd.concat(frames, ignore_index=True)
+                    if "timestamp" in frame.columns:
+                        frame = frame.drop_duplicates(subset="timestamp", keep="last")
+                        frame = frame.sort_values("timestamp")
+                    frame = frame.tail(self._max_state_candles).reset_index(drop=True)
+                    coverage = min(
+                        self._max_state_candles,
+                        max(limit, state.coverage if state is not None else 0),
+                    )
+                    self._windows[window] = CandleWindowState(
+                        fetched_at=now,
+                        frame=frame,
+                        coverage=coverage,
+                    )
+                    self._windows.move_to_end(window)
+                    while len(self._windows) > self._max_market_windows:
+                        self._windows.popitem(last=False)
             except Exception as exc:
                 return _unavailable(inst_id, bar, now, str(exc))
 
@@ -70,6 +132,16 @@ class SupportResistanceService:
                 now=now,
                 btc_regime=btc_regime,
             )
+            result["computation"] = {
+                "fetch_mode": fetch_mode,
+                "api_requested_candles": api_requested_candles,
+                "state_candles": min(len(frame), self._max_state_candles),
+                "state_capacity_candles": self._max_state_candles,
+                "market_windows": len(self._windows),
+                "market_window_capacity": self._max_market_windows,
+                "calculation_mode": "bounded_full_window",
+                "analyzed_candles": min(len(frame), limit),
+            }
             self._cache[request] = (now, result)
             return result
 

@@ -562,6 +562,7 @@ class SupportResistanceAnalysisResponse(BaseModel):
     volatility_atr: float | None = None
     levels: list[SupportResistanceLevelResponse] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
+    computation: dict[str, Any] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
     cache_hit: bool = False
     research_only: Literal[True] = True

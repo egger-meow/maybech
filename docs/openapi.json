@@ -4948,6 +4948,11 @@
             "title": "Cache Hit",
             "type": "boolean"
           },
+          "computation": {
+            "additionalProperties": true,
+            "title": "Computation",
+            "type": "object"
+          },
           "context": {
             "additionalProperties": true,
             "title": "Context",

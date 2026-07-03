@@ -4,11 +4,31 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from src.api.app import create_app
+from src.data.candles import CandleManager
 from src.daemon.service import DaemonRunner
 from src.market.support_resistance import SupportResistanceService, analyze_candles
 
 
 NOW = datetime(2026, 7, 2, 12, tzinfo=timezone.utc)
+
+
+def test_candle_manager_enforces_row_and_market_key_bounds():
+    class Client:
+        def get_candles(self, *, inst_id, bar, limit):
+            del bar, limit
+            base = {"BTC": 100, "ETH": 200, "SOL": 300}[inst_id]
+            return [
+                [str(1_700_000_000_000 + index * 60_000), str(base + index), str(base + index + 1), str(base + index - 1), str(base + index), "10", "10", "10", "1"]
+                for index in range(5)
+            ]
+
+    manager = CandleManager(Client(), max_cache_rows=3, max_cache_keys=2)
+    manager.fetch("BTC", limit=5)
+    manager.fetch("ETH", limit=5)
+    manager.fetch("SOL", limit=5)
+
+    assert list(manager._cache) == ["ETH:1m", "SOL:1m"]
+    assert all(len(frame) == 3 for frame in manager._cache.values())
 
 
 def _candles(*, duplicate: bool = False, gap: bool = False) -> pd.DataFrame:
@@ -95,6 +115,42 @@ def test_service_bounds_fetch_and_reuses_cached_result(monkeypatch):
     assert calls == [("BTC-USDT-SWAP", "1m", 100)]
     assert first["cache_hit"] is False
     assert second["cache_hit"] is True
+
+
+def test_service_refreshes_with_bounded_overlap_and_reuses_state_for_context_change(monkeypatch):
+    calls = []
+    clock = [NOW]
+
+    class FakeManager:
+        def __init__(self, client):
+            del client
+
+        def fetch(self, inst_id, bar="1m", limit=100):
+            calls.append((inst_id, bar, limit))
+            return _candles()
+
+    monkeypatch.setattr("src.market.support_resistance.CandleManager", FakeManager)
+    service = SupportResistanceService(
+        lambda: object(), cache_ttl=timedelta(seconds=15), now=lambda: clock[0]
+    )
+
+    initial = service.analyze("BTC-USDT-SWAP", bar="1m", limit=100)
+    clock[0] += timedelta(seconds=16)
+    incremental = service.analyze("BTC-USDT-SWAP", bar="1m", limit=100)
+    contextual = service.analyze(
+        "BTC-USDT-SWAP", bar="1m", limit=100,
+        btc_regime={"direction": "bullish"},
+    )
+
+    assert calls == [
+        ("BTC-USDT-SWAP", "1m", 100),
+        ("BTC-USDT-SWAP", "1m", 32),
+    ]
+    assert initial["computation"]["fetch_mode"] == "full"
+    assert incremental["computation"]["fetch_mode"] == "incremental_overlap"
+    assert incremental["computation"]["state_capacity_candles"] == 300
+    assert contextual["computation"]["fetch_mode"] == "state_reuse"
+    assert contextual["context"]["btc_direction"] == "bullish"
 
 
 def test_service_reports_api_failure_as_visible_unavailable_state(monkeypatch):

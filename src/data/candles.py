@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import OrderedDict
 
 import pandas as pd
 
@@ -56,9 +57,19 @@ def _raw_to_df(raw: list[list]) -> pd.DataFrame:
 class CandleManager:
     """Fetches, caches, and provides candlestick data."""
 
-    def __init__(self, client: OKXClient) -> None:
+    def __init__(
+        self,
+        client: OKXClient,
+        *,
+        max_cache_rows: int = 10_000,
+        max_cache_keys: int = 64,
+    ) -> None:
         self.client = client
-        self._cache: dict[str, pd.DataFrame] = {}
+        if max_cache_rows < 1 or max_cache_keys < 1:
+            raise ValueError("candle cache bounds must be positive")
+        self.max_cache_rows = max_cache_rows
+        self.max_cache_keys = max_cache_keys
+        self._cache: OrderedDict[str, pd.DataFrame] = OrderedDict()
 
     def fetch(
         self,
@@ -79,7 +90,11 @@ class CandleManager:
             df.sort_values("timestamp", inplace=True)
             df.reset_index(drop=True, inplace=True)
         
-        self._cache[cache_key] = df
+        self._cache[cache_key] = df.tail(self.max_cache_rows).reset_index(drop=True)
+        self._cache.move_to_end(cache_key)
+        while len(self._cache) > self.max_cache_keys:
+            self._cache.popitem(last=False)
+        df = self._cache[cache_key]
         logger.info("Fetched %d candles for %s (%s). Cache size: %d", len(raw), inst_id, bar, len(df))
         return df
 

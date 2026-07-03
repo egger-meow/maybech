@@ -850,6 +850,7 @@ export type SupportResistanceAnalysisResponse = {
   "volatility_atr"?: number | null;
   "levels"?: SupportResistanceLevelResponse[];
   "context"?: Record<string, unknown>;
+  "computation"?: Record<string, unknown>;
   "errors"?: string[];
   "cache_hit"?: boolean;
   "research_only"?: true;
