@@ -243,6 +243,58 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
   );
 }
 
+function BreakEvenLifecycle({ position, refresh }: { position: LogicalPositionUnit; refresh: () => Promise<unknown> }) {
+  const existing = position.close_conditions?.find((item) => item.purpose === "break_even");
+  const parameters = object(object(existing?.rule_definition).parameters);
+  const lifecycle = object(object(existing?.metadata).break_even_state);
+  const [activationPct, setActivationPct] = useState(String(Number(parameters.activation_profit_pct ?? 0.01) * 100));
+  const [entryFeePct, setEntryFeePct] = useState(String(Number(parameters.entry_fee_rate ?? 0.0005) * 100));
+  const [exitFeePct, setExitFeePct] = useState(String(Number(parameters.exit_fee_rate ?? 0.0005) * 100));
+  const [slippagePct, setSlippagePct] = useState(String(Number(parameters.slippage_rate ?? 0.0005) * 100));
+  const [lockPct, setLockPct] = useState(String(Number(parameters.lock_in_pct ?? 0) * 100));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const save = async () => {
+    const activation = Number(activationPct) / 100;
+    const entryFee = Number(entryFeePct) / 100;
+    const exitFee = Number(exitFeePct) / 100;
+    const slippage = Number(slippagePct) / 100;
+    const lock = Number(lockPct) / 100;
+    if (![activation, entryFee, exitFee, slippage, lock].every(Number.isFinite) || activation <= 0 || activation > 1 || [entryFee, exitFee, slippage].some((value) => value < 0 || value > 0.02) || lock < 0 || lock > 0.05) {
+      setError("Activation must be 0–100%; fees/slippage 0–2%; lock-in 0–5%.");
+      return;
+    }
+    const threshold = position.entry_price * (position.side === "long" ? 1 + activation : 1 - activation);
+    if (!(threshold > 0)) { setError("The activation threshold is invalid for this entry price."); return; }
+    const expression: SignalExpression = { type: position.side === "long" ? "price_above" : "price_below", symbol: position.inst_id, value: threshold };
+    const metadata = {
+      parameters: { activation_profit_pct: String(activation), entry_fee_rate: String(entryFee), exit_fee_rate: String(exitFee), slippage_rate: String(slippage), lock_in_pct: String(lock) },
+      evidence: { source: "operator_position_workflow", entry_price: String(position.entry_price), configured_at: new Date().toISOString() },
+    };
+    setBusy(true); setError("");
+    try {
+      if (existing) await updateLogicalPositionCloseCondition(position.id, existing.id, { expected_updated_at: existing.updated_at, purpose: "break_even", enabled: true, expression, metadata });
+      else await createLogicalPositionCloseCondition(position.id, { confirm: true, expected_position_updated_at: position.updated_at, purpose: "break_even", enabled: true, expression, metadata });
+      await refresh();
+    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+  };
+  const status = String(lifecycle.status ?? (existing?.enabled ? "configured" : "not configured"));
+  return <div className="sub-editor">
+    <div className="sub-editor-head"><strong>Automatic cost-adjusted break-even</strong><span className={`badge ${status === "applied" ? "success" : status === "armed" ? "warning" : "info"}`}>{status}</span></div>
+    <p className="muted">Persists across restart and marks applied only after the exchange stop amendment is confirmed.</p>
+    <div className="risk-sizing-grid">
+      <label className="field"><span>Activation profit</span><div className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={activationPct} onChange={(event) => setActivationPct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>Entry fee</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={entryFeePct} onChange={(event) => setEntryFeePct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>Exit fee</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={exitFeePct} onChange={(event) => setExitFeePct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>Slippage each side</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={slippagePct} onChange={(event) => setSlippagePct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>Additional lock-in</span><div className="input-with-suffix"><input type="number" min="0" max="5" step="0.01" value={lockPct} onChange={(event) => setLockPct(event.target.value)} /><small>%</small></div></label>
+    </div>
+    {lifecycle.target_stop != null && <div className="rule-pnl-estimate"><span>Persisted target stop</span><strong>{String(lifecycle.target_stop)}</strong></div>}
+    {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
+    <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || position.status !== "open" || status === "applied"} onClick={save}><Save size={15} /> {busy ? "Saving…" : existing ? "Update break-even rule" : "Configure break-even rule"}</button></div>
+  </div>;
+}
+
 function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; refresh: () => Promise<unknown> }) {
   const chart = useSWR(["position-chart", position.id], () => getLogicalPositionChart(position.id, { bar: "1m", limit: 100 }), { refreshInterval: 15_000 });
   const [newRule, setNewRule] = useState(false);
@@ -322,6 +374,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
         <div className="panel-heading"><div><h2>擁有的交易所保護</h2><p>每個仍有真實曝險的邏輯單位應擁有一筆數量完全相符的 OKX 保護停損。</p></div>{position.protection?.status === "active" ? <span className="protection-state good"><ShieldCheck size={19} /> 保護有效</span> : <span className="protection-state bad"><ShieldAlert size={19} /> {position.protection?.status ?? "沒有保護"}</span>}</div>
         {position.protection ? <div className="metric-grid"><div><small>停損價</small><strong>{number(position.protection.stop_loss)}</strong></div><div><small>保護數量</small><strong>{number(position.protection.quantity)}</strong></div><div><small>Algo ID</small><strong className="mono">{position.protection.algo_id}</strong></div><div><small>觸發委託</small><strong className="mono">{position.protection.trigger_order_id || "尚未觸發"}</strong></div></div> : <div className="error-state">此單位沒有可見的 OKX 保護紀錄。</div>}
         <div className="form-actions"><button type="button" className="btn btn-outline" disabled={Boolean(busyAction) || position.status !== "open"} onClick={protect}><RotateCcw size={15} /> {busyAction === "protect" ? "驗證中…" : "重試／驗證保護"}</button><button type="button" className="btn btn-outline" disabled={Boolean(busyAction) || position.status !== "open" || position.protection?.status !== "active"} onClick={breakEven}><ShieldCheck size={15} /> {busyAction === "break-even" ? "修改中…" : "移至保本／鎖利"}</button></div>
+        <BreakEvenLifecycle position={position} refresh={refresh} />
       </section>
 
       <section className="panel">
