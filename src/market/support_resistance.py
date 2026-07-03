@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from threading import RLock
@@ -33,6 +33,7 @@ class CandleWindowState:
     fetched_at: datetime
     frame: pd.DataFrame
     coverage: int
+    pivot_state: dict = field(default_factory=dict)
 
 
 class SupportResistanceService:
@@ -92,6 +93,8 @@ class SupportResistanceService:
             )
             fetch_mode = "state_reuse" if can_reuse else "full"
             api_requested_candles = 0
+            rescan_from: pd.Timestamp | None = None
+            next_state = state
             try:
                 if can_reuse:
                     frame = state.frame
@@ -104,6 +107,11 @@ class SupportResistanceService:
                     fetched = self._manager.fetch(
                         inst_id, bar=bar, limit=api_requested_candles
                     )
+                    if "timestamp" in fetched.columns and not fetched.empty:
+                        recent_fetch = fetched.tail(api_requested_candles)
+                        rescan_from = pd.to_datetime(
+                            recent_fetch["timestamp"], utc=True, errors="coerce"
+                        ).min()
                     frames = [state.frame, fetched] if state is not None else [fetched]
                     frame = pd.concat(frames, ignore_index=True)
                     if "timestamp" in frame.columns:
@@ -114,14 +122,12 @@ class SupportResistanceService:
                         self._max_state_candles,
                         max(limit, state.coverage if state is not None else 0),
                     )
-                    self._windows[window] = CandleWindowState(
+                    next_state = CandleWindowState(
                         fetched_at=now,
                         frame=frame,
                         coverage=coverage,
+                        pivot_state=(state.pivot_state if state is not None else {}),
                     )
-                    self._windows.move_to_end(window)
-                    while len(self._windows) > self._max_market_windows:
-                        self._windows.popitem(last=False)
             except Exception as exc:
                 return _unavailable(inst_id, bar, now, str(exc))
 
@@ -131,7 +137,14 @@ class SupportResistanceService:
                 bar=bar,
                 now=now,
                 btc_regime=btc_regime,
+                pivot_state=(next_state.pivot_state if next_state is not None else {}),
+                rescan_from=rescan_from,
             )
+            if next_state is not None:
+                self._windows[window] = next_state
+                self._windows.move_to_end(window)
+                while len(self._windows) > self._max_market_windows:
+                    self._windows.popitem(last=False)
             result["computation"] = {
                 "fetch_mode": fetch_mode,
                 "api_requested_candles": api_requested_candles,
@@ -139,8 +152,18 @@ class SupportResistanceService:
                 "state_capacity_candles": self._max_state_candles,
                 "market_windows": len(self._windows),
                 "market_window_capacity": self._max_market_windows,
-                "calculation_mode": "bounded_full_window",
+                "calculation_mode": "incremental_pivot_scan",
                 "analyzed_candles": min(len(frame), limit),
+                "pivot_scan_candles": int(
+                    (next_state.pivot_state if next_state is not None else {}).get(
+                        "scanned_candles", min(len(frame), limit)
+                    )
+                ),
+                "reused_pivots": int(
+                    (next_state.pivot_state if next_state is not None else {}).get(
+                        "reused_pivots", 0
+                    )
+                ),
             }
             self._cache[request] = (now, result)
             return result
@@ -155,6 +178,8 @@ def analyze_candles(
     pivot_window: int = 2,
     max_levels: int = 12,
     btc_regime: dict | None = None,
+    pivot_state: dict | None = None,
+    rescan_from: pd.Timestamp | None = None,
 ) -> dict:
     """Return explainable S/R evidence; never an executable trading rule."""
     evaluated_at = now or datetime.now(timezone.utc)
@@ -203,14 +228,30 @@ def analyze_candles(
     atr = float(ranges.tail(14).mean()) if len(data) else 0.0
     latest_price = float(latest["close"])
     cluster_distance = max(latest_price * 0.001, atr * 0.35)
-    pivots: list[dict] = []
-    for index in range(pivot_window, max(pivot_window, len(data) - pivot_window)):
-        row = data.iloc[index]
-        neighborhood = data.iloc[index - pivot_window : index + pivot_window + 1]
-        if float(row["low"]) <= float(neighborhood["low"].min()):
-            pivots.append(_pivot(row, "support", data, latest_price, atr, evaluated_at))
-        if float(row["high"]) >= float(neighborhood["high"].max()):
-            pivots.append(_pivot(row, "resistance", data, latest_price, atr, evaluated_at))
+    pivot_bases, scanned_candles, reused_pivots = _discover_pivot_bases(
+        data,
+        pivot_window=pivot_window,
+        prior=(pivot_state or {}).get("pivots"),
+        rescan_from=rescan_from,
+        interval=interval,
+    )
+    volume_mean = float(data["volume"].mean()) or 1.0
+    pivots = [
+        _enrich_pivot(
+            pivot,
+            latest_price=latest_price,
+            atr=atr,
+            now=evaluated_at,
+            volume_mean=volume_mean,
+        )
+        for pivot in pivot_bases
+    ]
+    if pivot_state is not None:
+        pivot_state.update({
+            "pivots": pivot_bases,
+            "scanned_candles": scanned_candles,
+            "reused_pivots": reused_pivots,
+        })
 
     btc_direction = str((btc_regime or {}).get("direction") or "unknown").lower()
     levels = _cluster_pivots(
@@ -256,7 +297,46 @@ def analyze_candles(
     }
 
 
-def _pivot(row, kind: str, data: pd.DataFrame, latest_price: float, atr: float, now: datetime) -> dict:
+def _discover_pivot_bases(
+    data: pd.DataFrame,
+    *,
+    pivot_window: int,
+    prior: list[dict] | None,
+    rescan_from: pd.Timestamp | None,
+    interval: pd.Timedelta,
+) -> tuple[list[dict], int, int]:
+    if prior and rescan_from is None:
+        return list(prior), 0, len(prior)
+    cutoff = None
+    retained: list[dict] = []
+    start = pivot_window
+    if prior and rescan_from is not None and not pd.isna(rescan_from):
+        cutoff = rescan_from - interval * pivot_window
+        retained = [
+            item for item in prior
+            if pd.Timestamp(item["timestamp"]) < cutoff
+        ]
+        candidates = data.index[data["timestamp"] >= cutoff].tolist()
+        if candidates:
+            start = max(pivot_window, candidates[0] - pivot_window)
+    discovered: list[dict] = []
+    stop = max(pivot_window, len(data) - pivot_window)
+    for index in range(start, stop):
+        row = data.iloc[index]
+        neighborhood = data.iloc[index - pivot_window : index + pivot_window + 1]
+        if float(row["low"]) <= float(neighborhood["low"].min()):
+            discovered.append(_pivot_base(row, "support"))
+        if float(row["high"]) >= float(neighborhood["high"].max()):
+            discovered.append(_pivot_base(row, "resistance"))
+    deduplicated = {
+        (item["kind"], item["timestamp"]): item
+        for item in [*retained, *discovered]
+    }
+    scanned = max(0, stop - start)
+    return list(deduplicated.values()), scanned, len(retained)
+
+
+def _pivot_base(row, kind: str) -> dict:
     price = float(row["low"] if kind == "support" else row["high"])
     candle_range = max(float(row["high"] - row["low"]), 1e-12)
     wick = (
@@ -264,14 +344,29 @@ def _pivot(row, kind: str, data: pd.DataFrame, latest_price: float, atr: float, 
         if kind == "support"
         else float(row["high"]) - max(float(row["open"]), float(row["close"]))
     )
-    volume_mean = float(data["volume"].mean()) or 1.0
     timestamp = row["timestamp"].to_pydatetime()
     return {
         "kind": kind,
         "price": price,
         "timestamp": timestamp.isoformat(),
-        "volume_ratio": float(row["volume"]) / volume_mean,
+        "volume": float(row["volume"]),
         "wick_ratio": max(0.0, wick / candle_range),
+    }
+
+
+def _enrich_pivot(
+    pivot: dict,
+    *,
+    latest_price: float,
+    atr: float,
+    now: datetime,
+    volume_mean: float,
+) -> dict:
+    timestamp = datetime.fromisoformat(str(pivot["timestamp"]).replace("Z", "+00:00"))
+    price = float(pivot["price"])
+    return {
+        **pivot,
+        "volume_ratio": float(pivot["volume"]) / volume_mean,
         "age_seconds": max(0.0, (now - timestamp).total_seconds()),
         "invalidation_distance_pct": abs(latest_price - price) / latest_price if latest_price else 0.0,
         "volatility_distance_atr": abs(latest_price - price) / atr if atr else None,

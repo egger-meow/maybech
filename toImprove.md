@@ -56,23 +56,17 @@ An item is necessary only if leaving it unfixed could cause one or more of these
 
    Remaining build plan:
 
-   1. Incremental market evidence:
-      durable or bounded reusable candle state, incremental recalculation,
-      cache/API/CPU limits, explicit invalidation, multi-evidence scoring, and
-      deterministic stale/missing/duplicate/API-failure behavior.
-   2. Remaining operator-state gaps:
+   1. Remaining operator-state gaps:
       explicit invalidated and manual-review presentation when market evidence
       conflicts or becomes stale, with overlays sourced from typed API and
       confirmed execution evidence.
-   3. Completion verification:
+   2. Completion verification:
       focused unit/integration/API/UI tests, generated-contract checks, full
       backend and frontend gates, restart simulations, and documentation that
       matches the actual shipped behavior.
 
    Remaining acceptance gates:
 
-   * Support/Resistance evidence is cached, incrementally calculated, bounded,
-     freshness-aware, invalidated explicitly, and never directly executable
    * the UI visibly distinguishes fresh, partial, stale, unavailable, proposed,
      armed, applied, invalidated, and manual-review states
    * tests cover stale/missing/duplicate candles, API failure, restart,

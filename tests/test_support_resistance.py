@@ -52,6 +52,22 @@ def _candles(*, duplicate: bool = False, gap: bool = False) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _long_candles(count: int = 100) -> pd.DataFrame:
+    rows = []
+    for index in range(count):
+        close = 100 + (index % 10 if (index // 10) % 2 == 0 else 10 - index % 10)
+        rows.append({
+            "timestamp": NOW - timedelta(minutes=count - index),
+            "open": close - .25,
+            "high": close + 1,
+            "low": close - 1,
+            "close": close,
+            "volume": 10 + index % 7,
+            "confirm": 1,
+        })
+    return pd.DataFrame(rows)
+
+
 def test_analysis_returns_structured_research_evidence():
     result = analyze_candles(_candles(), inst_id="BTC-USDT-SWAP", bar="1m", now=NOW)
 
@@ -104,7 +120,7 @@ def test_service_bounds_fetch_and_reuses_cached_result(monkeypatch):
 
         def fetch(self, inst_id, bar="1m", limit=100):
             calls.append((inst_id, bar, limit))
-            return _candles()
+            return _long_candles().tail(limit)
 
     monkeypatch.setattr("src.market.support_resistance.CandleManager", FakeManager)
     service = SupportResistanceService(lambda: "client", now=lambda: NOW)
@@ -127,7 +143,7 @@ def test_service_refreshes_with_bounded_overlap_and_reuses_state_for_context_cha
 
         def fetch(self, inst_id, bar="1m", limit=100):
             calls.append((inst_id, bar, limit))
-            return _candles()
+            return _long_candles().tail(limit)
 
     monkeypatch.setattr("src.market.support_resistance.CandleManager", FakeManager)
     service = SupportResistanceService(
@@ -148,8 +164,18 @@ def test_service_refreshes_with_bounded_overlap_and_reuses_state_for_context_cha
     ]
     assert initial["computation"]["fetch_mode"] == "full"
     assert incremental["computation"]["fetch_mode"] == "incremental_overlap"
+    assert incremental["computation"]["pivot_scan_candles"] < initial["computation"]["pivot_scan_candles"]
+    assert incremental["computation"]["reused_pivots"] > 0
+    assert [
+        (item["kind"], item["price"], item["touches"], item["score"], item["state"])
+        for item in incremental["levels"]
+    ] == [
+        (item["kind"], item["price"], item["touches"], item["score"], item["state"])
+        for item in initial["levels"]
+    ]
     assert incremental["computation"]["state_capacity_candles"] == 300
     assert contextual["computation"]["fetch_mode"] == "state_reuse"
+    assert contextual["computation"]["pivot_scan_candles"] == 0
     assert contextual["context"]["btc_direction"] == "bullish"
 
 
