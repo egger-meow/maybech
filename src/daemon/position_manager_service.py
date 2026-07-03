@@ -154,6 +154,14 @@ class PositionManagerService(DaemonService):
                 continue
 
             pnl_pct = self._pnl_pct(position, current_price)
+            trailing_intent = self._advance_trailing_rule(
+                position_store=position_store,
+                position=position,
+                current_price=current_price,
+            )
+            if trailing_intent is not None and trailing_intent.get("action") == "trailing_stop_amended":
+                intents.append(trailing_intent)
+                continue
             condition, evaluation = self._triggered_close_condition(
                 position_store=position_store,
                 position=position,
@@ -258,7 +266,7 @@ class PositionManagerService(DaemonService):
                 continue
 
             close_conditions = position_store.list_close_conditions(position.id)
-            intents.append({
+            intents.append(trailing_intent or {
                 "position_id": position.id,
                 "trade_id": position.trade_id,
                 "inst_id": position.inst_id,
@@ -406,6 +414,155 @@ class PositionManagerService(DaemonService):
         }
         self._publish_and_record_event("position.break_even_applied", payload)
         return payload
+
+    def _advance_trailing_rule(
+        self,
+        *,
+        position_store: LogicalPositionStore,
+        position: LogicalPositionRecord,
+        current_price: float,
+    ) -> dict[str, Any] | None:
+        rules = [
+            item for item in position_store.list_close_conditions(position.id, enabled=True)
+            if item.purpose == "trailing"
+        ]
+        if not rules:
+            return None
+        base = {
+            "position_id": position.id,
+            "trade_id": position.trade_id,
+            "inst_id": position.inst_id,
+            "side": position.side,
+        }
+        if len(rules) != 1:
+            return {**base, "action": "manual_review", "reason": "exactly one trailing rule is required"}
+        rule = rules[0]
+        definition = rule.metadata.get("rule_definition", {})
+        parameters = definition.get("parameters", {})
+        action = definition.get("action", {})
+        kind = str(parameters.get("trailing_kind") or "")
+        now = datetime.now(timezone.utc)
+        observed_at = self._price_observed_at()
+        try:
+            stale_after = int(parameters.get("stale_after_seconds", 90))
+        except (TypeError, ValueError):
+            stale_after = 90
+        stale = observed_at is None or (now - observed_at).total_seconds() > stale_after
+        state = rule.metadata.get("trailing_state", {})
+        if stale:
+            next_state = {
+                **state,
+                "status": "stale",
+                "checked_at": now.isoformat(),
+                "observed_at": observed_at.isoformat() if observed_at else None,
+                "stale_after_seconds": stale_after,
+            }
+            if state.get("status") != "stale" or state.get("observed_at") != next_state["observed_at"]:
+                position_store.update_close_condition(position.id, rule.id, metadata={**rule.metadata, "trailing_state": next_state})
+            return {**base, "condition_id": rule.id, "action": "trailing_stale", "reason": "price observation is missing or stale"}
+        try:
+            activation = Decimal(str(rule.expression.get("value")))
+            current = Decimal(str(current_price))
+            previous_water = Decimal(str(state.get("water_price", current)))
+        except (InvalidOperation, ValueError, TypeError):
+            return {**base, "condition_id": rule.id, "action": "manual_review", "reason": "trailing state contains an invalid price"}
+        activated = bool(state.get("activated_at")) or state.get("status") == "active" or (
+            current >= activation if position.side == "long" else current <= activation
+        )
+        if not activated:
+            if state.get("status") != "waiting":
+                position_store.update_close_condition(position.id, rule.id, metadata={**rule.metadata, "trailing_state": {"status": "waiting", "activation_price": str(activation), "observed_at": observed_at.isoformat()}})
+            return {**base, "condition_id": rule.id, "action": "trailing_waiting", "activation_price": float(activation)}
+        water = max(previous_water, current) if position.side == "long" else min(previous_water, current)
+        try:
+            if parameters.get("distance_pct") is not None:
+                distance_pct = Decimal(str(parameters["distance_pct"]))
+                candidate = water * (Decimal("1") - distance_pct if position.side == "long" else Decimal("1") + distance_pct)
+            else:
+                distance = Decimal(str(parameters["distance"]))
+                candidate = water - distance if position.side == "long" else water + distance
+        except (InvalidOperation, ValueError, TypeError, KeyError):
+            return {**base, "condition_id": rule.id, "action": "manual_review", "reason": "trailing distance is invalid"}
+        active_state = {
+            **state,
+            "status": "active",
+            "activated_at": state.get("activated_at") or now.isoformat(),
+            "kind": kind,
+            "activation_price": str(activation),
+            "water_price": str(water),
+            "candidate_price": str(candidate),
+            "observed_at": observed_at.isoformat(),
+            "updated_at": now.isoformat(),
+        }
+        if kind == "take_profit":
+            expression = {
+                "type": "price_below" if position.side == "long" else "price_above",
+                "symbol": position.inst_id,
+                "value": float(candidate),
+            }
+            if water != previous_water or state.get("status") != "active":
+                position_store.update_close_condition(position.id, rule.id, expression=expression, metadata={**rule.metadata, "trailing_state": active_state})
+            return {**base, "condition_id": rule.id, "action": "trailing_active", "candidate_price": float(candidate), "rule_action": action}
+        if kind != "stop":
+            return {**base, "condition_id": rule.id, "action": "manual_review", "reason": "trailing kind is invalid"}
+        stops = [
+            item for item in position_store.list_close_conditions(position.id, enabled=True)
+            if item.purpose == "stop_loss"
+        ]
+        if len(stops) != 1:
+            return {**base, "condition_id": rule.id, "action": "manual_review", "reason": "trailing stop requires exactly one enabled stop loss"}
+        stop = stops[0]
+        try:
+            old_stop = Decimal(str(stop.expression.get("value")))
+        except (InvalidOperation, ValueError, TypeError):
+            return {**base, "condition_id": rule.id, "action": "manual_review", "reason": "owned stop price is invalid"}
+        improves = candidate > old_stop if position.side == "long" else candidate < old_stop
+        crossed_candidate = current <= candidate if position.side == "long" else current >= candidate
+        if crossed_candidate:
+            return {**base, "condition_id": rule.id, "action": "manual_review", "reason": "market price crossed the trailing stop candidate before amendment"}
+        if not improves:
+            if water != previous_water or state.get("status") != "active":
+                position_store.update_close_condition(position.id, rule.id, metadata={**rule.metadata, "trailing_state": active_state})
+            return {**base, "condition_id": rule.id, "action": "trailing_active", "candidate_price": float(candidate), "reason": "candidate does not tighten the current stop"}
+        expression = {
+            "type": "price_below" if position.side == "long" else "price_above",
+            "symbol": position.inst_id,
+            "value": float(candidate),
+        }
+        applied_at = now.isoformat()
+        if self.dry_run:
+            position_store.update_close_condition(position.id, stop.id, expression=expression, metadata={**stop.metadata, "trailing": {**active_state, "applied_at": applied_at}})
+        else:
+            if self.protection_service is None:
+                return {**base, "condition_id": rule.id, "action": "manual_review", "reason": "protection service unavailable"}
+            try:
+                self.protection_service.amend_stop_condition(
+                    position.id,
+                    stop.id,
+                    expression=expression,
+                    reason=f"automatic trailing rule {rule.id}",
+                    condition_metadata={"trailing": {**active_state, "applied_at": applied_at}},
+                    intent_metadata={"operation": "trailing_stop", "trailing": active_state},
+                    expected_position_updated_at=position.updated_at,
+                    expected_condition_updated_at=stop.updated_at,
+                )
+            except PositionProtectionError as exc:
+                return {**base, "condition_id": rule.id, "action": "manual_review", "reason": str(exc)}
+        position_store.update_close_condition(position.id, rule.id, metadata={**rule.metadata, "trailing_state": {**active_state, "last_applied_stop": str(candidate), "applied_at": applied_at}})
+        payload = {**base, "condition_id": rule.id, "action": "trailing_stop_amended", "stop_price": float(candidate), "water_price": float(water)}
+        self._publish_and_record_event("position.trailing_stop_amended", payload)
+        return payload
+
+    def _price_observed_at(self) -> datetime | None:
+        snapshot = self.runtime.get_value("account.snapshot") if self.runtime is not None else None
+        value = snapshot.get("observed_at") if isinstance(snapshot, dict) else None
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
     def request_close(self, position_id: str, *, reason: str) -> dict[str, Any]:
         """Submit or simulate one operator-confirmed logical-unit close."""
@@ -634,6 +791,11 @@ class PositionManagerService(DaemonService):
     ) -> tuple[LogicalPositionCloseCondition | None, SignalEvaluationResult | None]:
         engine = SignalExpressionEngine()
         for condition in position_store.list_close_conditions(position.id, enabled=True):
+            if (
+                condition.purpose == "trailing"
+                and condition.metadata.get("rule_definition", {}).get("parameters", {}).get("trailing_kind") == "stop"
+            ):
+                continue
             evaluation = engine.evaluate(condition.expression, context=signal_context)
             self._record_audit_event(
                 "position.close_condition_evaluated",

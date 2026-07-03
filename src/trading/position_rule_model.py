@@ -59,8 +59,8 @@ def normalize_position_rule(
     if action_type not in RULE_ACTIONS:
         raise ValueError(f"unsupported position rule action: {action_type or 'missing'}")
     valid_action_purposes = {
-        "close_position": {"stop_loss", "take_profit", "exit"},
-        "reduce_position": {"take_profit"},
+        "close_position": {"stop_loss", "take_profit", "trailing", "exit"},
+        "reduce_position": {"take_profit", "trailing"},
         "amend_stop": {"break_even", "trailing"},
         "require_manual_review": {"manual_review"},
     }
@@ -88,6 +88,8 @@ def normalize_position_rule(
     parameters = result.get("parameters", supplied.get("parameters", {}))
     if not isinstance(parameters, dict):
         raise ValueError("position rule parameters must be an object")
+    if purpose == "trailing":
+        parameters = _normalize_trailing_parameters(parameters, action_type)
     definition = {
         "schema_version": RULE_SCHEMA_VERSION,
         "purpose": purpose,
@@ -227,6 +229,26 @@ def materialize_position_rule(
             or (normalized_side == "short" and threshold >= entry)
         ):
             raise ValueError("break-even activation must be favorable to entry")
+        trigger = {
+            "type": "price_above" if normalized_side == "long" else "price_below",
+            "symbol": inst_id,
+            "value": float(threshold),
+        }
+    elif style == "trailing_threshold":
+        activation_price = parameters.get("activation_price")
+        if activation_price is None:
+            activation_pct = Decimal(str(parameters["activation_profit_pct"]))
+            activation_price = entry * (
+                Decimal("1") + activation_pct
+                if normalized_side == "long"
+                else Decimal("1") - activation_pct
+            )
+        threshold = Decimal(str(activation_price))
+        if (
+            (normalized_side == "long" and threshold <= entry)
+            or (normalized_side == "short" and threshold >= entry)
+        ):
+            raise ValueError("trailing activation must be favorable to entry")
         trigger = {
             "type": "price_above" if normalized_side == "long" else "price_below",
             "symbol": inst_id,
@@ -391,6 +413,55 @@ def calculate_break_even_target(
         "lock_in_pct": str(lock_in),
         "modeled_net_return_pct": str(net_return),
     }
+
+
+def _normalize_trailing_parameters(
+    parameters: dict[str, Any],
+    action_type: str,
+) -> dict[str, Any]:
+    result = deepcopy(parameters)
+    kind = str(result.get("trailing_kind") or "")
+    if kind not in {"stop", "take_profit"}:
+        raise ValueError("trailing_kind must be stop or take_profit")
+    if kind == "stop" and action_type != "amend_stop":
+        raise ValueError("trailing stop requires amend_stop")
+    if kind == "take_profit" and action_type not in {"close_position", "reduce_position"}:
+        raise ValueError("trailing take-profit requires close_position or reduce_position")
+    activation_price = result.get("activation_price")
+    activation_pct = result.get("activation_profit_pct")
+    if (activation_price is None) == (activation_pct is None):
+        raise ValueError("trailing requires exactly one activation_price or activation_profit_pct")
+    distance = result.get("distance")
+    distance_pct = result.get("distance_pct")
+    if (distance is None) == (distance_pct is None):
+        raise ValueError("trailing requires exactly one distance or distance_pct")
+    for key, value, upper in (
+        ("activation_price", activation_price, None),
+        ("activation_profit_pct", activation_pct, Decimal("1")),
+        ("distance", distance, None),
+        ("distance_pct", distance_pct, Decimal("0.5")),
+    ):
+        if value is None:
+            continue
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, ValueError) as exc:
+            raise ValueError(f"trailing {key} is invalid") from exc
+        if not parsed.is_finite() or parsed <= 0 or (upper is not None and parsed > upper):
+            raise ValueError(f"trailing {key} is outside its allowed range")
+        result[key] = str(parsed)
+    timeframe = str(result.get("timeframe") or "")
+    if not timeframe:
+        raise ValueError("trailing timeframe is required")
+    try:
+        stale_after = int(result.get("stale_after_seconds", 90))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("trailing stale_after_seconds must be an integer") from exc
+    if stale_after < 5 or stale_after > 3600:
+        raise ValueError("trailing stale_after_seconds must be between 5 and 3600")
+    result["timeframe"] = timeframe
+    result["stale_after_seconds"] = stale_after
+    return result
 
 
 def _infer_style(purpose: str, expression: dict[str, Any]) -> str:

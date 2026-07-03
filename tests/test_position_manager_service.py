@@ -1,6 +1,7 @@
 from src.daemon.events import RuntimeState
 from src.daemon.execution_fill_service import ExecutionFillService
 import json
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from src.daemon.position_manager_service import PositionManagerService
@@ -557,6 +558,126 @@ def test_position_manager_executes_staged_take_profit_once_and_leaves_remainder(
     assert completed.enabled is False
     assert completed.metadata["execution_state"]["status"] == "completed"
     assert len(position_store.list_allocations("staged")) == 1
+
+
+def test_trailing_stop_is_monotonic_restart_safe_and_stale_fail_closed(tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save(LogicalPositionRecord(
+        id="trail", source="manual", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=1, remaining_quantity=1, entry_price=100, status="open",
+    ))
+    stop = position_store.create_close_condition(
+        id="stop", position_id="trail", purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 90},
+    )
+    trailing = position_store.create_close_condition(
+        id="trailing", position_id="trail", purpose="trailing",
+        expression={"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 105},
+        metadata={"rule_definition": {
+            "style": "trailing_threshold", "action": {"type": "amend_stop"},
+            "parameters": {"trailing_kind": "stop", "activation_profit_pct": 0.05, "distance_pct": 0.05, "timeframe": "1m", "stale_after_seconds": 90},
+            "evidence": {},
+        }},
+    )
+    observed = datetime.now(timezone.utc).isoformat()
+    service = PositionManagerService(store, dry_run=True)
+    service.runtime = RuntimeState()
+    service.runtime.set_value("account.snapshot", {"observed_at": observed, "positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "106"}]})
+    service.tick()
+    first_stop = position_store.get_close_condition("trail", stop.id).expression["value"]
+    assert first_stop == 100.7
+
+    service.runtime.set_value("account.snapshot", {"observed_at": datetime.now(timezone.utc).isoformat(), "positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "110"}]})
+    service.tick()
+    tightened = position_store.get_close_condition("trail", stop.id).expression["value"]
+    assert tightened == 104.5
+
+    restarted = PositionManagerService(store, dry_run=True)
+    restarted.runtime = RuntimeState()
+    restarted.runtime.set_value("account.snapshot", {"observed_at": datetime.now(timezone.utc).isoformat(), "positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "108"}]})
+    restarted.tick()
+    assert position_store.get_close_condition("trail", stop.id).expression["value"] == tightened
+    assert position_store.get_close_condition("trail", trailing.id).metadata["trailing_state"]["water_price"] == "110.0"
+
+    restarted.runtime.set_value("account.snapshot", {"observed_at": (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(), "positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "120"}]})
+    restarted.tick()
+    assert position_store.get_close_condition("trail", stop.id).expression["value"] == tightened
+    assert position_store.get_close_condition("trail", trailing.id).metadata["trailing_state"]["status"] == "stale"
+
+
+def test_trailing_take_profit_reduces_only_after_retracement(tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save(LogicalPositionRecord(
+        id="trail-tp", source="manual", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=2, remaining_quantity=2, entry_price=100, status="open",
+    ))
+    rule = position_store.create_close_condition(
+        id="trailing-tp", position_id="trail-tp", purpose="trailing",
+        expression={"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 105},
+        metadata={"rule_definition": {
+            "style": "trailing_threshold",
+            "action": {"type": "reduce_position", "quantity_fraction": 0.5, "quantity_basis": "initial"},
+            "parameters": {"trailing_kind": "take_profit", "activation_profit_pct": 0.05, "distance_pct": 0.05, "timeframe": "1m", "stale_after_seconds": 90},
+            "evidence": {},
+        }},
+    )
+    service = PositionManagerService(store, dry_run=True)
+    service.runtime = RuntimeState()
+    service.runtime.set_value("account.snapshot", {"observed_at": datetime.now(timezone.utc).isoformat(), "positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "110"}]})
+    service.tick()
+    assert position_store.get("trail-tp").remaining_quantity == 2
+    assert position_store.get_close_condition("trail-tp", rule.id).expression["value"] == 104.5
+
+    service.runtime.set_value("account.snapshot", {"observed_at": datetime.now(timezone.utc).isoformat(), "positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "104"}]})
+    service.tick()
+    assert position_store.get("trail-tp").remaining_quantity == 1
+    assert position_store.get_close_condition("trail-tp", rule.id).enabled is False
+    assert position_store.list_allocations("trail-tp")[0].action == "reduce"
+
+
+def test_live_trailing_stop_uses_confirmed_protection_amend_lifecycle(tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save(LogicalPositionRecord(
+        id="live-trail", source="manual", inst_id="ETH-USDT-SWAP", side="short",
+        opened_quantity=1, remaining_quantity=1, entry_price=100, status="open",
+    ))
+    stop = position_store.create_close_condition(
+        id="stop", position_id="live-trail", purpose="stop_loss",
+        expression={"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 110},
+    )
+    trailing = position_store.create_close_condition(
+        id="trailing", position_id="live-trail", purpose="trailing",
+        expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 95},
+        metadata={"rule_definition": {
+            "style": "trailing_threshold", "action": {"type": "amend_stop"},
+            "parameters": {"trailing_kind": "stop", "activation_profit_pct": 0.05, "distance_pct": 0.03, "timeframe": "1m", "stale_after_seconds": 90},
+            "evidence": {},
+        }},
+    )
+
+    class FakeProtection:
+        def __init__(self):
+            self.calls = []
+
+        def amend_stop_condition(self, position_id, condition_id, **kwargs):
+            self.calls.append((position_id, condition_id, kwargs))
+            return position_store.get(position_id)
+
+    protection = FakeProtection()
+    service = PositionManagerService(store, dry_run=False, protection_service=protection)
+    service.runtime = RuntimeState()
+    service.runtime.set_value("account.snapshot", {"observed_at": datetime.now(timezone.utc).isoformat(), "positions": [{"inst_id": "ETH-USDT-SWAP", "mark_price": "90"}]})
+    service.tick()
+
+    assert protection.calls[0][0:2] == ("live-trail", stop.id)
+    assert protection.calls[0][2]["expression"]["value"] == 92.7
+    assert protection.calls[0][2]["intent_metadata"]["operation"] == "trailing_stop"
+    state = position_store.get_close_condition("live-trail", trailing.id).metadata["trailing_state"]
+    assert state["status"] == "active"
+    assert Decimal(state["last_applied_stop"]) == Decimal("92.7")
 
 
 def test_position_manager_applies_cost_adjusted_break_even_once_in_dry_run(tmp_path):

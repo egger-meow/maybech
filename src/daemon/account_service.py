@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from src.daemon.service import DaemonService
 from src.exchange.client import OKXClient
 from src.monitor.dashboard import Dashboard
@@ -40,6 +42,7 @@ class AccountSnapshotService(DaemonService):
 
         self.instrument_store.refresh_if_stale(self.client)
         snapshot = {
+            "observed_at": datetime.now(timezone.utc).isoformat(),
             "summary": self.dashboard.get_account_summary(),
             "positions": self.dashboard.get_open_positions(),
             "orders": self.dashboard.get_recent_trades(limit=20),

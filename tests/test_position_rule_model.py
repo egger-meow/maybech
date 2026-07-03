@@ -205,3 +205,34 @@ def test_break_even_rule_materializes_activation_from_entry():
     assert long["expression"]["value"] == 103
     assert short["expression"]["type"] == "price_below"
     assert short["expression"]["value"] == 97
+
+
+def test_trailing_rule_materializes_activation_and_separates_stop_from_take_profit():
+    stop_template = normalize_default_rules({"close_conditions": [{
+        "purpose": "trailing", "enabled": True,
+        "expression": {"type": "entry_relative", "symbol": "self"},
+        "metadata": {"rule_definition": {
+            "style": "trailing_threshold", "action": {"type": "amend_stop"},
+            "parameters": {"trailing_kind": "stop", "activation_profit_pct": 0.03, "distance_pct": 0.02, "timeframe": "1m"}, "evidence": {},
+        }},
+    }]})["close_conditions"][0]
+    take_profit_template = normalize_default_rules({"close_conditions": [{
+        "purpose": "trailing", "enabled": True,
+        "expression": {"type": "entry_relative", "symbol": "self"},
+        "metadata": {"rule_definition": {
+            "style": "trailing_threshold", "action": {"type": "reduce_position", "quantity_fraction": 0.5, "quantity_basis": "remaining"},
+            "parameters": {"trailing_kind": "take_profit", "activation_profit_pct": 0.04, "distance": 2, "timeframe": "5m"}, "evidence": {},
+        }},
+    }]})["close_conditions"][0]
+
+    stop = materialize_position_rule(stop_template, entry_price=100, inst_id="ETH-USDT-SWAP", side="long")
+    take_profit = materialize_position_rule(take_profit_template, entry_price=100, inst_id="ETH-USDT-SWAP", side="short")
+
+    assert stop["expression"] == {"type": "price_above", "symbol": "ETH-USDT-SWAP", "value": 103.0}
+    assert take_profit["expression"] == {"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 96.0}
+    with pytest.raises(ValueError, match="requires amend_stop"):
+        normalize_position_rule(
+            purpose="trailing", enabled=True,
+            expression={"type": "price_above", "symbol": "self", "value": 103},
+            metadata={"rule_definition": {"style": "trailing_threshold", "action": {"type": "close_position"}, "parameters": {"trailing_kind": "stop", "activation_profit_pct": .03, "distance_pct": .02, "timeframe": "1m"}}},
+        )

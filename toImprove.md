@@ -150,6 +150,11 @@ An item is necessary only if leaving it unfixed could cause one or more of these
   it no longer requires operators to express these cases as raw signal JSON.
   It validates percent/price/cost bounds and the aggregate initial staged-exit
   fraction before sending the revision-protected strategy mutation.
+  The optional trailing backend now has typed stop versus take-profit
+  semantics, entry-relative activation materialization, persisted favorable
+  water marks, monotonic stop tightening, confirmed live protection amendment,
+  restart recovery, and stale/missing observation fail-closed behavior.
+  Trailing authoring and lifecycle visibility in the UI remain incomplete.
 
   The goal is to design a coherent rule system for stop-loss, take-profit, break-even, optional trailing protection, and research-grade Support/Resistance evidence after a strategy opens a position or when the operator edits an existing logical position unit.
 
