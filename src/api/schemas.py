@@ -570,6 +570,8 @@ class SupportResistanceAnalysisResponse(BaseModel):
     freshness: MarketAnalysisFreshnessResponse
     quality: MarketAnalysisQualityResponse
     latest_price: float | None = None
+    tick_size: str | None = None
+    price_precision: int | None = None
     volatility_atr: float | None = None
     levels: list[SupportResistanceLevelResponse] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)

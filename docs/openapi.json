@@ -5081,6 +5081,17 @@
             "title": "Levels",
             "type": "array"
           },
+          "price_precision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Precision"
+          },
           "quality": {
             "$ref": "#/components/schemas/MarketAnalysisQualityResponse"
           },
@@ -5098,6 +5109,17 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "tick_size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tick Size"
           },
           "volatility_atr": {
             "anyOf": [

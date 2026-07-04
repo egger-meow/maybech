@@ -5,6 +5,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
 
 import { getMarketCandles, getSupportResistanceAnalysis, listLogicalPositions, listStrategies, promotePositionRiskStop, promoteStrategyRiskStop, quoteInstrumentRisk, type InstrumentRiskQuoteRequest, type MarketCandlesResponse, type SupportResistanceAnalysisResponse } from "@/lib/api";
+import { formatPrice } from "@/lib/price-format";
 
 const bars = ["1m", "5m", "15m", "1H", "4H", "1D"];
 const format = (value: number | null | undefined, digits = 2) => value == null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("zh-TW", { maximumFractionDigits: digits }).format(value);
@@ -24,7 +25,7 @@ function AnalysisChart({ candles, analysis }: { candles: MarketCandlesResponse; 
   const y = (price: number) => top + (maximum - price) / span * (height - top - bottom);
   const candleWidth = Math.max(2, Math.min(8, (width - left - right) / Math.max(rows.length, 1) * 0.65));
   return <div className="analysis-chart" role="img" aria-label={`${analysis.inst_id} 支撐與壓力研究圖`}><svg viewBox={`0 0 ${width} ${height}`}>
-    {levels.map((level, index) => { const color = level.kind === "support" ? "#10b981" : "#ef4444"; return <g key={`${level.kind}-${level.price}-${index}`}><line x1={left} x2={width - right} y1={y(level.price)} y2={y(level.price)} stroke={color} strokeWidth={1.5} strokeDasharray="7 5" /><circle cx={width - right} cy={y(level.price)} r={4 + level.score * 5} fill={color} fillOpacity={0.2} stroke={color} /><text x={width - right + 12} y={y(level.price) + 4} fill={color} fontSize="12">{format(level.price)}</text></g>; })}
+    {levels.map((level, index) => { const color = level.kind === "support" ? "#10b981" : "#ef4444"; return <g key={`${level.kind}-${level.price}-${index}`}><line x1={left} x2={width - right} y1={y(level.price)} y2={y(level.price)} stroke={color} strokeWidth={1.5} strokeDasharray="7 5" /><circle cx={width - right} cy={y(level.price)} r={4 + level.score * 5} fill={color} fillOpacity={0.2} stroke={color} /><text x={width - right + 12} y={y(level.price) + 4} fill={color} fontSize="12">{formatPrice(level.price, analysis.price_precision)}</text></g>; })}
     {rows.map((candle, index) => { const color = candle.close >= candle.open ? "#10b981" : "#ef4444"; const bodyTop = y(Math.max(candle.open, candle.close)); return <g key={candle.timestamp}><line x1={x(index)} x2={x(index)} y1={y(candle.high)} y2={y(candle.low)} stroke={color} /><rect x={x(index) - candleWidth / 2} y={bodyTop} width={candleWidth} height={Math.max(1, Math.abs(y(candle.open) - y(candle.close)))} fill={color} opacity={candle.confirmed ? 0.9 : 0.35} /></g>; })}
   </svg></div>;
 }
@@ -88,13 +89,13 @@ function RiskCostAssumptions({ entryFeePct, exitFeePct, slippagePct, onEntryFee,
   </div></section>;
 }
 
-function ResearchLevelCard({ level, selected, onSelect }: { level: ResearchLevel; selected: boolean; onSelect: () => void }) {
+function ResearchLevelCard({ level, selected, onSelect, pricePrecision }: { level: ResearchLevel; selected: boolean; onSelect: () => void; pricePrecision?: number | null }) {
   const volume = evidenceNumber(level.evidence?.volume_ratio);
   const wick = evidenceNumber(level.evidence?.wick_ratio);
   const distance = evidenceNumber(level.evidence?.invalidation_distance_pct);
   const conflicting = level.evidence?.btc_regime_alignment === "conflicting";
   return <article className={`${level.kind} ${selected ? "selected" : ""}`}>
-    <div><span className={`badge ${level.kind === "support" ? "success" : "danger"}`}>{level.kind === "support" ? "支撐" : "壓力"}</span><strong>{format(level.price)}</strong></div>
+    <div><span className={`badge ${level.kind === "support" ? "success" : "danger"}`}>{level.kind === "support" ? "支撐" : "壓力"}</span><strong>{formatPrice(level.price, pricePrecision)}</strong></div>
     <div className="status-row"><span className={`badge ${level.state === "invalidated" ? "danger" : "success"}`}>{level.state}</span>{selected && <span className="badge info">proposed</span>}{conflicting && <span className="badge danger">manual-review</span>}</div>
     <dl><div><dt>證據分數</dt><dd>{format(level.score * 100, 0)}%</dd></div><div><dt>觸碰次數</dt><dd>{level.touches}</dd></div><div><dt>成交量比</dt><dd>{format(volume)}×</dd></div><div><dt>影線比</dt><dd>{format(wick == null ? null : wick * 100, 1)}%</dd></div><div><dt>失效距離</dt><dd>{format(distance == null ? null : distance * 100, 2)}%</dd></div></dl>
     <button type="button" className="btn btn-outline" onClick={onSelect}>Use as stop anchor</button>
@@ -127,7 +128,7 @@ export default function AnalysisPage() {
       <div className="analysis-context"><strong>BTC 市場環境</strong><span>{String(analysis.data.context?.btc_direction ?? "unknown")}</span><small>只調整研究證據權重，不直接控制交易。</small></div>
       <section className="analysis-metrics"><article className="panel"><Database size={20} /><small>可用 / 輸入 K 線</small><strong>{analysis.data.quality.usable_candles} / {analysis.data.quality.input_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>研究層級</small><strong>{sortedLevels.length}</strong></article><article className="panel"><ShieldAlert size={20} /><small>缺漏 / 重複</small><strong>{analysis.data.quality.missing_candles} / {analysis.data.quality.duplicate_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>ATR 波動</small><strong>{format(analysis.data.volatility_atr)}</strong></article></section>
       <section className="panel"><div className="panel-heading"><div><h2><BarChart3 size={20} /> K 線與研究層級</h2><p>圓圈大小反映證據分數；虛線不是停損或停利命令。</p></div></div>{candles.error ? <div className="error-state">K 線圖不可用。</div> : candles.data ? <AnalysisChart candles={candles.data} analysis={analysis.data} /> : <div className="loading-state">正在繪製 K 線…</div>}</section>
-      <section className="panel"><div className="panel-heading"><div><h2>層級證據</h2><p>選取結構失效層級作為停損錨點；失效、衝突或過期證據會進入人工檢查且不可推廣。</p></div></div><div className="analysis-levels">{sortedLevels.map((level) => <ResearchLevelCard key={`${level.kind}-${level.price}`} level={level} selected={selectedStop === level.price} onSelect={() => setSelectedStop(level.price)} />)}{!sortedLevels.length && <div className="empty-state">目前資料沒有形成可顯示的研究層級。</div>}</div></section>
+      <section className="panel"><div className="panel-heading"><div><h2>層級證據</h2><p>選取結構失效層級作為停損錨點；失效、衝突或過期證據會進入人工檢查且不可推廣。</p></div></div><div className="analysis-levels">{sortedLevels.map((level) => <ResearchLevelCard key={`${level.kind}-${level.price}`} level={level} selected={selectedStop === level.price} onSelect={() => setSelectedStop(level.price)} pricePrecision={analysis.data?.price_precision} />)}{!sortedLevels.length && <div className="empty-state">目前資料沒有形成可顯示的研究層級。</div>}</div></section>
       <div className="analysis-boundary"><ShieldAlert size={18} /><div><strong>研究與實盤隔離</strong><p>這些標記不能直接送出訂單，也不會靜默建立平倉規則。實盤價格邏輯必須另行儲存為有版本保護的策略或邏輯部位規則。</p></div></div>
     </>}
     {analysis.data && <RiskCostAssumptions entryFeePct={entryFeePct} exitFeePct={exitFeePct} slippagePct={slippagePct} onEntryFee={setEntryFeePct} onExitFee={setExitFeePct} onSlippage={setSlippagePct} />}

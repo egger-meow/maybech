@@ -207,6 +207,12 @@ def test_api_exposes_typed_support_resistance_analysis(monkeypatch):
             return _candles()
 
     monkeypatch.setattr("src.market.support_resistance.CandleManager", FakeManager)
+    class MetadataStore:
+        def get(self, inst_id):
+            assert inst_id == "BTC-USDT-SWAP"
+            return type("Metadata", (), {"tick_size": "0.1", "price_precision": 1})()
+
+    monkeypatch.setattr("src.api.app.InstrumentMetadataStore", MetadataStore)
     client = TestClient(create_app(DaemonRunner(), api_token=""))
 
     response = client.get(
@@ -219,3 +225,5 @@ def test_api_exposes_typed_support_resistance_analysis(monkeypatch):
     assert body["inst_id"] == "BTC-USDT-SWAP"
     assert body["research_only"] is True
     assert body["eligible_as_live_rule"] is False
+    assert body["tick_size"] == "0.1"
+    assert body["price_precision"] == 1

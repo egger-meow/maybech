@@ -1360,14 +1360,18 @@ def create_app(
         bar: str = Query(default="15m", min_length=1, max_length=8),
         limit: int = Query(default=200, ge=20, le=300),
     ) -> SupportResistanceAnalysisResponse:
-        return SupportResistanceAnalysisResponse.model_validate(
-            support_resistance.analyze(
+        result = support_resistance.analyze(
                 inst_id,
                 bar=bar,
                 limit=limit,
                 btc_regime=runner.runtime.get_value("market.btc_regime"),
             )
-        )
+        metadata = InstrumentMetadataStore().get(inst_id)
+        return SupportResistanceAnalysisResponse.model_validate({
+            **result,
+            "tick_size": None if metadata is None else metadata.tick_size,
+            "price_precision": None if metadata is None else metadata.price_precision,
+        })
 
     @app.get("/strategy/decisions", response_model=list[StrategyDecisionResponse])
     def get_strategy_decisions() -> list[dict]:

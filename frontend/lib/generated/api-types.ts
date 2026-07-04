@@ -859,6 +859,8 @@ export type SupportResistanceAnalysisResponse = {
   "freshness": MarketAnalysisFreshnessResponse;
   "quality": MarketAnalysisQualityResponse;
   "latest_price"?: number | null;
+  "tick_size"?: string | null;
+  "price_precision"?: number | null;
   "volatility_atr"?: number | null;
   "levels"?: SupportResistanceLevelResponse[];
   "context"?: Record<string, unknown>;
