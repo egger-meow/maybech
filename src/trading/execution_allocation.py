@@ -313,6 +313,28 @@ class ExecutionAllocationService:
             if (
                 condition.purpose == "stop_loss"
                 and protection is not None
+                and self._stop_is_looser(
+                    side=position.side,
+                    candidate=materialized["expression"].get("value"),
+                    confirmed=protection.stop_loss,
+                )
+            ):
+                self.audit_store.create(
+                    type="position.rule_materialization_skipped",
+                    source="execution_allocation",
+                    payload={
+                        "position_id": position.id,
+                        "condition_id": condition.id,
+                        "fill_id": allocation.id,
+                        "reason": "candidate would loosen confirmed protection",
+                        "confirmed_stop": protection.stop_loss,
+                        "candidate_stop": materialized["expression"].get("value"),
+                    },
+                )
+                continue
+            if (
+                condition.purpose == "stop_loss"
+                and protection is not None
                 and materialized["expression"] != condition.expression
             ):
                 self.position_store.update_close_condition(
@@ -350,6 +372,16 @@ class ExecutionAllocationService:
                 expression=materialized["expression"],
                 metadata=materialized["metadata"],
             )
+
+    @staticmethod
+    def _stop_is_looser(*, side: str, candidate: object, confirmed: object) -> bool:
+        candidate_price = float(candidate)
+        confirmed_price = float(confirmed)
+        return (
+            candidate_price < confirmed_price
+            if side == "long"
+            else candidate_price > confirmed_price
+        )
 
     def _resolve_position(
         self,

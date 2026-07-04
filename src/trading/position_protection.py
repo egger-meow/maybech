@@ -508,6 +508,49 @@ class PositionProtectionService:
         size = constraints.normalize_size(quantity)
         stop = constraints.normalize_price(self._stop_price(position))
         existing_protection = self.store.get_protection(position.id)
+        if (
+            existing_protection is not None
+            and existing_protection.status == "active"
+            and self._stop_is_looser(
+                side=position.side,
+                candidate=stop,
+                confirmed=existing_protection.stop_loss,
+            )
+        ):
+            # The independently confirmed per-position stop is authoritative.
+            # Reconciliation/restart may repair quantity or exchange drift, but
+            # it must never restore a looser strategy-template value.
+            stop = constraints.normalize_price(existing_protection.stop_loss)
+            enabled_stops = [
+                item
+                for item in self.store.list_close_conditions(position.id, enabled=True)
+                if item.purpose == "stop_loss"
+            ]
+            if len(enabled_stops) != 1:
+                raise PositionProtectionError(
+                    "confirmed protection requires exactly one enabled stop_loss condition"
+                )
+            confirmed_expression = {
+                **enabled_stops[0].expression,
+                "symbol": position.inst_id,
+                "value": float(Decimal(stop)),
+            }
+            if self.store.update_close_condition(
+                position.id,
+                enabled_stops[0].id,
+                expression=confirmed_expression,
+                metadata={
+                    **enabled_stops[0].metadata,
+                    "protection_regression_prevented": {
+                        "rejected_stop": self._stop_price(position),
+                        "confirmed_stop": stop,
+                        "repaired_at": self._now(),
+                    },
+                },
+            ) is None:
+                raise PositionProtectionError(
+                    "could not restore confirmed stop rule during protection repair"
+                )
         algo_client_id = (
             existing_protection.algo_client_order_id
             if existing_protection is not None
@@ -754,6 +797,21 @@ class PositionProtectionService:
             kind=protection.kind,
         )
         return protection
+
+    @staticmethod
+    def _stop_is_looser(*, side: str, candidate: object, confirmed: object) -> bool:
+        try:
+            candidate_price = Decimal(str(candidate))
+            confirmed_price = Decimal(str(confirmed))
+        except (InvalidOperation, ValueError) as exc:
+            raise PositionProtectionError("protective stop price is invalid") from exc
+        if not candidate_price.is_finite() or not confirmed_price.is_finite():
+            raise PositionProtectionError("protective stop price is invalid")
+        if side == "long":
+            return candidate_price < confirmed_price
+        if side == "short":
+            return candidate_price > confirmed_price
+        raise PositionProtectionError("logical position side must be long or short")
 
     def _verify_amended_stop(
         self,

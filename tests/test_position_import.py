@@ -156,7 +156,7 @@ def test_import_requires_side_consistent_stop_loss(tmp_path):
     assert store.list_active() == []
 
 
-def test_protection_retry_amends_existing_stop_after_condition_change(tmp_path):
+def test_protection_retry_does_not_loosen_existing_confirmed_stop(tmp_path):
     store = LogicalPositionStore(str(tmp_path / "trades.db"))
     client = ImportClient()
     service = PositionImportService(client, store)
@@ -171,8 +171,11 @@ def test_protection_retry_amends_existing_stop_after_condition_change(tmp_path):
 
     updated = service.protection.protect(position.id)
 
-    assert client.amendments[0]["stop_trigger_px"] == "2850"
-    assert json.loads(updated.metadata_json)["exchange_protection"]["stop_loss"] == "2850"
+    assert client.amendments == []
+    assert json.loads(updated.metadata_json)["exchange_protection"]["stop_loss"] == "2900"
+    repaired = store.get_close_condition(position.id, condition.id)
+    assert repaired.expression["value"] == 2900
+    assert repaired.metadata["protection_regression_prevented"]["rejected_stop"] == 2850
 
 
 def test_confirmed_stop_amend_updates_exchange_rule_and_owned_protection(tmp_path):
@@ -210,6 +213,34 @@ def test_confirmed_stop_amend_updates_exchange_rule_and_owned_protection(tmp_pat
             position_id=position.id,
         )
     ) == 1
+
+
+def test_restart_protection_repair_keeps_tighter_confirmed_stop(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+    service.protection.amend_stop_condition(
+        position.id,
+        condition.id,
+        expression={"type": "price_below", "symbol": "self", "value": 2950},
+        reason="confirmed tighter stop",
+    )
+    store.update_close_condition(
+        position.id,
+        condition.id,
+        expression={"type": "price_below", "symbol": position.inst_id, "value": 2900},
+    )
+    client.amendments.clear()
+
+    restarted = PositionProtectionService(client, store)
+    restarted.protect(position.id)
+
+    assert client.amendments == []
+    assert store.get_protection(position.id).stop_loss == 2950
+    assert client.pending[0]["slTriggerPx"] == "2950"
+    assert store.get_close_condition(position.id, condition.id).expression["value"] == 2950
 
 
 def test_failed_stop_amend_keeps_original_rule_when_exchange_proves_old_stop(tmp_path):

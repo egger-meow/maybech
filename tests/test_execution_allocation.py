@@ -187,6 +187,53 @@ def test_protected_relative_stop_waits_for_exchange_amend_after_fill(tmp_path):
     assert json.loads(position_store.get("protected-relative").metadata_json)["protection_materialization_pending"] is True
 
 
+def test_later_open_fill_cannot_rematerialize_stop_below_confirmed_amendment(tmp_path):
+    trade_store, position_store, audit_store = _stores(tmp_path)
+    position_store.save(LogicalPositionRecord(
+        id="tightened", source="strategy", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=1, remaining_quantity=1, entry_price=100, status="open",
+    ))
+    template = normalize_default_rules({"close_conditions": [{
+        "purpose": "stop_loss", "enabled": True,
+        "expression": {"type": "entry_relative", "symbol": "self"},
+        "metadata": {"rule_definition": {
+            "style": "fixed_percent", "action": {"type": "close_position"},
+            "parameters": {"offset_pct": "0.05"}, "evidence": {},
+        }},
+    }]})["close_conditions"][0]
+    provisional = materialize_position_rule(
+        template, entry_price=100, inst_id="ETH-USDT-SWAP", side="long",
+        basis="provisional_order_price",
+    )
+    condition = position_store.create_close_condition(
+        id="tight-stop", position_id="tightened", purpose="stop_loss",
+        expression={**provisional["expression"], "value": 98},
+        metadata=provisional["metadata"],
+    )
+    position_store.save_protection(LogicalPositionProtection(
+        position_id="tightened", kind="attached_stop", status="active",
+        algo_id="algo", algo_client_order_id="algo-client", quantity=1,
+        stop_loss=98,
+    ))
+
+    ExecutionAllocationService(trade_store, position_store, audit_store).ingest(
+        ConfirmedExecutionFill(
+            fill_id="later-open-fill", position_id="tightened", action="open",
+            quantity=1, price=102, confirmation_source="okx_fill",
+        )
+    )
+
+    updated = position_store.get_close_condition("tightened", condition.id)
+    assert updated.expression["value"] == 98
+    assert "pending_materialization" not in updated.metadata
+    events = audit_store.list(
+        event_type="position.rule_materialization_skipped",
+        position_id="tightened",
+    )
+    assert len(events) == 1
+    assert events[0].payload["candidate_stop"] == pytest.approx(95.95)
+
+
 def test_duplicate_fill_keeps_original_correlation_after_position_advances(tmp_path):
     trade_store, position_store, audit_store = _stores(tmp_path)
     position_store.save(
