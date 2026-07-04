@@ -49,12 +49,17 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    `0.02`-contract OKX algo at `61215.9` and persisted a completed stop-amend
    intent, but a later background materialization silently restored both the
    rule and live protection to the original `60000` template, expanding loss
-   after the operator received success. Treat each logical position's confirmed
-   rule as independently authoritative after entry, make materialization
-   idempotent/one-way, preserve tighter manual/break-even/trailing amendments,
-   alert and fail closed on any attempted regression, and prove restart,
-   polling, strategy edits, partial fills, and multiple merged logical units
-   cannot loosen confirmed protection before removing this item.
+   after the operator received success. Later, break-even persisted `applied` at
+   `62742.4` and trailing persisted `active` with last applied stop
+   `62767.52262`, but restart verified the real OKX stop and current rule at only
+   `61215.9`; price had already crossed the claimed lifecycle stops while the
+   position stayed open. Treat each logical position's confirmed rule as
+   independently authoritative after entry, make materialization idempotent and
+   one-way, atomically couple lifecycle state to the verified exchange stop,
+   preserve tighter manual/break-even/trailing amendments, alert and fail closed
+   on any regression or evidence mismatch, and prove restart, polling, strategy
+   edits, partial fills, and merged logical units cannot loosen protection or
+   publish false applied state before removing this item.
 
 2. Eliminate the prolonged unprotected remainder after partial reduction. In
    the armed Demo test, reducing a `0.02` unit by `0.01` correctly canceled its
@@ -133,7 +138,9 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    top-level client/exchange order IDs blank even though confirmed IDs existed
    in metadata and allocations. Make pending-open/fill/account ordering
    converge without false review, populate canonical identifiers atomically,
-   and verify both event orderings, WebSocket/REST races, restart, repeated
+   and interpret OKX net-mode positions by signed quantity rather than exposing
+   `posSide=net` as `side=unknown` with a false manual-review intent. Verify
+   both event orderings, WebSocket/REST races, restart, repeated
    entries, and genuinely external increases before removing this item.
 
 9. Restore authenticated dashboard operation. A real Playwright Simulation run
@@ -231,7 +238,17 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    console output on first load, reload, and navigation in both themes before
    removing this item.
 
-18. Make trade history distinguish separate logical executions. The Simulation
+18. Localize all operator-facing protection lifecycle controls consistently in
+   Traditional Chinese. Position Management currently mixes the Chinese shell
+   with English sections and statuses such as `Automatic cost-adjusted
+   break-even`, `Activation profit`, `Persisted target stop`, `applied`, and
+   the optional trailing lifecycle. Translate labels, state, validation,
+   confirmations, and failure/recovery text while retaining exact exchange
+   identifiers where necessary; verify desktop/mobile layouts and every
+   inactive, pending, applied, failed, and restart-restored state before
+   removing this item.
+
+19. Make trade history distinguish separate logical executions. The Simulation
    audit displayed five visually identical stop-loss rows and five visually
    identical take-profit rows, while `/trades/history` proved they have unique
    trade IDs, correlation IDs, and entry times roughly 10–12 seconds apart.
@@ -240,7 +257,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    ingestion; verify repeated same-strategy exits remain individually traceable
    on desktop and mobile before removing this item.
 
-19. Make the documented local frontend URL work cleanly in development. A real
+20. Make the documented local frontend URL work cleanly in development. A real
    Next.js 16.2.9 run opened at `http://127.0.0.1:3000` blocks
    `/_next/webpack-hmr` as a cross-origin development resource because
    `frontend/next.config.ts` does not include `127.0.0.1` in
