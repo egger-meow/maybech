@@ -10,7 +10,11 @@ from src.exchange.client import (
     entry_order_placement_enabled,
 )
 from src.trading.account_risk import AccountRiskStore
-from src.trading.logical_position_store import LogicalPositionRecord, LogicalPositionStore
+from src.trading.logical_position_store import (
+    LogicalPositionProtection,
+    LogicalPositionRecord,
+    LogicalPositionStore,
+)
 from src.trading.position_import import (
     PositionImportConflict,
     PositionImportRequest,
@@ -243,6 +247,85 @@ def test_restart_protection_repair_keeps_tighter_confirmed_stop(tmp_path):
     assert store.get_close_condition(position.id, condition.id).expression["value"] == 2950
 
 
+def test_partial_reduction_rearms_smaller_quantity_without_loosening_stop(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+    service.protection.amend_stop_condition(
+        position.id,
+        condition.id,
+        expression={"type": "price_below", "symbol": "self", "value": 2950},
+        reason="confirmed tighter stop",
+    )
+    store.update_status(position.id, status="open", remaining_quantity=1)
+    store.update_close_condition(
+        position.id,
+        condition.id,
+        expression={"type": "price_below", "symbol": position.inst_id, "value": 2900},
+    )
+    client.get_positions = lambda *, inst_type: [{
+        "instId": "ETH-USDT-SWAP", "posSide": "net", "pos": "1",
+        "avgPx": "3000", "markPx": "3100",
+    }]
+    client.amendments.clear()
+
+    PositionProtectionService(client, store).protect(position.id)
+
+    assert client.amendments[-1]["sz"] == "1"
+    assert client.amendments[-1]["stop_trigger_px"] == "2950"
+    assert store.get_protection(position.id).quantity == 1
+    assert store.get_protection(position.id).stop_loss == 2950
+
+
+def test_merged_exchange_position_keeps_each_logical_units_confirmed_stop(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    client.get_positions = lambda *, inst_type: [{
+        "instId": "ETH-USDT-SWAP", "posSide": "net", "pos": "2",
+        "avgPx": "3000", "markPx": "3100",
+    }]
+    for unit_id, rule_stop, confirmed_stop, algo_id in (
+        ("unit-a", 2850, 2950, "algo-a"),
+        ("unit-b", 2800, 2900, "algo-b"),
+    ):
+        store.save(LogicalPositionRecord(
+            id=unit_id, source="strategy", strategy_id="strategy-a",
+            inst_id="ETH-USDT-SWAP", side="long", opened_quantity=1,
+            remaining_quantity=1, entry_price=3000, status="open",
+        ))
+        store.create_close_condition(
+            id=f"{unit_id}-stop", position_id=unit_id, purpose="stop_loss",
+            expression={
+                "type": "price_below", "symbol": "ETH-USDT-SWAP",
+                "value": rule_stop,
+            },
+        )
+        store.save_protection(LogicalPositionProtection(
+            position_id=unit_id, kind="standalone_stop", status="active",
+            algo_id=algo_id, algo_client_order_id=f"client-{unit_id}",
+            quantity=1, stop_loss=confirmed_stop,
+        ))
+        client.pending.append({
+            "algoId": algo_id, "algoClOrdId": f"client-{unit_id}",
+            "instId": "ETH-USDT-SWAP", "side": "sell",
+            "ordType": "conditional", "state": "live", "posSide": "net",
+            "reduceOnly": "true", "sz": "1",
+            "slTriggerPx": str(confirmed_stop), "slOrdPx": "-1",
+        })
+
+    protection = PositionProtectionService(client, store)
+    protection.protect("unit-a")
+    protection.protect("unit-b")
+
+    assert client.amendments == []
+    assert store.get_protection("unit-a").stop_loss == 2950
+    assert store.get_protection("unit-b").stop_loss == 2900
+    assert store.get_close_condition("unit-a", "unit-a-stop").expression["value"] == 2950
+    assert store.get_close_condition("unit-b", "unit-b-stop").expression["value"] == 2900
+
+
 def test_verify_active_fails_closed_when_rule_disagrees_with_exchange_stop(tmp_path):
     store = LogicalPositionStore(str(tmp_path / "trades.db"))
     client = ImportClient()
@@ -289,7 +372,7 @@ def test_verify_active_rejects_false_applied_trailing_state(tmp_path):
     )
 
     with pytest.raises(PositionProtectionError, match="looser than applied trailing"):
-        service.protection.verify_active(position.id)
+        service.protection.protect(position.id)
 
 
 def test_failed_stop_amend_keeps_original_rule_when_exchange_proves_old_stop(tmp_path):
@@ -345,6 +428,38 @@ def test_unknown_stop_amend_outcome_fails_protection_and_disables_entries(tmp_pa
         assert entry_order_placement_enabled() is False
     finally:
         disarm_order_placement()
+
+
+def test_confirmed_amend_persistence_failure_rolls_back_claims_and_fails_closed(
+    tmp_path, monkeypatch
+):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+    original_merge = store.merge_metadata
+
+    def fail_completion(position_id, values):
+        if values.get("exchange_protection_verified") is True:
+            raise RuntimeError("injected completion failure")
+        return original_merge(position_id, values)
+
+    monkeypatch.setattr(store, "merge_metadata", fail_completion)
+
+    with pytest.raises(PositionProtectionError, match="atomic stop persistence failed"):
+        service.protection.amend_stop_condition(
+            position.id,
+            condition.id,
+            expression={"type": "price_below", "symbol": "self", "value": 2950},
+            reason="test atomic completion",
+        )
+
+    assert client.pending[0]["slTriggerPx"] == "2950"
+    assert store.get_close_condition(position.id, condition.id).expression["value"] == 2900
+    protection = store.get_protection(position.id)
+    assert protection.stop_loss == 2900
+    assert protection.status == "failed"
 
 
 def test_stop_amend_rejects_stale_protection_quantity_before_submission(tmp_path):

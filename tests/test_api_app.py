@@ -1690,6 +1690,50 @@ def test_api_rolls_back_enabled_strategy_edit_when_it_makes_it_invalid(monkeypat
     assert store.get("breakout").default_rules["close_conditions"]
 
 
+def test_strategy_template_edit_cannot_rewrite_existing_position_stop(monkeypatch, tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(
+        id="breakout",
+        name="Breakout",
+        enabled=False,
+        target_instruments=["ETH-USDT-SWAP"],
+        default_rules={"close_conditions": [{
+            "purpose": "stop_loss",
+            "expression": {"type": "price_below", "symbol": "self", "value": 90},
+        }]},
+    )
+    position_store = LogicalPositionStore(store.db_path)
+    position_store.save(LogicalPositionRecord(
+        id="existing-unit", source="strategy", strategy_id="breakout",
+        inst_id="ETH-USDT-SWAP", side="long", opened_quantity=1,
+        remaining_quantity=1, entry_price=100, status="open",
+    ))
+    position_store.create_close_condition(
+        id="existing-stop", position_id="existing-unit", purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 95},
+    )
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.patch(
+        "/strategies/breakout",
+        json={
+            "expected_updated_at": store.get("breakout").updated_at,
+            "default_rules": {"close_conditions": [{
+                "purpose": "stop_loss",
+                "expression": {
+                    "type": "price_below", "symbol": "self", "value": 80,
+                },
+            }]},
+        },
+    )
+
+    assert response.status_code == 200
+    assert store.get("breakout").default_rules["close_conditions"][0]["expression"]["value"] == 80
+    existing = position_store.get_close_condition("existing-unit", "existing-stop")
+    assert existing.expression["value"] == 95
+
+
 def test_api_creates_and_lists_strategy_signal_expressions(monkeypatch, tmp_path):
     store = StrategyStore(str(tmp_path / "strategies.db"))
     store.create(id="breakout", name="Breakout", enabled=True)

@@ -175,51 +175,58 @@ class PositionProtectionService:
                 **normalized_expression,
                 "value": float(Decimal(normalized_stop)),
             }
-            updated_condition = self.store.update_close_condition(
-                position.id,
-                condition.id,
-                expression=normalized_expression,
-                metadata=(
-                    {**condition.metadata, **condition_metadata}
-                    if condition_metadata is not None
-                    else None
-                ),
-            )
-            if updated_condition is None:
-                self._fail_amend(
-                    position,
-                    amend_intent,
-                    "close condition disappeared after exchange amend",
-                )
-
             completed_at = self._now()
-            self.store.update_protection(
-                position.id,
-                status="active",
-                stop_loss=float(Decimal(normalized_stop)),
-                metadata={
-                    "stop_amend": {
-                        **amend_intent,
-                        "status": "completed",
-                        "completed_at": completed_at,
-                    },
-                    "verified_at": proof["verified_at"],
-                },
-            )
-            updated = self.store.merge_metadata(
-                position.id,
-                {
-                    "exchange_protection_verified": True,
-                    "exchange_protection_error": "",
-                    "exchange_protection_checked_at": completed_at,
-                    "exchange_protection": proof,
-                },
-            )
-            if updated is None:
+            try:
+                with self.store.transaction():
+                    updated_condition = self.store.update_close_condition(
+                        position.id,
+                        condition.id,
+                        expression=normalized_expression,
+                        metadata=(
+                            {**condition.metadata, **condition_metadata}
+                            if condition_metadata is not None
+                            else None
+                        ),
+                    )
+                    if updated_condition is None:
+                        raise RuntimeError(
+                            "close condition disappeared after exchange amend"
+                        )
+                    updated_protection = self.store.update_protection(
+                        position.id,
+                        status="active",
+                        stop_loss=float(Decimal(normalized_stop)),
+                        metadata={
+                            "stop_amend": {
+                                **amend_intent,
+                                "status": "completed",
+                                "completed_at": completed_at,
+                            },
+                            "verified_at": proof["verified_at"],
+                        },
+                    )
+                    if updated_protection is None:
+                        raise RuntimeError(
+                            "owned protection disappeared after exchange amend"
+                        )
+                    updated = self.store.merge_metadata(
+                        position.id,
+                        {
+                            "exchange_protection_verified": True,
+                            "exchange_protection_error": "",
+                            "exchange_protection_checked_at": completed_at,
+                            "exchange_protection": proof,
+                        },
+                    )
+                    if updated is None:
+                        raise RuntimeError(
+                            "logical position disappeared after exchange amend"
+                        )
+            except Exception as exc:
                 self._fail_amend(
                     position,
                     amend_intent,
-                    "logical position disappeared after exchange amend",
+                    f"atomic stop persistence failed after exchange amend: {exc}",
                 )
             try:
                 self.audit_store.create(
@@ -652,7 +659,7 @@ class PositionProtectionService:
             and existing_protection.algo_id == str(proof["algo_id"])
             else "standalone_stop"
         )
-        self.store.save_protection(
+        saved_protection = self.store.save_protection(
             LogicalPositionProtection(
                 position_id=position.id,
                 kind=kind,
@@ -668,6 +675,7 @@ class PositionProtectionService:
                 ),
             )
         )
+        self._verify_persisted_stop_claims(updated, saved_protection)
         return updated
 
     def cancel_for_close(self, position_id: str, *, reason: str) -> bool:
