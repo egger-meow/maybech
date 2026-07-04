@@ -4001,6 +4001,18 @@
             "title": "Confirm",
             "type": "boolean"
           },
+          "confirm_disable_for_review": {
+            "anyOf": [
+              {
+                "const": true,
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm Disable For Review"
+          },
           "expected_strategy_updated_at": {
             "minLength": 1,
             "title": "Expected Strategy Updated At",
@@ -4042,6 +4054,18 @@
             "const": true,
             "title": "Confirm",
             "type": "boolean"
+          },
+          "confirm_disable_for_review": {
+            "anyOf": [
+              {
+                "const": true,
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm Disable For Review"
           },
           "expected_updated_at": {
             "minLength": 1,
@@ -4108,6 +4132,18 @@
       },
       "SignalExpressionUpdate": {
         "properties": {
+          "confirm_disable_for_review": {
+            "anyOf": [
+              {
+                "const": true,
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm Disable For Review"
+          },
           "expected_updated_at": {
             "minLength": 1,
             "title": "Expected Updated At",
@@ -4914,6 +4950,18 @@
       },
       "StrategyUpdate": {
         "properties": {
+          "confirm_disable_for_review": {
+            "anyOf": [
+              {
+                "const": true,
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm Disable For Review"
+          },
           "default_rules": {
             "anyOf": [
               {

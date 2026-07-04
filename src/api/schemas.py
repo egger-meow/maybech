@@ -467,17 +467,20 @@ class SignalExpressionCreate(BaseModel):
 class SignalExpressionCreateCommand(SignalExpressionCreate):
     confirm: Literal[True]
     expected_strategy_updated_at: str = Field(min_length=1)
+    confirm_disable_for_review: Literal[True] | None = None
 
 
 class SignalExpressionUpdate(BaseModel):
     expected_updated_at: str = Field(min_length=1)
     purpose: Literal["entry", "exit", "filter"] | str | None = None
     expression: dict[str, Any] | None = None
+    confirm_disable_for_review: Literal[True] | None = None
 
 
 class SignalExpressionDeleteCommand(BaseModel):
     confirm: Literal[True]
     expected_updated_at: str = Field(min_length=1)
+    confirm_disable_for_review: Literal[True] | None = None
 
 
 class SignalTemplateResponse(BaseModel):
@@ -870,6 +873,7 @@ class StrategyUpdate(BaseModel):
     default_rules: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
     execution_delay_seconds: int | None = Field(default=None, ge=0, le=86400)
+    confirm_disable_for_review: Literal[True] | None = None
 
     @model_validator(mode="after")
     def require_dedicated_enable(self) -> "StrategyUpdate":

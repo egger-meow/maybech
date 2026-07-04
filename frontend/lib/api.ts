@@ -466,10 +466,11 @@ export const deleteStrategySignal = (
   strategyId: string,
   expressionId: string,
   expectedUpdatedAt: string,
+  confirmDisableForReview = false,
 ): Promise<MutationStatusResponse> =>
   deleteData<MutationStatusResponse>(
     `/strategies/${encodeURIComponent(strategyId)}/signals/${encodeURIComponent(expressionId)}`,
-    { confirm: true, expected_updated_at: expectedUpdatedAt } satisfies SignalExpressionDeleteCommand,
+    { confirm: true, expected_updated_at: expectedUpdatedAt, confirm_disable_for_review: confirmDisableForReview ? true : undefined } satisfies SignalExpressionDeleteCommand,
   );
 
 export type PositionGroupQuery = {

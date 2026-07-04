@@ -699,11 +699,13 @@ export type SignalExpressionCreateCommand = {
   "expression"?: Record<string, unknown>;
   "confirm": true;
   "expected_strategy_updated_at": string;
+  "confirm_disable_for_review"?: true | null;
 };
 
 export type SignalExpressionDeleteCommand = {
   "confirm": true;
   "expected_updated_at": string;
+  "confirm_disable_for_review"?: true | null;
 };
 
 export type SignalExpressionResponse = {
@@ -719,6 +721,7 @@ export type SignalExpressionUpdate = {
   "expected_updated_at": string;
   "purpose"?: "entry" | "exit" | "filter" | string | null;
   "expression"?: Record<string, unknown> | null;
+  "confirm_disable_for_review"?: true | null;
 };
 
 export type SignalRuntimeContextResponse = {
@@ -850,6 +853,7 @@ export type StrategyUpdate = {
   "default_rules"?: Record<string, unknown> | null;
   "metadata"?: Record<string, unknown> | null;
   "execution_delay_seconds"?: number | null;
+  "confirm_disable_for_review"?: true | null;
 };
 
 export type SupportResistanceAnalysisResponse = {

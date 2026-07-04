@@ -1769,11 +1769,19 @@ def create_app(
                         "current_updated_at": previous.updated_at,
                     },
                 )
+            if previous.enabled and payload.confirm_disable_for_review is not True:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Enabled strategy edits require confirmed disable for review",
+                        "current_updated_at": previous.updated_at,
+                    },
+                )
             strategy = store.update(
                 strategy_id,
                 name=payload.name,
                 kind=payload.kind,
-                enabled=False if payload.enabled is True else payload.enabled,
+                enabled=False if previous.enabled else payload.enabled,
                 target_instruments=payload.target_instruments,
                 entry_signal=payload.entry_signal,
                 default_rules=payload.default_rules,
@@ -1782,7 +1790,21 @@ def create_app(
             )
             if strategy is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")
-            if strategy.enabled or payload.enabled is True:
+            executable_definition_changed = any(
+                value is not None
+                for value in (
+                    payload.target_instruments,
+                    payload.entry_signal,
+                    payload.default_rules,
+                    payload.metadata,
+                    payload.execution_delay_seconds,
+                )
+            )
+            if (
+                strategy.enabled
+                or payload.enabled is True
+                or (previous.enabled and executable_definition_changed)
+            ):
                 validation_errors = _strategy_validation_errors(strategy, store)
                 if validation_errors:
                     raise HTTPException(
@@ -1846,7 +1868,7 @@ def create_app(
     def disable_strategy(strategy_id: str) -> StrategySummaryResponse:
         store = StrategyStore()
         audit_store = AuditEventStore(store.db_path)
-        with store.transaction() as connection:
+        with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
             previous = store.get(strategy_id)
             strategy = store.update(strategy_id, enabled=False)
             if strategy is None:
@@ -1935,7 +1957,7 @@ def create_app(
                 status_code=400,
                 detail={"message": "Signal expression validation failed", "errors": validation.errors},
             )
-        with store.transaction() as connection:
+        with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
             strategy = store.get(strategy_id)
             if strategy is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")
@@ -1947,6 +1969,13 @@ def create_app(
                         "current_updated_at": strategy.updated_at,
                     },
                 )
+            if strategy.enabled:
+                if payload.confirm_disable_for_review is not True:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Enabled strategy signal edits require confirmed disable for review",
+                    )
+                store.update(strategy_id, enabled=False)
             expression = store.create_signal_expression(
                 strategy_id=strategy_id,
                 purpose=payload.purpose,
@@ -1993,7 +2022,10 @@ def create_app(
         audit_store = AuditEventStore(store.db_path)
         if payload.expression is not None:
             _validate_signal_or_400(payload.expression)
-        with store.transaction() as connection:
+        with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
+            strategy = store.get(strategy_id)
+            if strategy is None:
+                raise HTTPException(status_code=404, detail="Strategy not found")
             previous = store.get_signal_expression(strategy_id, expression_id)
             if previous is None:
                 raise HTTPException(status_code=404, detail="Signal expression not found")
@@ -2005,6 +2037,13 @@ def create_app(
                         "current_updated_at": previous.updated_at,
                     },
                 )
+            if strategy.enabled:
+                if payload.confirm_disable_for_review is not True:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Enabled strategy signal edits require confirmed disable for review",
+                    )
+                store.update(strategy_id, enabled=False)
             expression = store.update_signal_expression(
                 strategy_id,
                 expression_id,
@@ -2014,13 +2053,7 @@ def create_app(
             if expression is None:
                 raise HTTPException(status_code=404, detail="Signal expression not found")
             store.update(strategy_id)
-            strategy = store.get(strategy_id)
-            auto_disabled = False
-            if strategy is not None and strategy.enabled:
-                errors = _strategy_validation_errors(strategy, store)
-                if errors:
-                    store.update(strategy_id, enabled=False)
-                    auto_disabled = True
+            auto_disabled = strategy.enabled
             _record_definition_audit(
                 audit_store,
                 event_type="signal_expression.updated",
@@ -2046,7 +2079,10 @@ def create_app(
     ) -> MutationStatusResponse:
         store = StrategyStore()
         audit_store = AuditEventStore(store.db_path)
-        with store.transaction() as connection:
+        with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
+            strategy = store.get(strategy_id)
+            if strategy is None:
+                raise HTTPException(status_code=404, detail="Strategy not found")
             expression = store.get_signal_expression(strategy_id, expression_id)
             if expression is None:
                 raise HTTPException(status_code=404, detail="Signal expression not found")
@@ -2058,16 +2094,17 @@ def create_app(
                         "current_updated_at": expression.updated_at,
                     },
                 )
+            if strategy.enabled:
+                if payload.confirm_disable_for_review is not True:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Enabled strategy signal edits require confirmed disable for review",
+                    )
+                store.update(strategy_id, enabled=False)
             if not store.delete_signal_expression(strategy_id, expression_id):
                 raise HTTPException(status_code=404, detail="Signal expression not found")
             store.update(strategy_id)
-            strategy = store.get(strategy_id)
-            auto_disabled = False
-            if strategy is not None and strategy.enabled:
-                errors = _strategy_validation_errors(strategy, store)
-                if errors:
-                    store.update(strategy_id, enabled=False)
-                    auto_disabled = True
+            auto_disabled = strategy.enabled
             _record_definition_audit(
                 audit_store,
                 event_type="signal_expression.deleted",

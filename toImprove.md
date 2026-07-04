@@ -44,17 +44,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-1. Guard edits to enabled strategies in order-capable runtimes. With Demo armed
-   and entries enabled, Playwright changed the active entry threshold from `0`
-   to `100000` and the frontend persisted it immediately without confirmation,
-   forced disable/review, or a visible pending version; the same editor owns
-   sizing and default stop/take-profit rules. Require an explicit reviewed
-   transition that cannot race signal evaluation or entry submission, preserve
-   the last executable version until approval, and verify entry, sizing,
-   stop-loss, take-profit, break-even, trailing, stale-revision, and rapid-save
-   edits under active ticks before removing this item.
-
-2. Do not mark confirmed Maybech entries as unexplained external exposure. The
+1. Do not mark confirmed Maybech entries as unexplained external exposure. The
    first Playwright Demo strategy order filled, received an active quantity-
    matched OKX stop, and reconciled `balanced`, yet its own pending-open overlap
    permanently set `requires_manual_review=true`; Position Management displayed
@@ -67,7 +57,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    both event orderings, WebSocket/REST races, restart, repeated
    entries, and genuinely external increases before removing this item.
 
-3. Restore authenticated dashboard operation. A real Playwright Simulation run
+2. Restore authenticated dashboard operation. A real Playwright Simulation run
    on 2026-07-04 proved that a configured `MAYBECH_API_TOKEN` makes every
    protected dashboard request return `401`: `frontend/lib/api.ts` defines
    `configureApiToken()`, but no frontend code calls it and the UI provides no
@@ -79,7 +69,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    placeholders; verify all dashboard routes and reconnect behavior against an
    authenticated Simulation runtime before removing this item.
 
-4. Isolate malformed OKX instrument rows instead of aborting every Demo/Live
+3. Isolate malformed OKX instrument rows instead of aborting every Demo/Live
    startup. The 2026-07-04 Demo launch reached OKX successfully, but one
    `TESTING-USDT-SWAP` payload omitted `lotSz`, `minSz`, or `tickSz`;
    `InstrumentMetadataStore.replace_type()` raised on that unrelated row and
@@ -90,7 +80,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    invalid and that Demo plus Live Armed start when only an unrelated row is
    bad before removing this item.
 
-5. Expose continuous execution correctness health in every order-capable
+4. Expose continuous execution correctness health in every order-capable
    dashboard. Demo preflight passed and the backend proved REST fill catch-up
    current plus the private order WebSocket connected, but the runtime banner
    never requests `/execution/fills/status`; after startup it cannot disclose a
@@ -100,7 +90,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    preflight result is current, and verify transitions during disconnect,
    reconnect, catch-up, and error recovery before removing this item.
 
-6. Quarantine and deduplicate rejected fill evidence and notifications. After
+5. Quarantine and deduplicate rejected fill evidence and notifications. After
    the Demo forced-TP test left one invalid historical rule, fill catch-up
    repeatedly emitted the same `execution.fill_rejected` for bill
    `3711878553714458626` and LINE delivered the unchanged “take_profit price
@@ -111,7 +101,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    retry/backoff/restart behavior does not resend identical alerts before
    removing this item.
 
-7. Present account-mode-correct available collateral and unrealized PnL. The
+6. Present account-mode-correct available collateral and unrealized PnL. The
    armed Demo audit returned populated EUR/USDT per-currency `availBal` and
    `upl`, but top-level OKX `availEq` was blank and
    `Dashboard.get_account_summary()` never creates `unrealized_pnl`; the home
@@ -121,7 +111,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    valuation evidence, and verify zero, nonzero, multi-currency, and unavailable
    states against authenticated snapshots before removing this item.
 
-8. Make a fresh Simulation workspace operable without violating exchange
+7. Make a fresh Simulation workspace operable without violating exchange
    isolation. A real Playwright run on a database with no instrument cache
    proved that Strategy, Position, and Risk pages all block their core inputs;
    Strategy offers `立即更新商品資料`, but `POST /instruments/refresh` correctly
@@ -132,7 +122,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    that a fresh isolated Simulation database can configure risk, author a
    strategy, and create a logical position before removing this item.
 
-9. Provide one consistent searchable SWAP selector across Strategy creation,
+8. Provide one consistent searchable SWAP selector across Strategy creation,
    Position creation, Market Analysis, and risk allowlists. With no prior
    selection, open a real dropdown containing at least three to five useful
    liquid/hot SWAP candidates; as the operator types, filter and show matching
@@ -143,7 +133,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    mouse, empty-query, no-result, stale-cache, low-price, desktop, and mobile
    behavior before removing this item.
 
-10. Prevent Next.js 16.2.9 Turbopack from terminating the dashboard development
+9. Prevent Next.js 16.2.9 Turbopack from terminating the dashboard development
    server while processing Traditional Chinese source. During the real
    Playwright run, `next-code-frame/src/highlight.rs` panicked because a byte
    index landed inside the UTF-8 character `組`; the next launch reported an
@@ -153,7 +143,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    repeated navigation/edit/HMR cycles across Chinese-heavy pages do not stop
    the frontend before removing this item.
 
-11. Remove the persisted-theme hydration mismatch. The Playwright interaction
+10. Remove the persisted-theme hydration mismatch. The Playwright interaction
    pass proved that switching to light mode persists correctly, but a reload
    makes `ThemeToggle` server-render a sun icon while its client initializer
    reads local storage and renders a moon icon; React reports hydration failure
@@ -162,7 +152,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    console output on first load, reload, and navigation in both themes before
    removing this item.
 
-12. Localize all operator-facing protection lifecycle controls consistently in
+11. Localize all operator-facing protection lifecycle controls consistently in
    Traditional Chinese(some english ok but mainly chinese). Position Management currently mixes the Chinese shell
    with English sections and statuses such as `Automatic cost-adjusted
    break-even`, `Activation profit`, `Persisted target stop`, `applied`, and
@@ -172,7 +162,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    inactive, pending, applied, failed, and restart-restored state before
    removing this item.
 
-13. Make trade history distinguish separate logical executions. The Simulation
+12. Make trade history distinguish separate logical executions. The Simulation
    audit displayed five visually identical stop-loss rows and five visually
    identical take-profit rows, while `/trades/history` proved they have unique
    trade IDs, correlation IDs, and entry times roughly 10–12 seconds apart.
@@ -181,7 +171,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    ingestion; verify repeated same-strategy exits remain individually traceable
    on desktop and mobile before removing this item.
 
-14. Make the documented local frontend URL work cleanly in development. A real
+13. Make the documented local frontend URL work cleanly in development. A real
    Next.js 16.2.9 run opened at `http://127.0.0.1:3000` blocks
    `/_next/webpack-hmr` as a cross-origin development resource because
    `frontend/next.config.ts` does not include `127.0.0.1` in

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import useSWR from "swr";
 import { AlertTriangle, Check, ChevronRight, CirclePlus, Power, Save, Trash2 } from "lucide-react";
 
@@ -288,29 +288,33 @@ function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
 }
 
 function ChildSignal({ strategyId, strategyUpdatedAt, strategyEnabled, signal, onSaved }: { strategyId: string; strategyUpdatedAt: string; strategyEnabled: boolean; signal?: PersistedSignalExpression; onSaved: () => Promise<unknown> }) {
+  const mutationRef = useRef(false);
   const [purpose, setPurpose] = useState(signal?.purpose ?? "filter");
   const [expression, setExpression] = useState<SignalExpression>(object(signal?.expression).type || object(signal?.expression).op ? object(signal?.expression) : { type: "price_above", symbol: "BTC-USDT-SWAP", value: 0 });
   const [dirty, setDirty] = useState(!signal);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const save = async () => {
+    if (mutationRef.current) return;
+    mutationRef.current = true;
     setBusy(true); setError("");
     try {
       const validation = await validateSignal({ expression });
       if (!validation.valid) throw new Error(validation.errors?.join("；") || "規則格式不正確");
-      if (signal) await updateStrategySignal(strategyId, signal.id, { expected_updated_at: signal.updated_at, purpose, expression: validation.normalized ?? expression });
+      if (strategyEnabled && signal && !confirm("此策略目前已啟用。確認先停用並進入審查，再儲存訊號變更？停用完成前仍會執行舊版本。")) return;
+      if (signal) await updateStrategySignal(strategyId, signal.id, { expected_updated_at: signal.updated_at, purpose, expression: validation.normalized ?? expression, confirm_disable_for_review: strategyEnabled ? true : undefined });
       else {
         if (!strategyUpdatedAt) throw new Error("策略版本時間缺失，無法安全新增子訊號。請重新整理。");
         if (strategyEnabled && !confirm("此策略已啟用。新增子訊號會改變下一次進場／出場條件；確定新增至目前檢視的策略版本？")) return;
-        await createStrategySignal(strategyId, { confirm: true, expected_strategy_updated_at: strategyUpdatedAt, purpose, expression: validation.normalized ?? expression });
+        await createStrategySignal(strategyId, { confirm: true, expected_strategy_updated_at: strategyUpdatedAt, purpose, expression: validation.normalized ?? expression, confirm_disable_for_review: strategyEnabled ? true : undefined });
       }
       setDirty(false); await onSaved();
-    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+    } catch (caught) { setError(errorMessage(caught)); } finally { mutationRef.current = false; setBusy(false); }
   };
   const remove = async () => {
     if (!signal || !confirm("確定刪除此附加訊號？若策略因此不完整，後端會自動停用策略。")) return;
     setBusy(true); setError("");
-    try { await deleteStrategySignal(strategyId, signal.id, signal.updated_at); await onSaved(); }
+    try { await deleteStrategySignal(strategyId, signal.id, signal.updated_at, strategyEnabled); await onSaved(); }
     catch (caught) { setError(errorMessage(caught)); setBusy(false); }
   };
   return (
@@ -330,6 +334,7 @@ function ChildSignal({ strategyId, strategyUpdatedAt, strategyEnabled, signal, o
 }
 
 function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstruments }: { strategy?: StrategySummary; onSaved: (selectedId?: string) => Promise<unknown>; catalog: InstrumentMetadataResponse[]; catalogStale: boolean; allowedInstruments?: string[] }) {
+  const mutationRef = useRef(false);
   const [draft, setDraft] = useState<Draft>(() => strategy ? draftFrom(strategy) : blankDraft());
   const [dirty, setDirty] = useState(!strategy);
   const [busy, setBusy] = useState(false);
@@ -345,6 +350,8 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
     : [];
 
   const save = async () => {
+    if (mutationRef.current) return;
+    mutationRef.current = true;
     setBusy(true); setError("");
     try {
       if (!draft.name.trim()) throw new Error("請輸入策略名稱。");
@@ -374,11 +381,12 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         execution_delay_seconds: executionDelaySeconds,
         metadata: { ...object(strategy?.metadata), position_side: draft.side, order_size_contracts: sizes, order_display_quantities: draft.displayQuantities, sizing_reference_prices: draft.referencePrices, max_entry_slippage_pct: String(Number(draft.slippagePercent) / 100) },
       };
+      if (strategy?.enabled && !confirm("此策略目前已啟用。確認先停用並進入審查，再儲存完整策略變更？停用完成前仍會執行舊版本。")) return;
       const saved = strategy
-        ? await updateStrategy(strategy.id, { ...payload, expected_updated_at: strategy.updated_at! })
+        ? await updateStrategy(strategy.id, { ...payload, expected_updated_at: strategy.updated_at!, confirm_disable_for_review: strategy.enabled ? true : undefined })
         : await createStrategy({ ...payload, enabled: false });
       setDirty(false); await onSaved(saved.id);
-    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+    } catch (caught) { setError(errorMessage(caught)); } finally { mutationRef.current = false; setBusy(false); }
   };
 
   const toggle = async () => {

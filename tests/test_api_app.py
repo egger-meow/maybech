@@ -1684,11 +1684,37 @@ def test_api_rolls_back_enabled_strategy_edit_when_it_makes_it_invalid(monkeypat
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
 
-    response = client.patch("/strategies/breakout", json={"expected_updated_at": store.get("breakout").updated_at, "default_rules": {}})
+    response = client.patch("/strategies/breakout", json={"expected_updated_at": store.get("breakout").updated_at, "default_rules": {}, "confirm_disable_for_review": True})
 
     assert response.status_code == 400
     assert store.get("breakout").enabled is True
     assert store.get("breakout").default_rules["close_conditions"]
+
+
+def test_enabled_strategy_edit_requires_atomic_confirmed_disable(monkeypatch, tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    store.create(id="enabled", name="Before", enabled=True)
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+    revision = store.get("enabled").updated_at
+
+    blocked = client.patch(
+        "/strategies/enabled",
+        json={"expected_updated_at": revision, "name": "After"},
+    )
+    confirmed = client.patch(
+        "/strategies/enabled",
+        json={
+            "expected_updated_at": revision,
+            "name": "After",
+            "confirm_disable_for_review": True,
+        },
+    )
+
+    assert blocked.status_code == 409
+    assert confirmed.status_code == 200
+    assert confirmed.json()["enabled"] is False
+    assert store.get("enabled").name == "After"
 
 
 def test_strategy_template_edit_cannot_rewrite_existing_position_stop(monkeypatch, tmp_path):
@@ -1765,6 +1791,7 @@ def test_api_creates_and_lists_strategy_signal_expressions(monkeypatch, tmp_path
         "/strategies/breakout/signals",
         json={
             "confirm": True,
+            "confirm_disable_for_review": True,
             "expected_strategy_updated_at": parent_version,
             "purpose": "entry",
             "expression": {
@@ -1780,6 +1807,7 @@ def test_api_creates_and_lists_strategy_signal_expressions(monkeypatch, tmp_path
     assert unconfirmed.status_code == 422
     assert stale.status_code == 409
     assert created.status_code == 201
+    assert store.get("breakout").enabled is False
     assert created.json()["strategy_id"] == "breakout"
     assert created.json()["expression"]["op"] == "and"
     assert listed.status_code == 200
