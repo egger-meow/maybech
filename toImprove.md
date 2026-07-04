@@ -44,8 +44,68 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-No active priorities. The completed position-rule and market-analysis phase is
-audited in `docs/position-rule-phase-audit.md`.
+1. Restore authenticated dashboard operation. A real Playwright Simulation run
+   on 2026-07-04 proved that a configured `MAYBECH_API_TOKEN` makes every
+   protected dashboard request return `401`: `frontend/lib/api.ts` defines
+   `configureApiToken()`, but no frontend code calls it and the UI provides no
+   operator authentication flow. The dashboard consequently reports an unknown
+   execution mode and leaves account/market data loading despite a healthy API.
+   Provide a secure local operator token flow that covers HTTP and WebSocket
+   clients without rendering, logging, or persisting the token insecurely; show
+   an explicit authentication-required state instead of generic loading/error
+   placeholders; verify all dashboard routes and reconnect behavior against an
+   authenticated Simulation runtime before removing this item.
+
+2. Make a fresh Simulation workspace operable without violating exchange
+   isolation. A real Playwright run on a database with no instrument cache
+   proved that Strategy, Position, and Risk pages all block their core inputs;
+   Strategy offers `立即更新商品資料`, but `POST /instruments/refresh` correctly
+   returns `409 "Simulation does not connect to OKX"` and the UI surfaces no
+   failure. Define an explicit safe instrument-metadata bootstrap/import path
+   for Simulation (without silently contacting OKX), stop offering an action
+   that can only fail, expose refresh/import errors to the operator, and verify
+   that a fresh isolated Simulation database can configure risk, author a
+   strategy, and create a logical position before removing this item.
+
+3. Prevent Next.js 16.2.9 Turbopack from terminating the dashboard development
+   server while processing Traditional Chinese source. During the real
+   Playwright run, `next-code-frame/src/highlight.rs` panicked because a byte
+   index landed inside the UTF-8 character `組`; the next launch reported an
+   internal Turbopack error and deleted its filesystem cache. Reproduce with a
+   clean cache, identify whether source-map/code-frame input or the pinned Next
+   release is responsible, apply the narrowest supported mitigation, and prove
+   repeated navigation/edit/HMR cycles across Chinese-heavy pages do not stop
+   the frontend before removing this item.
+
+4. Remove the persisted-theme hydration mismatch. The Playwright interaction
+   pass proved that switching to light mode persists correctly, but a reload
+   makes `ThemeToggle` server-render a sun icon while its client initializer
+   reads local storage and renders a moon icon; React reports hydration failure
+   and regenerates the subtree. Use a hydration-safe theme initialization that
+   preserves the operator choice without a misleading flash, then verify clean
+   console output on first load, reload, and navigation in both themes before
+   removing this item.
+
+5. Make trade history distinguish separate logical executions. The Simulation
+   audit displayed five visually identical stop-loss rows and five visually
+   identical take-profit rows, while `/trades/history` proved they have unique
+   trade IDs, correlation IDs, and entry times roughly 10–12 seconds apart.
+   Expose a stable short identity plus entry/exit timing or expandable audit
+   evidence so operators can distinguish repeated signal edges from duplicate
+   ingestion; verify repeated same-strategy exits remain individually traceable
+   on desktop and mobile before removing this item.
+
+6. Make the documented local frontend URL work cleanly in development. A real
+   Next.js 16.2.9 run opened at `http://127.0.0.1:3000` blocks
+   `/_next/webpack-hmr` as a cross-origin development resource because
+   `frontend/next.config.ts` does not include `127.0.0.1` in
+   `allowedDevOrigins`, even though the backend and testing instructions use
+   that host. Add the narrow development origin, verify HMR/reconnect from both
+   documented loopback hostnames, and retain Next.js's default protection for
+   unlisted origins before removing this item.
+
+The completed position-rule and market-analysis phase is audited in
+`docs/position-rule-phase-audit.md`.
 
 ## Non-Blocking / Later
 
