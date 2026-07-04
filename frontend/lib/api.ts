@@ -5,6 +5,7 @@ import type {
   AccountRiskLimitsResponse,
   AccountRiskLimitsUpdate,
   EntryControlResponse,
+  EntryControlCommand,
   AuditEventResponse,
   BTCRegimeResponse,
   ConfirmedPositionFillCreate,
@@ -257,6 +258,16 @@ export const updateRiskLimits = (
 
 export const getEntryControl = (): Promise<EntryControlResponse> =>
   fetcher<EntryControlResponse>("/risk/entries");
+
+export const enableEntries = (
+  payload: EntryControlCommand,
+): Promise<EntryControlResponse> =>
+  postData<EntryControlResponse>("/risk/entries/enable", payload);
+
+export const killEntries = (
+  payload: EntryControlCommand,
+): Promise<EntryControlResponse> =>
+  postData<EntryControlResponse>("/risk/entries/kill", payload);
 
 export const listInstruments = (): Promise<InstrumentMetadataListResponse> =>
   fetcher<InstrumentMetadataListResponse>("/instruments");

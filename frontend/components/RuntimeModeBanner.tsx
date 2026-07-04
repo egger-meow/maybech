@@ -1,9 +1,10 @@
 "use client";
 
 import useSWR from "swr";
+import { useRef, useState } from "react";
 import { AlertTriangle, FlaskConical, ShieldCheck, ShieldOff } from "lucide-react";
 
-import { ApiError, getEntryControl, getLivePreflight, getRiskLimits, listInstruments, listStrategies } from "@/lib/api";
+import { ApiError, enableEntries, getEntryControl, getLivePreflight, getRiskLimits, killEntries, listInstruments, listStrategies } from "@/lib/api";
 
 type Mode = "simulation" | "demo" | "live_safe" | "live_armed" | "blocked" | "stale";
 
@@ -60,6 +61,34 @@ export default function RuntimeModeBanner() {
   const entries = useSWR("entry-control", getEntryControl, { refreshInterval: 10_000 });
   const strategies = useSWR("strategies", listStrategies, { refreshInterval: 10_000 });
   const instruments = useSWR("instrument-metadata", listInstruments, { refreshInterval: 60_000 });
+  const entryMutation = useRef(false);
+  const [entryBusy, setEntryBusy] = useState<"enable" | "kill" | "">("");
+  const [entryMessage, setEntryMessage] = useState("");
+
+  const mutateEntries = async (action: "enable" | "kill") => {
+    if (entryMutation.current) return;
+    const prompt = action === "enable"
+      ? "確認啟用新的策略進場？只有已通過 preflight、風險限制與策略檢查的委託才可送出。"
+      : "確認立即停止所有新進場，並取消 Maybech 尚未成交的進場委託？減倉與保護性出場不受影響。";
+    if (!confirm(prompt)) return;
+    entryMutation.current = true;
+    setEntryBusy(action);
+    setEntryMessage("");
+    try {
+      const result = action === "enable"
+        ? await enableEntries({ confirm: true })
+        : await killEntries({ confirm: true });
+      await entries.mutate(result, { revalidate: true });
+      setEntryMessage(action === "enable"
+        ? "新進場已啟用。"
+        : `新進場已停止；要求取消 ${result.cancellations_requested} 筆，未解決 ${result.unresolved} 筆${(result.errors ?? []).length ? `；錯誤：${(result.errors ?? []).join("、")}` : ""}。`);
+    } catch (error) {
+      setEntryMessage(error instanceof Error ? error.message : "進場控制 API 無法使用。");
+    } finally {
+      entryMutation.current = false;
+      setEntryBusy("");
+    }
+  };
 
   let mode: Mode = "stale";
   if (!preflight.error && preflight.data) {
@@ -168,6 +197,11 @@ export default function RuntimeModeBanner() {
         <span>委託：{preflight.data ? preflight.data.armed ? "已武裝" : "已解除" : "未知"}</span>
         <span>進場：{entries.data ? entryState : "未知"}</span>
       </div>
+      <div className="form-actions" aria-label="策略進場控制">
+        <button type="button" className="btn btn-primary" disabled={Boolean(entryBusy) || Boolean(entries.data?.entries_enabled)} onClick={() => mutateEntries("enable")}>{entryBusy === "enable" ? "啟用中…" : "啟用新進場"}</button>
+        <button type="button" className="btn btn-danger" disabled={Boolean(entryBusy)} onClick={() => mutateEntries("kill")}>{entryBusy === "kill" ? "停止與取消中…" : "停止新進場（Kill）"}</button>
+      </div>
+      {entryMessage && <div className={entryMessage.includes("錯誤") || entryMessage.includes("無法") ? "error-state" : "mode-notice"}>{entryMessage}</div>}
       {mode === "simulation" && risk.error instanceof ApiError && risk.error.status === 404 && <div className="mode-notice">風險上限尚未建立；Simulation 可繼續使用，Demo 與 Live Armed 會被 preflight 封鎖。</div>}
       <details className="mode-requirements">
         <summary>實盤啟動條件逐項檢查</summary>
