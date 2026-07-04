@@ -337,6 +337,15 @@ class ExecutionFillService(DaemonService):
                 continue
             if result.allocation.action == "open":
                 self._apply_pending_rule_materializations(result.position.id, status)
+            elif result.allocation.action in {"reduce", "close"}:
+                # A terminal private-stream fill must restore protection in this
+                # same tick. Waiting for the slower REST reconciliation loop
+                # leaves the confirmed remainder unprotected.
+                self._rearm_protection_if_needed(
+                    result.position,
+                    order_id=fill.exchange_order_id,
+                    status=status,
+                )
             if result.idempotent:
                 status["idempotent"] += 1
             else:
@@ -778,7 +787,12 @@ class ExecutionFillService(DaemonService):
                 self.protection_service.protect(position.id)
                 self.allocator.position_store.merge_metadata(
                     position.id,
-                    {"protection_canceled_for_close": False},
+                    {
+                        "protection_canceled_for_close": False,
+                        "protection_gap_resolved_at": datetime.now(
+                            timezone.utc
+                        ).isoformat(),
+                    },
                 )
                 status["protection_rearmed"] += 1
             except PositionProtectionError as exc:

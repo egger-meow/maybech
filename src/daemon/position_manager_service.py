@@ -993,6 +993,17 @@ class PositionManagerService(DaemonService):
                         position.id,
                         reason=exit_reason,
                     )
+                    if protection_canceled:
+                        self._disable_entries_after_protection_failure()
+                        position_store.merge_metadata(
+                            position.id,
+                            {
+                                "protection_gap_started_at": datetime.now(
+                                    timezone.utc
+                                ).isoformat(),
+                                "protection_gap_reason": exit_reason,
+                            },
+                        )
                 except PositionProtectionError as exc:
                     position_store.release_pending_execution(
                         position.id,

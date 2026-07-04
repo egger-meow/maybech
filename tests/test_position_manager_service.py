@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from src.daemon.position_manager_service import PositionManagerService
+from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.execution_allocation import (
     ConfirmedExecutionFill,
@@ -421,12 +422,17 @@ def test_live_close_cancels_owned_protection_before_submission(tmp_path):
         sequence=sequence,
     )
     service.protection_service = FakeProtectionService(position_store, sequence)
+    risk_store = AccountRiskStore(store.db_path)
+    risk_store.set_entries_enabled(True)
 
     service.tick()
 
     assert sequence == ["cancel_protection", "close"]
     assert position_store.get_protection(trade_id).status == "canceled"
     assert position_store.get(trade_id).status == "closing"
+    assert risk_store.entries_enabled() is False
+    metadata = json.loads(position_store.get(trade_id).metadata_json)
+    assert metadata["protection_gap_started_at"]
 
 
 def test_failed_close_rearms_owned_protection(tmp_path):

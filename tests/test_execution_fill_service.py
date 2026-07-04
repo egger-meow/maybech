@@ -202,6 +202,55 @@ def test_private_order_fill_is_idempotent_with_rest_catchup(tmp_path):
     assert len(position_store.list_allocations("same-unit")) == 1
 
 
+def test_private_reduce_fill_rearms_confirmed_remainder_in_same_tick(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(LogicalPositionRecord(
+        id="ws-reduce", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=0.1, remaining_quantity=0.1, status="reducing",
+        exchange_order_id="reduce-order", client_order_id="reduce-client",
+        metadata_json=(
+            '{"order_action":"reduce","execution_quantity":0.04}'
+        ),
+    ))
+    position_store.link_execution_order(
+        "ws-reduce", exchange_order_id="reduce-order",
+        client_order_id="reduce-client", action="reduce",
+    )
+    position_store.save_protection(LogicalPositionProtection(
+        position_id="ws-reduce", kind="standalone_stop", status="canceled",
+        algo_id="old-algo", algo_client_order_id="old-client",
+        quantity=0.1, stop_loss=1900,
+    ))
+    event = {
+        **_raw_fill("ws-reduce-fill", "reduce-order", client_order_id="reduce-client"),
+        "side": "sell", "fillSz": "0.04", "state": "filled",
+    }
+    rearm = FakeRearmProtection(position_store)
+    service = ExecutionFillService(
+        client=FakeFillClient([]),
+        allocator=ExecutionAllocationService(trade_store, position_store),
+        private_order_stream=FakeOrderStream([event]),
+        enable_private_stream=True,
+        rest_poll_interval=60,
+        protection_service=rearm,
+    )
+    runner = DaemonRunner()
+    runner.register(service)
+    service.setup()
+
+    service.tick()
+
+    assert position_store.get("ws-reduce").remaining_quantity == 0.06
+    assert position_store.get_protection("ws-reduce").status == "active"
+    assert position_store.get_protection("ws-reduce").quantity == 0.06
+    assert rearm.calls == ["ws-reduce"]
+    status = runner.runtime.get_value("execution.fills.status")
+    assert status["websocket_fills_applied"] == 1
+    assert status["protection_rearmed"] == 1
+
+
 def test_protective_stop_trigger_fill_allocates_to_owned_logical_unit(tmp_path):
     db_path = str(tmp_path / "trades.db")
     trade_store = TradeStore(db_path)
