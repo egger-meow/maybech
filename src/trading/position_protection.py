@@ -796,7 +796,61 @@ class PositionProtectionService:
             algo_client_id=protection.algo_client_order_id,
             kind=protection.kind,
         )
+        self._verify_persisted_stop_claims(position, protection)
         return protection
+
+    def _verify_persisted_stop_claims(
+        self,
+        position: LogicalPositionRecord,
+        protection: LogicalPositionProtection,
+    ) -> None:
+        stops = [
+            item
+            for item in self.store.list_close_conditions(position.id, enabled=True)
+            if item.purpose == "stop_loss"
+        ]
+        if len(stops) != 1:
+            raise PositionProtectionError(
+                "confirmed protection requires exactly one enabled stop_loss condition"
+            )
+        try:
+            rule_stop = Decimal(str(stops[0].expression.get("value")))
+            confirmed_stop = Decimal(str(protection.stop_loss))
+        except (InvalidOperation, ValueError) as exc:
+            raise PositionProtectionError("persisted stop evidence is invalid") from exc
+        if rule_stop != confirmed_stop:
+            raise PositionProtectionError(
+                "persisted stop rule does not match confirmed exchange protection"
+            )
+
+        claimed_stops: list[tuple[str, object]] = []
+        break_even = stops[0].metadata.get("break_even")
+        if isinstance(break_even, dict) and break_even.get("status") == "applied":
+            claimed_stops.append(("break-even", break_even.get("target_stop")))
+        for condition in self.store.list_close_conditions(position.id):
+            if condition.purpose == "break_even":
+                state = condition.metadata.get("break_even_state")
+                if isinstance(state, dict) and state.get("status") == "applied":
+                    claimed_stops.append(("break-even", state.get("target_stop")))
+            elif condition.purpose == "trailing":
+                state = condition.metadata.get("trailing_state")
+                if isinstance(state, dict) and state.get("last_applied_stop") is not None:
+                    claimed_stops.append(("trailing", state.get("last_applied_stop")))
+        for label, value in claimed_stops:
+            try:
+                claimed = Decimal(str(value))
+            except (InvalidOperation, ValueError) as exc:
+                raise PositionProtectionError(
+                    f"persisted {label} stop evidence is invalid"
+                ) from exc
+            if self._stop_is_looser(
+                side=position.side,
+                candidate=confirmed_stop,
+                confirmed=claimed,
+            ):
+                raise PositionProtectionError(
+                    f"confirmed exchange protection is looser than applied {label} state"
+                )
 
     @staticmethod
     def _stop_is_looser(*, side: str, candidate: object, confirmed: object) -> bool:

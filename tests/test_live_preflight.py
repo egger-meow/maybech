@@ -197,6 +197,16 @@ def test_live_preflight_validates_strategies_sizes_and_active_positions(monkeypa
             stop_loss=90,
         )
     )
+    position_store.create_close_condition(
+        id="position-a-stop",
+        position_id="position-a",
+        purpose="stop_loss",
+        expression={
+            "type": "price_below",
+            "symbol": "BTC-USDT-SWAP",
+            "value": 90,
+        },
+    )
     client = FakePreflightClient(
         instruments={
             "BTC-USDT-SWAP": _instrument("BTC-USDT-SWAP"),

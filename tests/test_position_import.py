@@ -243,6 +243,55 @@ def test_restart_protection_repair_keeps_tighter_confirmed_stop(tmp_path):
     assert store.get_close_condition(position.id, condition.id).expression["value"] == 2950
 
 
+def test_verify_active_fails_closed_when_rule_disagrees_with_exchange_stop(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    condition = store.list_close_conditions(position.id)[0]
+    store.update_close_condition(
+        position.id,
+        condition.id,
+        expression={"type": "price_below", "symbol": position.inst_id, "value": 2800},
+    )
+
+    with pytest.raises(PositionProtectionError, match="does not match"):
+        service.protection.verify_active(position.id)
+
+
+def test_verify_active_rejects_false_applied_trailing_state(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "trades.db"))
+    client = ImportClient()
+    service = PositionImportService(client, store)
+    position = service.import_unexplained(_request())
+    store.create_close_condition(
+        id="trailing-claim",
+        position_id=position.id,
+        purpose="trailing",
+        expression={"type": "price_above", "symbol": position.inst_id, "value": 3050},
+        metadata={
+            "rule_definition": {
+                "style": "trailing_threshold",
+                "action": {"type": "amend_stop"},
+                "parameters": {
+                    "trailing_kind": "stop",
+                    "activation_profit_pct": "0.01",
+                    "distance_pct": "0.01",
+                    "timeframe": "1m",
+                },
+                "evidence": {},
+            },
+            "trailing_state": {
+                "status": "active",
+                "last_applied_stop": "2950",
+            }
+        },
+    )
+
+    with pytest.raises(PositionProtectionError, match="looser than applied trailing"):
+        service.protection.verify_active(position.id)
+
+
 def test_failed_stop_amend_keeps_original_rule_when_exchange_proves_old_stop(tmp_path):
     store = LogicalPositionStore(str(tmp_path / "trades.db"))
     client = ImportClient()
