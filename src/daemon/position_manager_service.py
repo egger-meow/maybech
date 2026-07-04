@@ -1002,6 +1002,9 @@ class PositionManagerService(DaemonService):
                                     timezone.utc
                                 ).isoformat(),
                                 "protection_gap_reason": exit_reason,
+                                "protection_gap_alerted_at": "",
+                                "protection_gap_resolved_at": "",
+                                "protection_gap_seconds": None,
                             },
                         )
                 except PositionProtectionError as exc:

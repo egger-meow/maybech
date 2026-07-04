@@ -249,6 +249,45 @@ def test_private_reduce_fill_rearms_confirmed_remainder_in_same_tick(tmp_path):
     status = runner.runtime.get_value("execution.fills.status")
     assert status["websocket_fills_applied"] == 1
     assert status["protection_rearmed"] == 1
+    metadata = json.loads(position_store.get("ws-reduce").metadata_json)
+    assert metadata["protection_gap_resolved_at"]
+    assert metadata["protection_gap_seconds"] >= 0
+
+
+def test_protection_gap_disables_entries_and_alerts_after_bound(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    started = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+    position_store.save(LogicalPositionRecord(
+        id="gap-unit", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=0.1, remaining_quantity=0.1, status="reducing",
+        metadata_json=json.dumps({"protection_gap_started_at": started}),
+    ))
+    position_store.save_protection(LogicalPositionProtection(
+        position_id="gap-unit", kind="standalone_stop", status="canceled",
+        algo_id="old-algo", algo_client_order_id="old-client",
+        quantity=0.1, stop_loss=1900,
+    ))
+    service = ExecutionFillService(
+        client=FakeFillClient([]),
+        allocator=ExecutionAllocationService(trade_store, position_store),
+        protection_service=FakeRearmProtection(position_store),
+        protection_gap_alert_seconds=5,
+    )
+    status = service._empty_status()
+
+    service._track_protection_gaps(status)
+    service._track_protection_gaps(status)
+
+    assert status["unprotected_positions"] == 2
+    assert status["oldest_protection_gap_seconds"] >= 10
+    assert status["protection_gap_alerts"] == 1
+    events = service.allocator.audit_store.list(
+        event_type="position.protection_gap_exceeded",
+        position_id="gap-unit",
+    )
+    assert len(events) == 1
 
 
 def test_protective_stop_trigger_fill_allocates_to_owned_logical_unit(tmp_path):

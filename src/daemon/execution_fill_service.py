@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -49,6 +50,7 @@ class ExecutionFillService(DaemonService):
         rest_poll_interval: float = 0.0,
         protection_service: PositionProtectionService | None = None,
         allow_order_mutations: bool = True,
+        protection_gap_alert_seconds: float = 5.0,
     ) -> None:
         super().__init__()
         self.client = client
@@ -66,6 +68,7 @@ class ExecutionFillService(DaemonService):
         self._last_rest_status: dict[str, Any] = {}
         self.protection_service = protection_service
         self.allow_order_mutations = allow_order_mutations
+        self.protection_gap_alert_seconds = max(0.0, protection_gap_alert_seconds)
 
     def setup(self) -> None:
         if self.client is None:
@@ -122,6 +125,7 @@ class ExecutionFillService(DaemonService):
             status["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         self._drain_private_order_events(status)
+        self._track_protection_gaps(status)
 
         if self.runtime is not None:
             self.runtime.set_value("execution.fills.status", status)
@@ -150,6 +154,9 @@ class ExecutionFillService(DaemonService):
             "protections_checked": 0,
             "protection_rearmed": 0,
             "protection_errors": 0,
+            "unprotected_positions": 0,
+            "oldest_protection_gap_seconds": 0.0,
+            "protection_gap_alerts": 0,
             "rule_materializations": 0,
             "rule_materialization_errors": 0,
             "pages_fetched": 0,
@@ -785,13 +792,28 @@ class ExecutionFillService(DaemonService):
                         "protective-stop lifecycle service is unavailable"
                     )
                 self.protection_service.protect(position.id)
+                resolved_at = datetime.now(timezone.utc)
+                current = self.allocator.position_store.get(position.id)
+                try:
+                    gap_metadata = json.loads(
+                        current.metadata_json if current is not None else "{}"
+                    )
+                    started = datetime.fromisoformat(
+                        str(gap_metadata.get("protection_gap_started_at") or "").replace(
+                            "Z", "+00:00"
+                        )
+                    )
+                    if started.tzinfo is None:
+                        started = started.replace(tzinfo=timezone.utc)
+                    gap_seconds = max(0.0, (resolved_at - started).total_seconds())
+                except (json.JSONDecodeError, ValueError, AttributeError):
+                    gap_seconds = 0.0
                 self.allocator.position_store.merge_metadata(
                     position.id,
                     {
                         "protection_canceled_for_close": False,
-                        "protection_gap_resolved_at": datetime.now(
-                            timezone.utc
-                        ).isoformat(),
+                        "protection_gap_resolved_at": resolved_at.isoformat(),
+                        "protection_gap_seconds": gap_seconds,
                     },
                 )
                 status["protection_rearmed"] += 1
@@ -842,6 +864,66 @@ class ExecutionFillService(DaemonService):
                     source=self.name,
                     payload={"position_id": position.id, "error": str(exc)},
                 )
+
+    def _track_protection_gaps(self, status: dict[str, Any]) -> None:
+        now = datetime.now(timezone.utc)
+        for position in self.allocator.position_store.list_active():
+            remaining = position.remaining_quantity or position.opened_quantity or 0.0
+            if remaining <= 0:
+                continue
+            protection = self.allocator.position_store.get_protection(position.id)
+            if protection is not None and protection.status == "active":
+                continue
+            status["unprotected_positions"] += 1
+            self._disable_entries_for_protection_error()
+            try:
+                metadata = json.loads(position.metadata_json or "{}")
+            except json.JSONDecodeError:
+                metadata = {}
+            started_at = str(metadata.get("protection_gap_started_at") or "")
+            try:
+                started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+            except ValueError:
+                started = now
+                started_at = started.isoformat()
+                self.allocator.position_store.merge_metadata(
+                    position.id,
+                    {"protection_gap_started_at": started_at},
+                )
+            age = max(0.0, (now - started).total_seconds())
+            status["oldest_protection_gap_seconds"] = max(
+                status["oldest_protection_gap_seconds"], age
+            )
+            if (
+                age >= self.protection_gap_alert_seconds
+                and not metadata.get("protection_gap_alerted_at")
+            ):
+                alerted_at = now.isoformat()
+                self.allocator.position_store.merge_metadata(
+                    position.id,
+                    {"protection_gap_alerted_at": alerted_at},
+                )
+                self.allocator.audit_store.create(
+                    type="position.protection_gap_exceeded",
+                    source=self.name,
+                    payload={
+                        "position_id": position.id,
+                        "status": position.status,
+                        "remaining_quantity": remaining,
+                        "gap_started_at": started_at,
+                        "gap_seconds": age,
+                    },
+                )
+                self.publish_event(
+                    "position.protection_gap_exceeded",
+                    {
+                        "position_id": position.id,
+                        "gap_seconds": age,
+                    },
+                )
+                status["protection_gap_alerts"] += 1
 
     def _disable_entries_for_protection_error(self) -> None:
         AccountRiskStore(self.allocator.trade_store.db_path).set_entries_enabled(False)
