@@ -112,7 +112,9 @@ def _raw_fill(fill_id="fill-a", order_id="order-a", bill_id=None, client_order_i
 
 
 def test_normalize_okx_fill_maps_confirmed_fields():
-    fill = normalize_okx_fill(_raw_fill())
+    fill = normalize_okx_fill({
+        **_raw_fill(), "fillPnl": "-0.00125", "fillPnlCcy": "USDT",
+    })
 
     assert fill.fill_id == "fill-a"
     assert fill.exchange_order_id == "order-a"
@@ -121,6 +123,8 @@ def test_normalize_okx_fill_maps_confirmed_fields():
     assert fill.fee == -0.02
     assert fill.occurred_at.startswith("2026-")
     assert fill.metadata["inst_id"] == "ETH-USDT-SWAP"
+    assert fill.metadata["exchange_realized_pnl"] == -0.00125
+    assert fill.metadata["exchange_realized_pnl_currency"] == "USDT"
 
 
 def test_execution_fill_service_applies_private_order_fill_before_rest_history(tmp_path):

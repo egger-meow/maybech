@@ -267,27 +267,47 @@ class TradeStore:
         exit_price: float,
         exit_reason: str,
         btc_price_at_exit: float | None = None,
+        realized_pnl: float | None = None,
+        realized_pnl_pct: float | None = None,
+        pnl_metadata: dict | None = None,
     ) -> TradeRecord | None:
         trade = self.get_trade(trade_id)
         if trade is None or trade.status != "open":
             return None
 
-        if trade.side == "long":
-            pnl = exit_price - trade.entry_price
+        if realized_pnl is None:
+            if trade.side == "long":
+                pnl = exit_price - trade.entry_price
+            else:
+                pnl = trade.entry_price - exit_price
+            pnl_pct = (pnl / trade.entry_price) * 100 if trade.entry_price else 0.0
+            pnl_evidence = {"status": "legacy_price_delta", "reliable": False}
         else:
-            pnl = trade.entry_price - exit_price
-
-        pnl_pct = (pnl / trade.entry_price) * 100 if trade.entry_price else 0.0
+            pnl = realized_pnl
+            pnl_pct = realized_pnl_pct or 0.0
+            pnl_evidence = {
+                "status": "confirmed_allocations",
+                "reliable": True,
+                **(pnl_metadata or {}),
+            }
+        try:
+            metadata = json.loads(trade.metadata_json or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata["realized_pnl"] = pnl_evidence
+        metadata_json = json.dumps(metadata, separators=(",", ":"), sort_keys=True)
         exit_time = datetime.now(timezone.utc).isoformat()
 
         with self._conn() as conn:
             conn.execute(
                 """UPDATE trades SET
                    exit_price = ?, exit_time = ?, exit_reason = ?,
-                   pnl = ?, pnl_pct = ?, status = 'closed',
+                   pnl = ?, pnl_pct = ?, status = 'closed', metadata_json = ?,
                    btc_price_at_exit = ?
                    WHERE id = ?""",
-                (exit_price, exit_time, exit_reason, pnl, pnl_pct,
+                (exit_price, exit_time, exit_reason, pnl, pnl_pct, metadata_json,
                  btc_price_at_exit, trade_id),
             )
             # Remove all active rules for closed trade
@@ -298,6 +318,7 @@ class TradeStore:
         trade.exit_reason = exit_reason
         trade.pnl = pnl
         trade.pnl_pct = pnl_pct
+        trade.metadata_json = metadata_json
         trade.status = "closed"
         trade.btc_price_at_exit = btc_price_at_exit
         return trade

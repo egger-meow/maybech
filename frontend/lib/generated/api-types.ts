@@ -896,6 +896,12 @@ export type TradeDetailResponse = {
   "btc_price_at_entry": number | null;
   "btc_price_at_exit": number | null;
   "metadata_json": string;
+  "pnl_currency"?: string | null;
+  "pnl_reliable"?: boolean;
+  "pnl_source"?: string;
+  "gross_pnl"?: number | null;
+  "fees"?: number | null;
+  "allocation_count"?: number | null;
   "active_rules"?: TradeRuleResponse[];
 };
 
@@ -916,6 +922,12 @@ export type TradeResponse = {
   "btc_price_at_entry": number | null;
   "btc_price_at_exit": number | null;
   "metadata_json": string;
+  "pnl_currency"?: string | null;
+  "pnl_reliable"?: boolean;
+  "pnl_source"?: string;
+  "gross_pnl"?: number | null;
+  "fees"?: number | null;
+  "allocation_count"?: number | null;
 };
 
 export type TradeRuleAttach = {

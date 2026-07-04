@@ -435,6 +435,12 @@ class TradeResponse(BaseModel):
     btc_price_at_entry: float | None
     btc_price_at_exit: float | None
     metadata_json: str
+    pnl_currency: str | None = None
+    pnl_reliable: bool = False
+    pnl_source: str = "legacy_price_delta"
+    gross_pnl: float | None = None
+    fees: float | None = None
+    allocation_count: int | None = None
 
 
 class TradeDetailResponse(TradeResponse):

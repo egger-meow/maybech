@@ -1,4 +1,5 @@
 from dataclasses import replace
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -2583,3 +2584,31 @@ def test_api_rejects_invalid_logical_position_close_condition(monkeypatch, tmp_p
 
     assert response.status_code == 400
     assert "Signal expression validation failed" in response.json()["detail"]["message"]
+
+
+def test_trade_history_exposes_confirmed_pnl_evidence(monkeypatch, tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    store.save_trade(TradeRecord(
+        id="closed", inst_id="ETH-USDT-SWAP", side="long",
+        entry_price=100, exit_price=110, status="closed", pnl=0.099,
+        pnl_pct=0.099,
+        metadata_json=json.dumps({
+            "realized_pnl": {
+                "status": "confirmed_allocations", "reliable": True,
+                "currency": "USDT", "gross_pnl": "0.1", "fees": "-0.001",
+                "allocation_count": 2,
+            }
+        }),
+    ))
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    trade = client.get("/trades/history").json()[0]
+
+    assert trade["pnl"] == pytest.approx(0.099)
+    assert trade["pnl_currency"] == "USDT"
+    assert trade["pnl_reliable"] is True
+    assert trade["pnl_source"] == "confirmed_allocations"
+    assert trade["gross_pnl"] == pytest.approx(0.1)
+    assert trade["fees"] == pytest.approx(-0.001)
+    assert trade["allocation_count"] == 2

@@ -1532,7 +1532,26 @@ def create_app(
     def get_trade_history(limit: int = 50, strategy_id: Optional[str] = None):
         store = TradeStore()
         trades = store.get_trade_history(limit=limit, strategy_id=strategy_id, status="closed")
-        return [TradeResponse(**t.to_dict()) for t in trades]
+        result = []
+        for trade in trades:
+            payload = trade.to_dict()
+            try:
+                metadata = json.loads(trade.metadata_json or "{}")
+            except json.JSONDecodeError:
+                metadata = {}
+            evidence = metadata.get("realized_pnl", {}) if isinstance(metadata, dict) else {}
+            if not isinstance(evidence, dict):
+                evidence = {}
+            payload.update({
+                "pnl_currency": evidence.get("currency"),
+                "pnl_reliable": bool(evidence.get("reliable", False)),
+                "pnl_source": str(evidence.get("status") or "legacy_price_delta"),
+                "gross_pnl": _as_float(evidence.get("gross_pnl")),
+                "fees": _as_float(evidence.get("fees")),
+                "allocation_count": evidence.get("allocation_count"),
+            })
+            result.append(TradeResponse(**payload))
+        return result
 
     @app.post("/trades/{trade_id}/rules", response_model=RuleGroupResponse)
     def add_trade_rule(trade_id: str, payload: TradeRuleAttach):

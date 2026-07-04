@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from src.trading.audit_event_store import AuditEventStore
@@ -16,6 +17,7 @@ from src.trading.logical_position_store import (
 )
 from src.trading.trade_store import TradeStore
 from src.trading.position_rule_model import materialize_position_rule
+from src.trading.instrument_metadata import InstrumentMetadataStore
 
 
 FillSource = Literal["okx_fill", "dry_run", "recovery"]
@@ -459,10 +461,14 @@ class ExecutionAllocationService:
             )
         if position.status == "closed":
             if position.trade_id:
+                pnl = self._confirmed_realized_pnl(position)
                 self.trade_store.close_trade(
                     position.trade_id,
                     exit_price=allocation.price or position.entry_price,
                     exit_reason=allocation.reason,
+                    realized_pnl=None if pnl is None else float(pnl[0]),
+                    realized_pnl_pct=None if pnl is None else float(pnl[1]),
+                    pnl_metadata=None if pnl is None else pnl[2],
                 )
             return "closed"
         if allocation.action == "reduce":
@@ -485,6 +491,139 @@ class ExecutionAllocationService:
                     return "partially_reduced"
         return "reduced"
 
+    def _confirmed_realized_pnl(
+        self,
+        position: LogicalPositionRecord,
+    ) -> tuple[Decimal, Decimal, dict[str, Any]] | None:
+        instrument = InstrumentMetadataStore(self.trade_store.db_path).get(
+            position.inst_id
+        )
+        if instrument is None:
+            return None
+        try:
+            contract_unit = Decimal(instrument.contract_value) * Decimal(
+                instrument.contract_multiplier or "1"
+            )
+        except (InvalidOperation, ValueError):
+            return None
+        if contract_unit <= 0 or position.side not in {"long", "short"}:
+            return None
+        base_currency = (instrument.base_ccy or position.inst_id.split("-")[0]).upper()
+        settle_currency = instrument.settle_ccy.upper()
+        quote_currency = instrument.quote_ccy.upper()
+        contract_currency = instrument.contract_currency.upper()
+        direction = Decimal("1") if position.side == "long" else Decimal("-1")
+        open_quantity = Decimal("0")
+        average_entry = Decimal("0")
+        entry_notional = Decimal("0")
+        gross_pnl = Decimal("0")
+        fees_usdt = Decimal("0")
+        exchange_pnl_fills = 0
+        allocations = self.position_store.list_allocations(position.id)
+        if not allocations or not any(item.action in {"reduce", "close"} for item in allocations):
+            return None
+        for item in allocations:
+            if item.price is None:
+                return None
+            quantity = Decimal(str(item.quantity))
+            price = Decimal(str(item.price))
+            metadata = self._allocation_metadata(item)
+            fee_currency = str(metadata.get("fee_currency") or "").upper()
+            if item.fee is not None:
+                converted_fee = self._to_usdt(
+                    Decimal(str(item.fee)), fee_currency, price,
+                    base_currency=base_currency,
+                    quote_currency=quote_currency,
+                )
+                if converted_fee is None:
+                    return None
+                fees_usdt += converted_fee
+            if item.action == "open":
+                next_quantity = open_quantity + quantity
+                if next_quantity <= 0:
+                    return None
+                average_entry = (
+                    average_entry * open_quantity + price * quantity
+                ) / next_quantity
+                open_quantity = next_quantity
+                entry_notional += self._contract_notional_usdt(
+                    quantity, price, contract_unit,
+                    contract_currency=contract_currency,
+                    base_currency=base_currency,
+                )
+                continue
+            if item.action not in {"reduce", "close"}:
+                continue
+            if average_entry <= 0 or quantity > open_quantity:
+                return None
+            exchange_pnl = metadata.get("exchange_realized_pnl")
+            if exchange_pnl is not None:
+                pnl_currency = str(
+                    metadata.get("exchange_realized_pnl_currency")
+                    or settle_currency
+                ).upper()
+                converted = self._to_usdt(
+                    Decimal(str(exchange_pnl)), pnl_currency, price,
+                    base_currency=base_currency,
+                    quote_currency=quote_currency,
+                )
+                if converted is None:
+                    return None
+                gross_pnl += converted
+                exchange_pnl_fills += 1
+            elif contract_currency == base_currency:
+                gross_pnl += (
+                    (price - average_entry) * quantity * contract_unit * direction
+                )
+            elif contract_currency in {quote_currency, "USD", "USDT", "USDC"}:
+                gross_pnl += (
+                    quantity * contract_unit * (price - average_entry)
+                    / average_entry * direction
+                )
+            else:
+                return None
+            open_quantity -= quantity
+        net_pnl = gross_pnl + fees_usdt
+        pnl_pct = net_pnl / entry_notional * Decimal("100") if entry_notional else Decimal("0")
+        return net_pnl, pnl_pct, {
+            "currency": "USDT",
+            "gross_pnl": str(gross_pnl),
+            "fees": str(fees_usdt),
+            "allocation_count": len(allocations),
+            "exchange_pnl_fill_count": exchange_pnl_fills,
+            "entry_notional_usdt": str(entry_notional),
+        }
+
+    @staticmethod
+    def _to_usdt(
+        amount: Decimal,
+        currency: str,
+        price: Decimal,
+        *,
+        base_currency: str,
+        quote_currency: str,
+    ) -> Decimal | None:
+        if not currency:
+            return None
+        if currency in {"USDT", "USDC", "USD"} or currency == quote_currency:
+            return amount
+        if currency == base_currency:
+            return amount * price
+        return None
+
+    @staticmethod
+    def _contract_notional_usdt(
+        quantity: Decimal,
+        price: Decimal,
+        contract_unit: Decimal,
+        *,
+        contract_currency: str,
+        base_currency: str,
+    ) -> Decimal:
+        if contract_currency == base_currency:
+            return quantity * contract_unit * price
+        return quantity * contract_unit
+
     def _record_allocation_audit(
         self,
         position: LogicalPositionRecord,
@@ -494,27 +633,48 @@ class ExecutionAllocationService:
         confirmation_source: FillSource,
         execution_status: str,
     ) -> None:
+        allocation_metadata = self._allocation_metadata(allocation)
+        payload = {
+            "strategy_id": position.strategy_id,
+            "correlation_id": correlation_id,
+            "position_id": position.id,
+            "trade_id": position.trade_id,
+            "fill_id": allocation.id,
+            "exchange_order_id": allocation.exchange_order_id,
+            "action": allocation.action,
+            "quantity": allocation.quantity,
+            "price": allocation.price,
+            "fee": allocation.fee,
+            "fee_currency": allocation_metadata.get("fee_currency"),
+            "exchange_realized_pnl": allocation_metadata.get("exchange_realized_pnl"),
+            "exchange_realized_pnl_currency": allocation_metadata.get(
+                "exchange_realized_pnl_currency"
+            ),
+            "confirmation_source": confirmation_source,
+            "execution_status": execution_status,
+            "opened_quantity": position.opened_quantity,
+            "remaining_quantity": position.remaining_quantity,
+            "average_entry_price": position.entry_price,
+        }
+        if execution_status == "closed" and position.trade_id:
+            closed_trade = self.trade_store.get_trade(position.trade_id)
+            if closed_trade is not None:
+                try:
+                    trade_metadata = json.loads(closed_trade.metadata_json or "{}")
+                except json.JSONDecodeError:
+                    trade_metadata = {}
+                payload["realized_pnl"] = closed_trade.pnl
+                payload["realized_pnl_pct"] = closed_trade.pnl_pct
+                payload["realized_pnl_evidence"] = (
+                    trade_metadata.get("realized_pnl", {})
+                    if isinstance(trade_metadata, dict)
+                    else {}
+                )
         self.audit_store.create(
             id=f"allocation:{allocation.id}",
             type="position.allocation_confirmed",
             source="execution_allocation",
-            payload={
-                "strategy_id": position.strategy_id,
-                "correlation_id": correlation_id,
-                "position_id": position.id,
-                "trade_id": position.trade_id,
-                "fill_id": allocation.id,
-                "exchange_order_id": allocation.exchange_order_id,
-                "action": allocation.action,
-                "quantity": allocation.quantity,
-                "price": allocation.price,
-                "fee": allocation.fee,
-                "confirmation_source": confirmation_source,
-                "execution_status": execution_status,
-                "opened_quantity": position.opened_quantity,
-                "remaining_quantity": position.remaining_quantity,
-                "average_entry_price": position.entry_price,
-            },
+            payload=payload,
             created_at=allocation.created_at,
         )
 

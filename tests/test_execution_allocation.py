@@ -10,6 +10,7 @@ from src.trading.execution_allocation import (
 from src.trading.logical_position_store import LogicalPositionProtection, LogicalPositionRecord, LogicalPositionStore
 from src.trading.trade_store import TradeRecord, TradeStore
 from src.trading.position_rule_model import materialize_position_rule, normalize_default_rules
+from src.trading.instrument_metadata import InstrumentMetadataStore
 
 
 def _stores(tmp_path):
@@ -18,6 +19,15 @@ def _stores(tmp_path):
     position_store = LogicalPositionStore(db_path)
     audit_store = AuditEventStore(db_path)
     return trade_store, position_store, audit_store
+
+
+def _cache_linear_swap(db_path):
+    InstrumentMetadataStore(db_path).replace_type("SWAP", [{
+        "instId": "ETH-USDT-SWAP", "instType": "SWAP", "state": "live",
+        "baseCcy": "ETH", "quoteCcy": "USDT", "settleCcy": "USDT",
+        "ctType": "linear", "ctVal": "0.01", "ctValCcy": "ETH",
+        "ctMult": "1", "lotSz": "1", "minSz": "1", "tickSz": "0.1",
+    }])
 
 
 def test_execution_allocator_matches_order_and_handles_multiple_partial_fills(tmp_path):
@@ -76,6 +86,88 @@ def test_execution_allocator_matches_order_and_handles_multiple_partial_fills(tm
     assert duplicate.idempotent is True
     assert len(position_store.list_allocations("trade-a")) == 2
     assert len(audit_store.list(event_type="position.allocation_confirmed")) == 2
+
+
+def test_confirmed_allocations_canonicalize_partial_and_final_realized_pnl(tmp_path):
+    trade_store, position_store, audit_store = _stores(tmp_path)
+    _cache_linear_swap(trade_store.db_path)
+    trade_store.save_trade(TradeRecord(
+        id="pnl-long", strategy_id="strategy-a", inst_id="ETH-USDT-SWAP",
+        side="long", status="pending_open", entry_price=100,
+    ))
+    position_store.save(LogicalPositionRecord(
+        id="pnl-long", source="strategy", strategy_id="strategy-a",
+        trade_id="pnl-long", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=0, remaining_quantity=0, entry_price=100,
+        status="pending_open",
+    ))
+    service = ExecutionAllocationService(trade_store, position_store, audit_store)
+    service.ingest(ConfirmedExecutionFill(
+        fill_id="open", position_id="pnl-long", action="open", quantity=2,
+        price=100, fee=-0.001, confirmation_source="okx_fill",
+        metadata={"fee_currency": "USDT"},
+    ))
+    service.ingest(ConfirmedExecutionFill(
+        fill_id="partial", position_id="pnl-long", action="reduce", quantity=1,
+        price=110, fee=-0.001, confirmation_source="okx_fill",
+        metadata={
+            "fee_currency": "USDT", "exchange_realized_pnl": 0.1,
+            "exchange_realized_pnl_currency": "USDT",
+        },
+    ))
+    service.ingest(ConfirmedExecutionFill(
+        fill_id="final", position_id="pnl-long", action="close", quantity=1,
+        price=90, fee=-0.001, confirmation_source="okx_fill",
+        metadata={
+            "fee_currency": "USDT", "exchange_realized_pnl": -0.1,
+            "exchange_realized_pnl_currency": "USDT",
+        },
+    ))
+
+    restarted = TradeStore(trade_store.db_path).get_trade("pnl-long")
+    assert restarted.status == "closed"
+    assert restarted.pnl == pytest.approx(-0.003)
+    assert restarted.pnl_pct == pytest.approx(-0.15)
+    evidence = json.loads(restarted.metadata_json)["realized_pnl"]
+    assert evidence["status"] == "confirmed_allocations"
+    assert evidence["exchange_pnl_fill_count"] == 2
+    assert evidence["allocation_count"] == 3
+    final_audit = audit_store.list(
+        event_type="position.allocation_confirmed", position_id="pnl-long"
+    )[0]
+    assert final_audit.payload["realized_pnl"] == pytest.approx(-0.003)
+    assert final_audit.payload["realized_pnl_evidence"]["fees"] == "-0.003"
+
+
+def test_confirmed_short_pnl_falls_back_to_contract_metadata(tmp_path):
+    trade_store, position_store, audit_store = _stores(tmp_path)
+    _cache_linear_swap(trade_store.db_path)
+    trade_store.save_trade(TradeRecord(
+        id="pnl-short", inst_id="ETH-USDT-SWAP", side="short",
+        status="pending_open", entry_price=100,
+    ))
+    position_store.save(LogicalPositionRecord(
+        id="pnl-short", trade_id="pnl-short", inst_id="ETH-USDT-SWAP",
+        side="short", opened_quantity=0, remaining_quantity=0,
+        entry_price=100, status="pending_open",
+    ))
+    service = ExecutionAllocationService(trade_store, position_store, audit_store)
+    service.ingest(ConfirmedExecutionFill(
+        fill_id="short-open", position_id="pnl-short", action="open", quantity=2,
+        price=100, fee=-0.001, confirmation_source="dry_run",
+        metadata={"fee_currency": "USDT"},
+    ))
+    service.ingest(ConfirmedExecutionFill(
+        fill_id="short-close", position_id="pnl-short", action="close", quantity=2,
+        price=90, fee=-0.001, confirmation_source="dry_run",
+        metadata={"fee_currency": "USDT"},
+    ))
+
+    closed = trade_store.get_trade("pnl-short")
+    assert closed.pnl == pytest.approx(0.198)
+    assert closed.pnl_pct == pytest.approx(9.9)
+    evidence = json.loads(closed.metadata_json)["realized_pnl"]
+    assert evidence["exchange_pnl_fill_count"] == 0
 
 
 def test_confirmed_staged_reduce_disables_only_completed_target(tmp_path):

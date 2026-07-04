@@ -5182,6 +5182,17 @@
             "title": "Active Rules",
             "type": "array"
           },
+          "allocation_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocation Count"
+          },
           "btc_price_at_entry": {
             "anyOf": [
               {
@@ -5238,6 +5249,28 @@
             ],
             "title": "Exit Time"
           },
+          "fees": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fees"
+          },
+          "gross_pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Pnl"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -5261,6 +5294,17 @@
             ],
             "title": "Pnl"
           },
+          "pnl_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl Currency"
+          },
           "pnl_pct": {
             "anyOf": [
               {
@@ -5271,6 +5315,16 @@
               }
             ],
             "title": "Pnl Pct"
+          },
+          "pnl_reliable": {
+            "default": false,
+            "title": "Pnl Reliable",
+            "type": "boolean"
+          },
+          "pnl_source": {
+            "default": "legacy_price_delta",
+            "title": "Pnl Source",
+            "type": "string"
           },
           "side": {
             "title": "Side",
@@ -5312,6 +5366,17 @@
       },
       "TradeResponse": {
         "properties": {
+          "allocation_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocation Count"
+          },
           "btc_price_at_entry": {
             "anyOf": [
               {
@@ -5368,6 +5433,28 @@
             ],
             "title": "Exit Time"
           },
+          "fees": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fees"
+          },
+          "gross_pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Pnl"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -5391,6 +5478,17 @@
             ],
             "title": "Pnl"
           },
+          "pnl_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl Currency"
+          },
           "pnl_pct": {
             "anyOf": [
               {
@@ -5401,6 +5499,16 @@
               }
             ],
             "title": "Pnl Pct"
+          },
+          "pnl_reliable": {
+            "default": false,
+            "title": "Pnl Reliable",
+            "type": "boolean"
+          },
+          "pnl_source": {
+            "default": "legacy_price_delta",
+            "title": "Pnl Source",
+            "type": "string"
           },
           "side": {
             "title": "Side",

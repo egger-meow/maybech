@@ -47,6 +47,12 @@ def normalize_okx_fill(payload: dict[str, Any]) -> ConfirmedExecutionFill:
                 payload.get("feeCcy") or payload.get("fillFeeCcy") or ""
             ),
             "execution_type": str(payload.get("execType") or ""),
+            "exchange_realized_pnl": _optional_float(
+                payload.get("fillPnl"), field="fillPnl"
+            ),
+            "exchange_realized_pnl_currency": str(
+                payload.get("fillPnlCcy") or payload.get("settleCcy") or ""
+            ),
         },
     )
 
