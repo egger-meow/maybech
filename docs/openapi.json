@@ -2324,6 +2324,16 @@
               }
             ]
           },
+          "entry_client_order_id": {
+            "default": "",
+            "title": "Entry Client Order Id",
+            "type": "string"
+          },
+          "entry_exchange_order_id": {
+            "default": "",
+            "title": "Entry Exchange Order Id",
+            "type": "string"
+          },
           "entry_price": {
             "title": "Entry Price",
             "type": "number"

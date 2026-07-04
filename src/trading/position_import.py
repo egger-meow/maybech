@@ -157,11 +157,10 @@ class PositionRecoveryService:
             for group in report.groups:
                 if group.state == "under_allocated" and group.unexplained_quantity > 0:
                     if group.key in pending_keys:
-                        self._mark_manual_review(
-                            group,
-                            exchange_backed,
-                            reason="unexplained increase overlaps a pending Maybech open",
-                        )
+                        # OKX account state commonly arrives before the matching
+                        # private/REST fill. Defer attribution until the pending
+                        # open resolves; any genuine residual increase remains
+                        # under-allocated on the next reconciliation pass.
                         continue
                     created.append(self._create_recovery(group))
                 elif group.state in {"over_allocated", "no_exchange_position"}:
@@ -170,7 +169,35 @@ class PositionRecoveryService:
                         exchange_backed,
                         reason="OKX exposure decreased; logical-unit allocation is ambiguous",
                     )
+                elif group.state == "balanced":
+                    self._clear_pending_overlap_review(group, exchange_backed)
         return created
+
+    def _clear_pending_overlap_review(
+        self,
+        group: Any,
+        active: list[LogicalPositionRecord],
+    ) -> None:
+        obsolete_reason = "unexplained increase overlaps a pending Maybech open"
+        for position in active:
+            if self.reconciler.position_key(position.inst_id, position.side) != group.key:
+                continue
+            try:
+                metadata = json.loads(position.metadata_json or "{}")
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(metadata, dict) or metadata.get(
+                "reconciliation_review_reason"
+            ) != obsolete_reason:
+                continue
+            self.store.merge_metadata(position.id, {
+                "requires_manual_review": False,
+                "reconciliation_review_signature": "",
+                "reconciliation_review_reason": "",
+                "reconciliation_review_resolved_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
+            })
 
     @staticmethod
     def _is_dry_run(position: LogicalPositionRecord) -> bool:

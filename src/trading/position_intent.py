@@ -52,8 +52,15 @@ class PositionIntentPolicy:
         btc_regime: dict[str, Any] | None,
     ) -> PositionIntent:
         inst_id = str(position.get("inst_id") or position.get("instId") or "")
-        side = self._normalize_side(position.get("pos_side") or position.get("posSide") or "")
-        size = self._as_float(position.get("position") or position.get("pos"))
+        raw_side = position.get("pos_side") or position.get("posSide") or ""
+        side = self._normalize_side(raw_side)
+        signed_size = self._as_float(position.get("position") or position.get("pos")) or 0.0
+        if str(raw_side).lower() == "net" or side == "unknown":
+            if signed_size > 0:
+                side = "long"
+            elif signed_size < 0:
+                side = "short"
+        size = abs(signed_size)
         avg_price = self._as_float(position.get("avg_price") or position.get("avgPx"))
         mark_price = self._as_float(position.get("mark_price") or position.get("markPx"))
         leverage = self._as_float(position.get("leverage") or position.get("lever"))

@@ -417,6 +417,8 @@ export type LogicalPositionUnitResponse = {
   "status": string;
   "exchange_order_id"?: string;
   "client_order_id"?: string;
+  "entry_exchange_order_id"?: string;
+  "entry_client_order_id"?: string;
   "exchange_position_key"?: string;
   "metadata"?: Record<string, unknown>;
   "created_at": string;

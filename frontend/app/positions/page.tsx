@@ -455,7 +455,7 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
       )}
 
       <section className="distinction-grid">
-        <article className="panel unit-card"><h3>Maybech 邏輯單位</h3><p>規則、數量、稽核與委託識別都屬於這一個進場單位。</p><dl><div><dt>Client Order ID</dt><dd className="mono">{position.client_order_id || "尚無"}</dd></div><div><dt>Exchange Order ID</dt><dd className="mono">{position.exchange_order_id || "尚無"}</dd></div></dl></article>
+        <article className="panel unit-card"><h3>Maybech 邏輯單位</h3><p>規則、數量、稽核與委託識別都屬於這一個進場單位。</p><dl><div><dt>Entry Client Order ID</dt><dd className="mono">{position.entry_client_order_id || position.client_order_id || "尚無"}</dd></div><div><dt>Entry Exchange Order ID</dt><dd className="mono">{position.entry_exchange_order_id || position.exchange_order_id || "尚無"}</dd></div></dl></article>
         <article className="panel okx-card"><h3>OKX 淨部位快照</h3><p>交易所可能把多個 Maybech 單位合併顯示；此區只供對照，不擁有規則。</p>{position.okx_net_position ? <dl><div><dt>淨數量</dt><dd>{String(okx.pos ?? okx.position ?? "未知")}</dd></div><div><dt>平均價</dt><dd>{String(okx.avgPx ?? okx.average_price ?? "未知")}</dd></div><div><dt>對帳狀態</dt><dd>{String(object(position.reconciliation).state ?? "未知")}</dd></div></dl> : <div className="empty-state">沒有相符或足夠新鮮的 OKX 淨部位資料。</div>}</article>
       </section>
 

@@ -62,6 +62,31 @@ def test_position_intent_policy_closes_when_risk_is_elevated():
     assert intent.leverage == 12.0
 
 
+def test_position_intent_policy_infers_net_mode_side_from_signed_quantity():
+    policy = PositionIntentPolicy()
+    regime = {"direction": "bullish", "strength": "strong", "impulse": "up"}
+
+    long_intent = policy.evaluate(
+        position={
+            "instId": "ETH-USDT-SWAP", "posSide": "net", "pos": "1",
+            "avgPx": "100", "markPx": "101", "lever": "3", "liqPx": "70",
+        },
+        btc_regime=regime,
+    )
+    short_intent = policy.evaluate(
+        position={
+            "instId": "ETH-USDT-SWAP", "posSide": "net", "pos": "-1",
+            "avgPx": "100", "markPx": "99", "lever": "3", "liqPx": "130",
+        },
+        btc_regime={"direction": "bearish", "strength": "strong", "impulse": "down"},
+    )
+
+    assert long_intent.side == "long"
+    assert long_intent.action == "hold"
+    assert short_intent.side == "short"
+    assert short_intent.action == "hold"
+
+
 def test_position_intent_service_publishes_snapshot():
     service = PositionIntentService()
 

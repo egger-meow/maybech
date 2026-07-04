@@ -706,6 +706,25 @@ def test_recovery_does_not_duplicate_pending_maybech_open(tmp_path):
 
     assert recovery.reconcile(_exchange_position("2")) == []
     assert len(store.list_active()) == 1
+    pending = store.list_active()[0]
+    assert json.loads(pending.metadata_json).get("requires_manual_review") is not True
+
+    pending.opened_quantity = 2
+    pending.remaining_quantity = 2
+    pending.status = "open"
+    pending.metadata_json = json.dumps({
+        "requires_manual_review": True,
+        "reconciliation_review_reason": (
+            "unexplained increase overlaps a pending Maybech open"
+        ),
+        "reconciliation_review_signature": "under_allocated:2.0:0.0:2.0",
+    })
+    store.save(pending)
+
+    assert recovery.reconcile(_exchange_position("2")) == []
+    resolved = json.loads(store.get(pending.id).metadata_json)
+    assert resolved["requires_manual_review"] is False
+    assert resolved["reconciliation_review_reason"] == ""
 
 
 def test_recovery_does_not_treat_dry_run_quantity_as_exchange_backed(tmp_path):

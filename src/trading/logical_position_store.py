@@ -1670,13 +1670,14 @@ class LogicalPositionStore:
                 conn.execute(
                     """UPDATE logical_positions SET
                        opened_quantity = ?, remaining_quantity = ?, entry_price = ?,
-                       status = ?, updated_at = ?
+                       status = ?, metadata_json = ?, updated_at = ?
                        WHERE id = ?""",
                     (
                         position.opened_quantity,
                         position.remaining_quantity,
                         position.entry_price,
                         position.status,
+                        position.metadata_json,
                         position.updated_at,
                         position.id,
                     ),
@@ -1725,12 +1726,13 @@ class LogicalPositionStore:
                 conn.execute(
                     """UPDATE logical_positions SET
                        opened_quantity = ?, remaining_quantity = ?, entry_price = ?,
-                       status = ?, updated_at = ? WHERE id = ?""",
+                       status = ?, metadata_json = ?, updated_at = ? WHERE id = ?""",
                     (
                         position.opened_quantity,
                         position.remaining_quantity,
                         position.entry_price,
                         position.status,
+                        position.metadata_json,
                         position.updated_at,
                         position.id,
                     ),
@@ -1944,6 +1946,33 @@ class LogicalPositionStore:
         allocation: LogicalPositionAllocation,
     ) -> None:
         if allocation.action == "open":
+            metadata = _json_loads(position.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            allocation_metadata = _json_loads(allocation.metadata_json, {})
+            if not isinstance(allocation_metadata, dict):
+                allocation_metadata = {}
+            exchange_order_id = allocation.exchange_order_id
+            client_order_id = str(
+                allocation_metadata.get("client_order_id") or position.client_order_id
+            )
+            fill_ids = list(metadata.get("entry_fill_ids") or [])
+            exchange_ids = list(metadata.get("entry_exchange_order_ids") or [])
+            client_ids = list(metadata.get("entry_client_order_ids") or [])
+            if allocation.id not in fill_ids:
+                fill_ids.append(allocation.id)
+            if exchange_order_id and exchange_order_id not in exchange_ids:
+                exchange_ids.append(exchange_order_id)
+            if client_order_id and client_order_id not in client_ids:
+                client_ids.append(client_order_id)
+            metadata.update({
+                "entry_fill_ids": fill_ids,
+                "entry_exchange_order_ids": exchange_ids,
+                "entry_client_order_ids": client_ids,
+                "entry_exchange_order_id": exchange_ids[0] if exchange_ids else "",
+                "entry_client_order_id": client_ids[0] if client_ids else "",
+            })
+            position.metadata_json = _json_dumps(metadata)
             base = position.opened_quantity or 0.0
             total = round(base + allocation.quantity, 12)
             if allocation.price is not None and total > 0:

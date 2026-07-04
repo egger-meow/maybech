@@ -395,6 +395,10 @@ def test_execution_allocator_recovers_position_by_client_order_id(tmp_path):
     assert result.position.status == "open"
     assert result.position.opened_quantity == 0.1
     assert position_store.list_allocations("unit-a")[0].exchange_order_id == "order-a"
+    metadata = json.loads(position_store.get("unit-a").metadata_json)
+    assert metadata["entry_fill_ids"] == ["fill-a"]
+    assert metadata["entry_exchange_order_id"] == "order-a"
+    assert metadata["entry_client_order_id"] == "entryclient1"
 
 
 def test_emergency_close_fill_waits_for_late_open_fill(tmp_path):

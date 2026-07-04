@@ -923,6 +923,8 @@ class LogicalPositionUnitResponse(BaseModel):
     status: str
     exchange_order_id: str = ""
     client_order_id: str = ""
+    entry_exchange_order_id: str = ""
+    entry_client_order_id: str = ""
     exchange_position_key: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
