@@ -239,7 +239,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    removing this item.
 
 18. Localize all operator-facing protection lifecycle controls consistently in
-   Traditional Chinese. Position Management currently mixes the Chinese shell
+   Traditional Chinese(some english ok but mainly chinese). Position Management currently mixes the Chinese shell
    with English sections and statuses such as `Automatic cost-adjusted
    break-even`, `Activation profit`, `Persisted target stop`, `applied`, and
    the optional trailing lifecycle. Translate labels, state, validation,
