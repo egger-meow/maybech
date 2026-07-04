@@ -295,6 +295,33 @@ def test_risk_quote_api_returns_structured_stop_proposal(monkeypatch, tmp_path):
     assert body["stop_expression"]["type"] == "price_below"
 
 
+def test_low_price_risk_quote_preserves_tick_scale_end_to_end(monkeypatch, tmp_path):
+    payload = _instrument("XRP-USDT-SWAP")
+    payload.update({
+        "baseCcy": "XRP", "ctVal": "1", "ctValCcy": "XRP",
+        "tickSz": "0.0001", "lotSz": "1", "minSz": "1",
+    })
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    store.replace_type("SWAP", [payload])
+    monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner(), api_token=""))
+
+    response = client.post(
+        "/instruments/XRP-USDT-SWAP/risk-quote",
+        json={
+            "mode": "chart_anchored", "entry_price": "0.1647", "side": "long",
+            "allowed_loss_usdt": "10", "stop_price": "0.1593",
+            "timeframe": "15m",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entry_price"] == "0.1647"
+    assert body["stop_price"] == "0.1593"
+    assert body["stop_expression"]["value"] == pytest.approx(0.1593)
+
+
 def test_instrument_sizer_handles_quote_denominated_contracts(tmp_path):
     payload = _instrument("BTC-USD-SWAP")
     payload.update({"settleCcy": "BTC", "ctVal": "100", "ctValCcy": "USD"})

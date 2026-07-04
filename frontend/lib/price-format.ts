@@ -3,7 +3,7 @@ export function fallbackPricePrecision(value: number | null | undefined): number
   if (absolute >= 1000) return 2;
   if (absolute >= 1) return 4;
   if (absolute >= 0.01) return 6;
-  return 8;
+  return 10;
 }
 
 export function formatPrice(
@@ -13,8 +13,8 @@ export function formatPrice(
   if (value == null || !Number.isFinite(value)) return "—";
   const digits = precision ?? fallbackPricePrecision(value);
   return new Intl.NumberFormat("zh-TW", {
-    minimumFractionDigits: Math.min(digits, 8),
-    maximumFractionDigits: Math.min(digits, 8),
+    minimumFractionDigits: Math.min(digits, 20),
+    maximumFractionDigits: Math.min(digits, 20),
     useGrouping: true,
   }).format(value);
 }

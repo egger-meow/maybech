@@ -7,6 +7,7 @@ import { AlertTriangle, CandlestickChart, CirclePlus, RotateCcw, Save, ShieldAle
 import ExpressionEditor, { type SignalExpression } from "@/components/ExpressionEditor";
 import InstrumentSelector from "@/components/InstrumentSelector";
 import RuntimeModeBanner from "@/components/RuntimeModeBanner";
+import { formatPrice } from "@/lib/price-format";
 import {
   ApiError,
   adoptRecoveredLogicalPosition,
@@ -162,7 +163,7 @@ function PositionListItem({ position, selected, onSelect }: { position: LogicalP
   );
 }
 
-function MiniChart({ chart }: { chart: LogicalPositionChartResponse }) {
+function MiniChart({ chart, pricePrecision }: { chart: LogicalPositionChartResponse; pricePrecision?: number | null }) {
   const width = 900; const height = 260; const pad = 26;
   const candles = chart.candles ?? [];
   const prices = [...candles.flatMap((candle) => [candle.high, candle.low]), ...(chart.overlays ?? []).map((overlay) => overlay.price)];
@@ -176,14 +177,14 @@ function MiniChart({ chart }: { chart: LogicalPositionChartResponse }) {
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${chart.inst_id} 部位 K 線與規則價位`}>
         <rect width={width} height={height} rx="16" fill="var(--bg-primary)" />
         {candles.map((candle, index) => { const x = pad + step * index + step / 2; const up = candle.close >= candle.open; const color = up ? "#10b981" : "#ef4444"; return <g key={candle.timestamp}><line x1={x} x2={x} y1={y(candle.high)} y2={y(candle.low)} stroke={color} strokeWidth="1.5" /><rect x={x - bodyWidth / 2} y={Math.min(y(candle.open), y(candle.close))} width={bodyWidth} height={Math.max(2, Math.abs(y(candle.open) - y(candle.close)))} rx="1" fill={color} /></g>; })}
-        {(chart.overlays ?? []).filter((overlay) => overlay.kind !== "execution").map((overlay, index) => <g key={`${overlay.kind}-${index}`}><line x1={pad} x2={width - pad} y1={y(overlay.price)} y2={y(overlay.price)} stroke={overlayColors[overlay.kind] ?? "#64748b"} strokeWidth="1.5" strokeDasharray="6 4" /><text x={width - pad - 4} y={y(overlay.price) - 5} textAnchor="end" fill={overlayColors[overlay.kind] ?? "#64748b"} fontSize="11" fontWeight="700">{overlay.label} {number(overlay.price)}</text></g>)}
+        {(chart.overlays ?? []).filter((overlay) => overlay.kind !== "execution").map((overlay, index) => <g key={`${overlay.kind}-${index}`}><line x1={pad} x2={width - pad} y1={y(overlay.price)} y2={y(overlay.price)} stroke={overlayColors[overlay.kind] ?? "#64748b"} strokeWidth="1.5" strokeDasharray="6 4" /><text x={width - pad - 4} y={y(overlay.price) - 5} textAnchor="end" fill={overlayColors[overlay.kind] ?? "#64748b"} fontSize="11" fontWeight="700">{overlay.label} {formatPrice(overlay.price, pricePrecision)}</text></g>)}
       </svg>
-      <div className="chart-legend">{(chart.overlays ?? []).map((overlay, index) => <span key={`${overlay.kind}-${index}`}><i style={{ background: overlayColors[overlay.kind] ?? "#64748b" }} />{overlay.label}: {number(overlay.price)}</span>)}</div>
+      <div className="chart-legend">{(chart.overlays ?? []).map((overlay, index) => <span key={`${overlay.kind}-${index}`}><i style={{ background: overlayColors[overlay.kind] ?? "#64748b" }} />{overlay.label}: {formatPrice(overlay.price, pricePrecision)}</span>)}</div>
     </div>
   );
 }
 
-function RuleEditor({ position, condition, onSaved, onCancel }: { position: LogicalPositionUnit; condition?: LogicalPositionCloseCondition; onSaved: () => Promise<unknown>; onCancel?: () => void }) {
+function RuleEditor({ position, condition, onSaved, onCancel, tickSize }: { position: LogicalPositionUnit; condition?: LogicalPositionCloseCondition; onSaved: () => Promise<unknown>; onCancel?: () => void; tickSize?: string }) {
   const initialDefinition = object(condition?.rule_definition);
   const initialParameters = object(initialDefinition.parameters);
   const initialAction = object(initialDefinition.action);
@@ -213,7 +214,7 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
     ? { type: "reduce_position", quantity_fraction: Number(reducePct) / 100, quantity_basis: "remaining" }
     : { type: "close_position" };
   const typedParameters = style === "fixed_percent" ? { offset_pct: String(offset) } : { target_price: String(targetPrice) };
-  const typedEvidence = { source: "operator_position_rule_editor" };
+  const typedEvidence = { source: "operator_position_rule_editor", tick_size: tickSize ?? null };
   const typedMetadata = { ...object(condition?.metadata), parameters: typedParameters, evidence: typedEvidence, rule_definition: { schema_version: 1, purpose, style, enabled, trigger: typedExpression, action: typedAction, parameters: typedParameters, evidence: typedEvidence } };
   const rulePrice = typedPurpose && Number.isFinite(typedPrice) && typedPrice > 0 ? String(typedPrice) : !Array.isArray(expression.conditions) && Number(expression.value) > 0 ? String(expression.value) : "";
   const ruleQuote = useSWR(
@@ -260,7 +261,7 @@ function RuleEditor({ position, condition, onSaved, onCancel }: { position: Logi
       </div>
       {typedPurpose ? <div className="typed-rule-grid">
         <label className="field"><span>計算方式</span><select value={style === "fixed_percent" ? "fixed_percent" : "fixed_price"} onChange={(event) => { setStyle(event.target.value); setDirty(true); }}><option value="fixed_percent">依確認進場價百分比</option><option value="fixed_price">固定價格</option></select></label>
-        {style === "fixed_percent" ? <label className="field"><span>{purpose === "stop_loss" ? "停損距離" : "獲利目標"}</span><span className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={offsetPct} onChange={(event) => { setOffsetPct(event.target.value); setDirty(true); }} /><small>%</small></span></label> : <label className="field"><span>{purpose === "stop_loss" ? "停損價" : "停利價"}</span><input type="number" min="0" step="any" value={targetPrice} onChange={(event) => { setTargetPrice(event.target.value); setDirty(true); }} /></label>}
+        {style === "fixed_percent" ? <label className="field"><span>{purpose === "stop_loss" ? "停損距離" : "獲利目標"}</span><span className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={offsetPct} onChange={(event) => { setOffsetPct(event.target.value); setDirty(true); }} /><small>%</small></span></label> : <label className="field"><span>{purpose === "stop_loss" ? "停損價" : "停利價"}</span><input type="number" min="0" step={tickSize ?? "any"} value={targetPrice} onChange={(event) => { setTargetPrice(event.target.value); setDirty(true); }} /></label>}
         {purpose === "take_profit" && <label className="check-field"><input type="checkbox" checked={reduceOnly} onChange={(event) => { setReduceOnly(event.target.checked); setDirty(true); }} /> 只減倉並保留剩餘部位</label>}
         {purpose === "take_profit" && reduceOnly && <label className="field"><span>減倉比例</span><span className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={reducePct} onChange={(event) => { setReducePct(event.target.value); setDirty(true); }} /><small>%</small></span></label>}
         <div className="inline-warning">相對百分比以此邏輯部位的確認進場均價計算；受保護停損會先完成交易所修改確認，再更新型別化規則 metadata。</div>
@@ -386,7 +387,7 @@ function TrailingLifecycle({ position, refresh }: { position: LogicalPositionUni
   </div>;
 }
 
-function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; refresh: () => Promise<unknown> }) {
+function PositionDetail({ position, refresh, instrumentMetadata }: { position: LogicalPositionUnit; refresh: () => Promise<unknown>; instrumentMetadata?: InstrumentMetadataResponse }) {
   const chart = useSWR(["position-chart", position.id], () => getLogicalPositionChart(position.id, { bar: "1m", limit: 100 }), { refreshInterval: 15_000 });
   const [newRule, setNewRule] = useState(false);
   const [reduceQuantity, setReduceQuantity] = useState("");
@@ -395,6 +396,8 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
   const [error, setError] = useState("");
   const currentPrice = chart.data?.overlays?.find((overlay) => overlay.kind === "current")?.price;
   const remaining = position.remaining_quantity ?? 0;
+  const pricePrecision = instrumentMetadata?.price_precision;
+  const tickSize = instrumentMetadata?.tick_size;
   const positionQuote = useSWR(
     remaining > 0 && position.entry_price > 0 ? ["position-detail-quote", position.id, remaining, position.entry_price] : null,
     () => quoteInstrumentContracts(position.inst_id, { api_quantity_contracts: String(remaining), entry_price: String(position.entry_price), side: position.side as "long" | "short", rule_price: null }),
@@ -437,7 +440,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
     <div className="position-detail">
       <section className="panel position-hero">
         <div className="position-title"><div><div className="status-row"><h2>{position.inst_id}</h2><span className={`badge ${position.side === "long" ? "success" : "danger"}`}>{position.side === "long" ? "做多 LONG" : "做空 SHORT"}</span><span className="badge info">{position.status}</span></div><p className="mono">Maybech 單位：{position.id}</p></div><div className="position-metric"><small>未實現損益估算</small><strong className={pnlPct != null && pnlPct >= 0 ? "positive" : "negative"}>{pnlPct == null ? "資料不足" : `${pnlPct >= 0 ? "+" : ""}${number(pnlPct, 2)}%`}</strong></div></div>
-        <div className="metric-grid"><div><small>進場價</small><strong>{number(position.entry_price)}</strong></div><div><small>目前價</small><strong>{number(currentPrice)}</strong></div><div><small>剩餘操作者幣量</small><strong>{positionQuote.data ? `${positionQuote.data.display_quantity} ${positionQuote.data.display_currency}` : "資料不足"}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
+        <div className="metric-grid"><div><small>進場價</small><strong>{formatPrice(position.entry_price, pricePrecision)}</strong></div><div><small>目前價</small><strong>{formatPrice(currentPrice, pricePrecision)}</strong></div><div><small>剩餘操作者幣量</small><strong>{positionQuote.data ? `${positionQuote.data.display_quantity} ${positionQuote.data.display_currency}` : "資料不足"}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
       </section>
       {metadata.requires_manual_review === true && <div className="error-state"><AlertTriangle size={17} /> 此單位需要人工對帳：{String(metadata.reconciliation_review_reason ?? metadata.recovery_reason ?? "來源或數量尚未確認")}。系統不會猜測外部減倉應分配到哪一個邏輯單位。</div>}
       {position.source === "recovery" && metadata.requires_manual_review === true && !metadata.reconciliation_review_reason && (
@@ -458,12 +461,12 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
 
       <section className="panel">
         <div className="panel-heading"><div><h2><CandlestickChart size={20} /> 部位價格脈絡</h2><p>進場、目前價、停損、停利與已確認成交均來自真實 API 資料。</p></div>{chart.data && <span className={`badge ${stale(chart.data.fetched_at) ? "danger" : "success"}`}>{stale(chart.data.fetched_at) ? "資料過期" : "資料新鮮"}</span>}</div>
-        {chart.error ? <div className="error-state">K 線 API 無法使用，畫面不會推測目前價格。</div> : !chart.data ? <div className="loading-state">讀取 K 線與價位標記…</div> : <MiniChart chart={chart.data} />}
+        {chart.error ? <div className="error-state">K 線 API 無法使用，畫面不會推測目前價格。</div> : !chart.data ? <div className="loading-state">讀取 K 線與價位標記…</div> : <MiniChart chart={chart.data} pricePrecision={pricePrecision} />}
       </section>
 
       <section className="panel">
         <div className="panel-heading"><div><h2>擁有的交易所保護</h2><p>每個仍有真實曝險的邏輯單位應擁有一筆數量完全相符的 OKX 保護停損。</p></div>{position.protection?.status === "active" ? <span className="protection-state good"><ShieldCheck size={19} /> 保護有效</span> : <span className="protection-state bad"><ShieldAlert size={19} /> {position.protection?.status ?? "沒有保護"}</span>}</div>
-        {position.protection ? <div className="metric-grid"><div><small>停損價</small><strong>{number(position.protection.stop_loss)}</strong></div><div><small>保護數量</small><strong>{number(position.protection.quantity)}</strong></div><div><small>Algo ID</small><strong className="mono">{position.protection.algo_id}</strong></div><div><small>觸發委託</small><strong className="mono">{position.protection.trigger_order_id || "尚未觸發"}</strong></div></div> : <div className="error-state">此單位沒有可見的 OKX 保護紀錄。</div>}
+        {position.protection ? <div className="metric-grid"><div><small>停損價</small><strong>{formatPrice(position.protection.stop_loss, pricePrecision)}</strong></div><div><small>保護數量</small><strong>{number(position.protection.quantity)}</strong></div><div><small>Algo ID</small><strong className="mono">{position.protection.algo_id}</strong></div><div><small>觸發委託</small><strong className="mono">{position.protection.trigger_order_id || "尚未觸發"}</strong></div></div> : <div className="error-state">此單位沒有可見的 OKX 保護紀錄。</div>}
         <div className="form-actions"><button type="button" className="btn btn-outline" disabled={Boolean(busyAction) || position.status !== "open"} onClick={protect}><RotateCcw size={15} /> {busyAction === "protect" ? "驗證中…" : "重試／驗證保護"}</button><button type="button" className="btn btn-outline" disabled={Boolean(busyAction) || position.status !== "open" || position.protection?.status !== "active"} onClick={breakEven}><ShieldCheck size={15} /> {busyAction === "break-even" ? "修改中…" : "移至保本／鎖利"}</button></div>
         <BreakEvenLifecycle position={position} refresh={refresh} />
         <TrailingLifecycle position={position} refresh={refresh} />
@@ -471,7 +474,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
 
       <section className="panel">
         <div className="panel-heading"><div><h2>單位專屬出場規則</h2><p>支援 AND、OR 與括號群組；規則只管理這一個 Maybech 邏輯單位。</p></div><button type="button" className="btn btn-outline" onClick={() => setNewRule(true)}><CirclePlus size={15} /> 新增規則</button></div>
-        <div className="rule-stack">{position.close_conditions?.filter((condition) => !["break_even", "trailing"].includes(condition.purpose ?? "")).map((condition) => <RuleEditor key={`${condition.id}-${condition.updated_at}`} position={position} condition={condition} onSaved={refresh} />)}{newRule && <RuleEditor position={position} onSaved={refresh} onCancel={() => setNewRule(false)} />}{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
+        <div className="rule-stack">{position.close_conditions?.filter((condition) => !["break_even", "trailing"].includes(condition.purpose ?? "")).map((condition) => <RuleEditor key={`${condition.id}-${condition.updated_at}`} position={position} condition={condition} onSaved={refresh} tickSize={tickSize} />)}{newRule && <RuleEditor position={position} onSaved={refresh} onCancel={() => setNewRule(false)} tickSize={tickSize} />}{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
       </section>
 
       <section className="panel danger-zone action-zone">
@@ -480,7 +483,7 @@ function PositionDetail({ position, refresh }: { position: LogicalPositionUnit; 
       </section>
       {error && <div className="error-state"><AlertTriangle size={17} /> {error}</div>}
 
-      <section className="panel"><div className="panel-heading"><div><h2>確認成交與稽核證據</h2><p>委託送出不等於成交；以下 allocation 才會改變邏輯數量。</p></div></div><div className="evidence-grid">{position.allocations?.map((allocation, index) => { const item = object(allocation); return <article key={String(item.id ?? index)}><span className="badge info">{String(item.action ?? "fill")}</span><strong>{number(Number(item.quantity))} @ {number(Number(item.price))}</strong><small className="mono">{String(item.exchange_order_id ?? "")}</small></article>; })}{!position.allocations?.length && <div className="empty-state">尚無可顯示的確認成交 allocation。</div>}</div></section>
+      <section className="panel"><div className="panel-heading"><div><h2>確認成交與稽核證據</h2><p>委託送出不等於成交；以下 allocation 才會改變邏輯數量。</p></div></div><div className="evidence-grid">{position.allocations?.map((allocation, index) => { const item = object(allocation); return <article key={String(item.id ?? index)}><span className="badge info">{String(item.action ?? "fill")}</span><strong>{number(Number(item.quantity))} @ {formatPrice(Number(item.price), pricePrecision)}</strong><small className="mono">{String(item.exchange_order_id ?? "")}</small></article>; })}{!position.allocations?.length && <div className="empty-state">尚無可顯示的確認成交 allocation。</div>}</div></section>
     </div>
   );
 }
@@ -502,7 +505,7 @@ export default function PositionsPage() {
       {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> OKX 商品快取已過期，數量換算與手動建立已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>立即更新商品資料</button></div>}
       {error && <div className="error-state">邏輯部位 API 無法使用。畫面不會使用假資料，所有交易操作已停用。</div>}
       {isLoading && <div className="loading-state">正在讀取邏輯部位…</div>}
-      {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={`${selected.id}-${selected.updated_at}`} position={selected} refresh={mutate} /> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}
+      {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={`${selected.id}-${selected.updated_at}`} position={selected} refresh={mutate} instrumentMetadata={catalog.data?.items.find((item) => item.inst_id === selected.inst_id)} /> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}
     </div>
   );
 }

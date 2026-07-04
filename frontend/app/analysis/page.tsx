@@ -30,7 +30,7 @@ function AnalysisChart({ candles, analysis }: { candles: MarketCandlesResponse; 
   </svg></div>;
 }
 
-function RiskSizing({ instrument, bar, latestPrice, selectedStop, selectedLevel, analysisState, evaluatedAt, entryFeePct, exitFeePct, slippagePct }: { instrument: string; bar: string; latestPrice?: number | null; selectedStop?: number | null; selectedLevel?: ResearchLevel | null; analysisState: string; evaluatedAt?: string; entryFeePct: string; exitFeePct: string; slippagePct: string }) {
+function RiskSizing({ instrument, bar, latestPrice, selectedStop, selectedLevel, analysisState, evaluatedAt, entryFeePct, exitFeePct, slippagePct, pricePrecision }: { instrument: string; bar: string; latestPrice?: number | null; selectedStop?: number | null; selectedLevel?: ResearchLevel | null; analysisState: string; evaluatedAt?: string; entryFeePct: string; exitFeePct: string; slippagePct: string; pricePrecision?: number | null }) {
   const [mode, setMode] = useState<"fixed_loss" | "chart_anchored">("chart_anchored");
   const [side, setSide] = useState<"long" | "short">("long");
   const [entry, setEntry] = useState("");
@@ -63,7 +63,7 @@ function RiskSizing({ instrument, bar, latestPrice, selectedStop, selectedLevel,
   const promote = async () => {
     if ((!selectedPosition && !selectedStrategy) || !quote.data || !proposalEligible) return;
     const targetLabel = selectedPosition ? `logical position ${selectedPosition.id}` : `strategy ${selectedStrategy?.id}`;
-    if (!confirm(`Promote reviewed stop ${quote.data.stop_price} to ${targetLabel}?`)) return;
+    if (!confirm(`Promote reviewed stop ${formatPrice(Number(quote.data.stop_price), pricePrecision)} to ${targetLabel}?`)) return;
     setPromotionState("Promoting…");
     try {
       if (selectedPosition) {
@@ -126,12 +126,12 @@ export default function AnalysisPage() {
       <section className={`analysis-state ${stateClass}`}><div><strong>{stateClass === "fresh" ? "資料新鮮" : stateClass === "stale" ? "資料過期" : stateClass === "partial" ? "資料不完整" : "資料不可用"}</strong><p>最近 K 線：{analysis.data.freshness.latest_candle_at ? new Date(analysis.data.freshness.latest_candle_at).toLocaleString("zh-TW") : "無"} · 年齡 {format(analysis.data.freshness.age_seconds, 0)} 秒</p></div><span className={`badge ${stateClass === "stale" || stateClass === "unavailable" ? "danger" : "info"}`}>{stateClass}</span></section>
       {(analysis.data.errors ?? []).length > 0 && <div className="analysis-warnings">{analysis.data.errors?.map((error) => <div key={error}><AlertTriangle size={15} />{error}</div>)}</div>}
       <div className="analysis-context"><strong>BTC 市場環境</strong><span>{String(analysis.data.context?.btc_direction ?? "unknown")}</span><small>只調整研究證據權重，不直接控制交易。</small></div>
-      <section className="analysis-metrics"><article className="panel"><Database size={20} /><small>可用 / 輸入 K 線</small><strong>{analysis.data.quality.usable_candles} / {analysis.data.quality.input_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>研究層級</small><strong>{sortedLevels.length}</strong></article><article className="panel"><ShieldAlert size={20} /><small>缺漏 / 重複</small><strong>{analysis.data.quality.missing_candles} / {analysis.data.quality.duplicate_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>ATR 波動</small><strong>{format(analysis.data.volatility_atr)}</strong></article></section>
+      <section className="analysis-metrics"><article className="panel"><Database size={20} /><small>可用 / 輸入 K 線</small><strong>{analysis.data.quality.usable_candles} / {analysis.data.quality.input_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>研究層級</small><strong>{sortedLevels.length}</strong></article><article className="panel"><ShieldAlert size={20} /><small>缺漏 / 重複</small><strong>{analysis.data.quality.missing_candles} / {analysis.data.quality.duplicate_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>ATR 波動</small><strong>{formatPrice(analysis.data.volatility_atr, analysis.data.price_precision)}</strong></article></section>
       <section className="panel"><div className="panel-heading"><div><h2><BarChart3 size={20} /> K 線與研究層級</h2><p>圓圈大小反映證據分數；虛線不是停損或停利命令。</p></div></div>{candles.error ? <div className="error-state">K 線圖不可用。</div> : candles.data ? <AnalysisChart candles={candles.data} analysis={analysis.data} /> : <div className="loading-state">正在繪製 K 線…</div>}</section>
       <section className="panel"><div className="panel-heading"><div><h2>層級證據</h2><p>選取結構失效層級作為停損錨點；失效、衝突或過期證據會進入人工檢查且不可推廣。</p></div></div><div className="analysis-levels">{sortedLevels.map((level) => <ResearchLevelCard key={`${level.kind}-${level.price}`} level={level} selected={selectedStop === level.price} onSelect={() => setSelectedStop(level.price)} pricePrecision={analysis.data?.price_precision} />)}{!sortedLevels.length && <div className="empty-state">目前資料沒有形成可顯示的研究層級。</div>}</div></section>
       <div className="analysis-boundary"><ShieldAlert size={18} /><div><strong>研究與實盤隔離</strong><p>這些標記不能直接送出訂單，也不會靜默建立平倉規則。實盤價格邏輯必須另行儲存為有版本保護的策略或邏輯部位規則。</p></div></div>
     </>}
     {analysis.data && <RiskCostAssumptions entryFeePct={entryFeePct} exitFeePct={exitFeePct} slippagePct={slippagePct} onEntryFee={setEntryFeePct} onExitFee={setExitFeePct} onSlippage={setSlippagePct} />}
-    {analysis.data && <RiskSizing instrument={instrument} bar={bar} latestPrice={analysis.data.latest_price} selectedStop={selectedStop} selectedLevel={selectedLevel} analysisState={stateClass} evaluatedAt={analysis.data.freshness.evaluated_at} entryFeePct={entryFeePct} exitFeePct={exitFeePct} slippagePct={slippagePct} />}
+    {analysis.data && <RiskSizing instrument={instrument} bar={bar} latestPrice={analysis.data.latest_price} selectedStop={selectedStop} selectedLevel={selectedLevel} analysisState={stateClass} evaluatedAt={analysis.data.freshness.evaluated_at} entryFeePct={entryFeePct} exitFeePct={exitFeePct} slippagePct={slippagePct} pricePrecision={analysis.data.price_precision} />}
   </div>;
 }
