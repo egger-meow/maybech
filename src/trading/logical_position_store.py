@@ -1127,13 +1127,15 @@ class LogicalPositionStore:
             metadata = _json_loads(row["metadata_json"], {})
             if not isinstance(metadata, dict):
                 metadata = {}
-            metadata.update(values)
+            merged_metadata = {**metadata, **values}
+            if merged_metadata == metadata:
+                return self.get(position_id)
             conn.execute(
                 """UPDATE logical_positions
                    SET metadata_json = ?, updated_at = ?
                    WHERE id = ?""",
                 (
-                    _json_dumps(metadata),
+                    _json_dumps(merged_metadata),
                     datetime.now(timezone.utc).isoformat(),
                     position_id,
                 ),
@@ -1864,15 +1866,23 @@ class LogicalPositionStore:
         next_expression = expression if expression is not None else condition.expression
         next_enabled = enabled if enabled is not None else condition.enabled
         next_metadata = metadata if metadata is not None else condition.metadata
-        condition.purpose = next_purpose
-        condition.expression_json = _json_dumps(next_expression)
-        condition.enabled = next_enabled
-        condition.metadata_json = _json_dumps(normalize_position_rule(
+        normalized_metadata = normalize_position_rule(
             purpose=next_purpose,
             expression=next_expression,
             enabled=next_enabled,
             metadata=next_metadata,
-        ))
+        )
+        if (
+            next_purpose == condition.purpose
+            and next_expression == condition.expression
+            and next_enabled == condition.enabled
+            and normalized_metadata == condition.metadata
+        ):
+            return condition
+        condition.purpose = next_purpose
+        condition.expression_json = _json_dumps(next_expression)
+        condition.enabled = next_enabled
+        condition.metadata_json = _json_dumps(normalized_metadata)
         self.save_close_condition(condition)
         return self.get_close_condition(position_id, condition_id)
 

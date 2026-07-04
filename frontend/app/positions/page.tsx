@@ -474,7 +474,7 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
 
       <section className="panel">
         <div className="panel-heading"><div><h2>單位專屬出場規則</h2><p>支援 AND、OR 與括號群組；規則只管理這一個 Maybech 邏輯單位。</p></div><button type="button" className="btn btn-outline" onClick={() => setNewRule(true)}><CirclePlus size={15} /> 新增規則</button></div>
-        <div className="rule-stack">{position.close_conditions?.filter((condition) => !["break_even", "trailing"].includes(condition.purpose ?? "")).map((condition) => <RuleEditor key={`${condition.id}-${condition.updated_at}`} position={position} condition={condition} onSaved={refresh} tickSize={tickSize} />)}{newRule && <RuleEditor position={position} onSaved={refresh} onCancel={() => setNewRule(false)} tickSize={tickSize} />}{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
+        <div className="rule-stack">{position.close_conditions?.filter((condition) => !["break_even", "trailing"].includes(condition.purpose ?? "")).map((condition) => <RuleEditor key={condition.id} position={position} condition={condition} onSaved={refresh} tickSize={tickSize} />)}{newRule && <RuleEditor position={position} onSaved={refresh} onCancel={() => setNewRule(false)} tickSize={tickSize} />}{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
       </section>
 
       <section className="panel danger-zone action-zone">
@@ -505,7 +505,7 @@ export default function PositionsPage() {
       {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> OKX 商品快取已過期，數量換算與手動建立已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>立即更新商品資料</button></div>}
       {error && <div className="error-state">邏輯部位 API 無法使用。畫面不會使用假資料，所有交易操作已停用。</div>}
       {isLoading && <div className="loading-state">正在讀取邏輯部位…</div>}
-      {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={`${selected.id}-${selected.updated_at}`} position={selected} refresh={mutate} instrumentMetadata={catalog.data?.items.find((item) => item.inst_id === selected.inst_id)} /> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}
+      {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={selected.id} position={selected} refresh={mutate} instrumentMetadata={catalog.data?.items.find((item) => item.inst_id === selected.inst_id)} /> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}
     </div>
   );
 }

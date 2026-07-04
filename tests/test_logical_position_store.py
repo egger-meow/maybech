@@ -51,6 +51,35 @@ def test_logical_position_store_records_schema_version(tmp_path):
     assert store.applied_schema_versions() == [2, 3, 4, 5, 6, 7]
 
 
+def test_evidence_equivalent_updates_do_not_advance_editor_revisions(tmp_path):
+    store = LogicalPositionStore(str(tmp_path / "positions.db"))
+    store.save(LogicalPositionRecord(
+        id="draft-unit", inst_id="ETH-USDT-SWAP", side="long",
+        opened_quantity=1, remaining_quantity=1, entry_price=100,
+        metadata_json='{"reconciliation":"balanced"}',
+    ))
+    condition = store.create_close_condition(
+        id="draft-stop", position_id="draft-unit", purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 90},
+        metadata={"source": "operator"},
+    )
+    position_revision = store.get("draft-unit").updated_at
+    condition_revision = condition.updated_at
+
+    store.merge_metadata("draft-unit", {"reconciliation": "balanced"})
+    store.update_close_condition(
+        "draft-unit", "draft-stop", purpose="stop_loss", enabled=True,
+        expression={"type": "price_below", "symbol": "ETH-USDT-SWAP", "value": 90},
+        metadata=condition.metadata,
+    )
+
+    assert store.get("draft-unit").updated_at == position_revision
+    assert store.get_close_condition("draft-unit", "draft-stop").updated_at == condition_revision
+
+    store.merge_metadata("draft-unit", {"reconciliation": "mismatch"})
+    assert store.get("draft-unit").updated_at != position_revision
+
+
 def test_logical_position_store_migrates_order_lookups(tmp_path):
     db_path = str(tmp_path / "positions.db")
     conn = sqlite3.connect(db_path)
