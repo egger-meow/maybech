@@ -62,6 +62,17 @@ function purposeLabel(purpose: string): string {
   return ({ stop_loss: "停損", take_profit: "停利", trailing: "移動停損", break_even: "保本", manual_review: "人工檢查", exit: "一般出場" } as Record<string, string>)[purpose] ?? purpose;
 }
 
+function statusLabel(status: string): string {
+  return ({
+    applied: "已套用",
+    armed: "已準備",
+    configured: "已設定",
+    "not configured": "未設定",
+    stale: "資料過期",
+    active: "活動中",
+  } as Record<string, string>)[status] ?? status;
+}
+
 function stale(timestamp?: string): boolean {
   if (!timestamp) return true;
   const age = Date.now() - new Date(timestamp).getTime();
@@ -154,13 +165,13 @@ function PositionListItem({ position, selected, onSelect }: { position: LogicalP
   const remaining = position.remaining_quantity ?? 0;
   const quote = useSWR(
     remaining > 0 && position.entry_price > 0 ? ["position-display-quote", position.id, remaining, position.entry_price] : null,
-    () => quoteInstrumentContracts(position.inst_id, { api_quantity_contracts: String(remaining), entry_price: String(position.entry_price), side: position.side as "long" | "short", rule_price: null }),
+        () => quoteInstrumentContracts(position.inst_id, { api_quantity_contracts: String(remaining), entry_price: String(position.entry_price), side: position.side as "long" | "short", rule_price: null }),
   );
   return (
     <button type="button" className={`position-list-item ${selected ? "selected" : ""}`} onClick={() => onSelect(position.id)}>
       <span className={`side-mark ${position.side === "long" ? "long" : "short"}`} />
       <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · {quote.data ? `剩餘 ${quote.data.display_quantity} ${quote.data.display_currency} · API ${quote.data.api_quantity_contracts} 口` : `API 剩餘 ${number(position.remaining_quantity)} 口（顯示幣量不可用）`}</small><small className="mono">{position.id}</small></span>
-      <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span>{metadata.requires_manual_review === true && <span className="badge danger">需人工對帳</span>}<span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{position.status}</span></span>
+      <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span>{metadata.requires_manual_review === true && <span className="badge danger">需人工對帳</span>}<span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{statusLabel(position.status)}</span></span>
     </button>
   );
 }
@@ -299,11 +310,11 @@ function BreakEvenLifecycle({ position, refresh }: { position: LogicalPositionUn
     const slippage = Number(slippagePct) / 100;
     const lock = Number(lockPct) / 100;
     if (![activation, entryFee, exitFee, slippage, lock].every(Number.isFinite) || activation <= 0 || activation > 1 || [entryFee, exitFee, slippage].some((value) => value < 0 || value > 0.02) || lock < 0 || lock > 0.05) {
-      setError("Activation must be 0–100%; fees/slippage 0–2%; lock-in 0–5%.");
+      setError("啟動利潤必須為 0–100%；手續費/滑價必須為 0–2%；鎖定比率必須為 0–5%。");
       return;
     }
     const threshold = position.entry_price * (position.side === "long" ? 1 + activation : 1 - activation);
-    if (!(threshold > 0)) { setError("The activation threshold is invalid for this entry price."); return; }
+    if (!(threshold > 0)) { setError("此進場價不適用於所設定的啟動門檻。"); return; }
     const expression: SignalExpression = { type: position.side === "long" ? "price_above" : "price_below", symbol: position.inst_id, value: threshold };
     const metadata = {
       parameters: { activation_profit_pct: String(activation), entry_fee_rate: String(entryFee), exit_fee_rate: String(exitFee), slippage_rate: String(slippage), lock_in_pct: String(lock) },
@@ -318,18 +329,18 @@ function BreakEvenLifecycle({ position, refresh }: { position: LogicalPositionUn
   };
   const status = String(lifecycle.status ?? (existing?.enabled ? "configured" : "not configured"));
   return <div className="sub-editor">
-    <div className="sub-editor-head"><strong>Automatic cost-adjusted break-even</strong><span className={`badge ${status === "applied" ? "success" : status === "armed" ? "warning" : "info"}`}>{status}</span></div>
-    <p className="muted">Persists across restart and marks applied only after the exchange stop amendment is confirmed.</p>
+    <div className="sub-editor-head"><strong>自動成本調整保本</strong><span className={`badge ${status === "applied" ? "success" : status === "armed" ? "warning" : "info"}`}>{statusLabel(status)}</span></div>
+    <p className="muted">設定會於重啟後保留；僅在交易所保護單修改確認後才標示為「已套用」。</p>
     <div className="risk-sizing-grid">
-      <label className="field"><span>Activation profit</span><div className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={activationPct} onChange={(event) => setActivationPct(event.target.value)} /><small>%</small></div></label>
-      <label className="field"><span>Entry fee</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={entryFeePct} onChange={(event) => setEntryFeePct(event.target.value)} /><small>%</small></div></label>
-      <label className="field"><span>Exit fee</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={exitFeePct} onChange={(event) => setExitFeePct(event.target.value)} /><small>%</small></div></label>
-      <label className="field"><span>Slippage each side</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={slippagePct} onChange={(event) => setSlippagePct(event.target.value)} /><small>%</small></div></label>
-      <label className="field"><span>Additional lock-in</span><div className="input-with-suffix"><input type="number" min="0" max="5" step="0.01" value={lockPct} onChange={(event) => setLockPct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>啟動利潤</span><div className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={activationPct} onChange={(event) => setActivationPct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>進場手續費</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={entryFeePct} onChange={(event) => setEntryFeePct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>退出手續費</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={exitFeePct} onChange={(event) => setExitFeePct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>雙向滑價</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={slippagePct} onChange={(event) => setSlippagePct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>額外鎖定比例</span><div className="input-with-suffix"><input type="number" min="0" max="5" step="0.01" value={lockPct} onChange={(event) => setLockPct(event.target.value)} /><small>%</small></div></label>
     </div>
-    {lifecycle.target_stop != null && <div className="rule-pnl-estimate"><span>Persisted target stop</span><strong>{String(lifecycle.target_stop)}</strong></div>}
+    {lifecycle.target_stop != null && <div className="rule-pnl-estimate"><span>已儲存之目標停損</span><strong>{String(lifecycle.target_stop)}</strong></div>}
     {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
-    <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || position.status !== "open" || status === "applied"} onClick={save}><Save size={15} /> {busy ? "Saving…" : existing ? "Update break-even rule" : "Configure break-even rule"}</button></div>
+    <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || position.status !== "open" || status === "applied"} onClick={save}><Save size={15} /> {busy ? "儲存中…" : existing ? "更新保本規則" : "設定保本規則"}</button></div>
   </div>;
 }
 
@@ -353,10 +364,10 @@ function TrailingLifecycle({ position, refresh }: { position: LogicalPositionUni
     const distance = Number(distancePct) / 100;
     const staleSeconds = Number(staleAfter);
     const fraction = Number(reducePct) / 100;
-    if (!Number.isFinite(activation) || activation <= 0 || activation > 1 || !Number.isFinite(distance) || distance <= 0 || distance > .5) { setError("Activation must be 0–100% and trailing distance 0–50%."); return; }
-    if (!Number.isInteger(staleSeconds) || staleSeconds < 5 || staleSeconds > 3600) { setError("Freshness timeout must be 5–3600 seconds."); return; }
-    if (kind === "take_profit" && reduceOnly && (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1)) { setError("Reduction must be greater than 0% and less than 100%."); return; }
-    if (kind === "stop" && !position.close_conditions?.some((item) => item.purpose === "stop_loss" && item.enabled)) { setError("Trailing stop requires exactly one enabled stop-loss rule."); return; }
+    if (!Number.isFinite(activation) || activation <= 0 || activation > 1 || !Number.isFinite(distance) || distance <= 0 || distance > .5) { setError("啟動利潤必須為 0–100%，移動距離必須為 0–50%。"); return; }
+    if (!Number.isInteger(staleSeconds) || staleSeconds < 5 || staleSeconds > 3600) { setError("觀測時效必須為 5–3600 秒。請輸入整數秒數。"); return; }
+    if (kind === "take_profit" && reduceOnly && (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1)) { setError("減倉比例必須大於 0% 且小於 100%。"); return; }
+    if (kind === "stop" && !position.close_conditions?.some((item) => item.purpose === "stop_loss" && item.enabled)) { setError("移動停損需要且僅能搭配一個已啟用的停損規則。" ); return; }
     const threshold = position.entry_price * (position.side === "long" ? 1 + activation : 1 - activation);
     const expression: SignalExpression = { type: position.side === "long" ? "price_above" : "price_below", symbol: position.inst_id, value: threshold };
     const nextAction = kind === "stop" ? { type: "amend_stop" } : reduceOnly ? { type: "reduce_position", quantity_fraction: fraction, quantity_basis: "remaining" } : { type: "close_position" };
@@ -372,20 +383,20 @@ function TrailingLifecycle({ position, refresh }: { position: LogicalPositionUni
   };
   const status = String(lifecycle.status ?? (existing?.enabled ? "configured" : "not configured"));
   return <div className="sub-editor">
-    <div className="sub-editor-head"><strong>Optional trailing lifecycle</strong><span className={`badge ${status === "stale" ? "danger" : status === "active" ? "success" : "info"}`}>{status}</span></div>
+    <div className="sub-editor-head"><strong>移動停損（可選）</strong><span className={`badge ${status === "stale" ? "danger" : status === "active" ? "success" : "info"}`}>{statusLabel(status)}</span></div>
     <div className="risk-sizing-grid">
-      <label className="field"><span>Semantics</span><select value={kind} onChange={(event) => setKind(event.target.value)}><option value="stop">Monotonic protective stop</option><option value="take_profit">Take profit after retracement</option></select></label>
-      <label className="field"><span>Activation profit</span><div className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={activationPct} onChange={(event) => setActivationPct(event.target.value)} /><small>%</small></div></label>
-      <label className="field"><span>Trailing distance</span><div className="input-with-suffix"><input type="number" min="0.0001" max="50" step="0.01" value={distancePct} onChange={(event) => setDistancePct(event.target.value)} /><small>%</small></div></label>
-      <label className="field"><span>Timeframe</span><select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1H">1H</option><option value="4H">4H</option></select></label>
-      <label className="field"><span>Freshness timeout</span><div className="input-with-suffix"><input type="number" min="5" max="3600" step="1" value={staleAfter} onChange={(event) => setStaleAfter(event.target.value)} /><small>sec</small></div></label>
-      {kind === "take_profit" && <label className="check-field"><input type="checkbox" checked={reduceOnly} onChange={(event) => setReduceOnly(event.target.checked)} /> Reduce only and leave a runner</label>}
-      {kind === "take_profit" && reduceOnly && <label className="field"><span>Reduction</span><div className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={reducePct} onChange={(event) => setReducePct(event.target.value)} /><small>%</small></div></label>}
+      <label className="field"><span>語意</span><select value={kind} onChange={(event) => setKind(event.target.value)}><option value="stop">單向保護停損</option><option value="take_profit">回撤後停利</option></select></label>
+      <label className="field"><span>啟動利潤</span><div className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={activationPct} onChange={(event) => setActivationPct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>移動距離</span><div className="input-with-suffix"><input type="number" min="0.0001" max="50" step="0.01" value={distancePct} onChange={(event) => setDistancePct(event.target.value)} /><small>%</small></div></label>
+      <label className="field"><span>時間框架</span><select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1H">1H</option><option value="4H">4H</option></select></label>
+      <label className="field"><span>觀測時效</span><div className="input-with-suffix"><input type="number" min="5" max="3600" step="1" value={staleAfter} onChange={(event) => setStaleAfter(event.target.value)} /><small>秒</small></div></label>
+      {kind === "take_profit" && <label className="check-field"><input type="checkbox" checked={reduceOnly} onChange={(event) => setReduceOnly(event.target.checked)} /> 僅減倉並保留尾倉</label>}
+      {kind === "take_profit" && reduceOnly && <label className="field"><span>減倉比例</span><div className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={reducePct} onChange={(event) => setReducePct(event.target.value)} /><small>%</small></div></label>}
     </div>
-    {(lifecycle.water_price != null || lifecycle.candidate_price != null) && <div className="risk-sizing-result"><div><small>Favorable water mark</small><strong>{String(lifecycle.water_price ?? "—")}</strong></div><div><small>Current candidate</small><strong>{String(lifecycle.candidate_price ?? "—")}</strong></div><div><small>Last observation</small><strong>{lifecycle.observed_at ? new Date(String(lifecycle.observed_at)).toLocaleString("zh-TW") : "—"}</strong></div></div>}
-    <div className="inline-warning">Aggressive trailing can exit a valid trend early. Missing or stale observations freeze the lifecycle instead of moving protection.</div>
+    {(lifecycle.water_price != null || lifecycle.candidate_price != null) && <div className="risk-sizing-result"><div><small>有利水位</small><strong>{String(lifecycle.water_price ?? "—")}</strong></div><div><small>目前候選價</small><strong>{String(lifecycle.candidate_price ?? "—")}</strong></div><div><small>最後觀測</small><strong>{lifecycle.observed_at ? new Date(String(lifecycle.observed_at)).toLocaleString("zh-TW") : "—"}</strong></div></div>}
+    <div className="inline-warning">過度激進的移動停損可能提早切斷有效趨勢。缺少或過期的觀測會暫停生命週期，而不是移動保護價位。</div>
     {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
-    <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || position.status !== "open"} onClick={save}><Save size={15} /> {busy ? "Saving…" : existing ? "Update trailing rule" : "Configure trailing rule"}</button></div>
+    <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || position.status !== "open"} onClick={save}><Save size={15} /> {busy ? "儲存中…" : existing ? "更新移動停損規則" : "設定移動停損規則"}</button></div>
   </div>;
 }
 
@@ -441,7 +452,7 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
   return (
     <div className="position-detail">
       <section className="panel position-hero">
-        <div className="position-title"><div><div className="status-row"><h2>{position.inst_id}</h2><span className={`badge ${position.side === "long" ? "success" : "danger"}`}>{position.side === "long" ? "做多 LONG" : "做空 SHORT"}</span><span className="badge info">{position.status}</span></div><p className="mono">Maybech 單位：{position.id}</p></div><div className="position-metric"><small>未實現損益估算</small><strong className={pnlPct != null && pnlPct >= 0 ? "positive" : "negative"}>{pnlPct == null ? "資料不足" : `${pnlPct >= 0 ? "+" : ""}${number(pnlPct, 2)}%`}</strong></div></div>
+        <div className="position-title"><div><div className="status-row"><h2>{position.inst_id}</h2><span className={`badge ${position.side === "long" ? "success" : "danger"}`}>{position.side === "long" ? "做多 LONG" : "做空 SHORT"}</span><span className="badge info">{statusLabel(position.status)}</span></div><p className="mono">Maybech 單位：{position.id}</p></div><div className="position-metric"><small>未實現損益估算</small><strong className={pnlPct != null && pnlPct >= 0 ? "positive" : "negative"}>{pnlPct == null ? "資料不足" : `${pnlPct >= 0 ? "+" : ""}${number(pnlPct, 2)}%`}</strong></div></div>
         <div className="metric-grid"><div><small>進場價</small><strong>{formatPrice(position.entry_price, pricePrecision)}</strong></div><div><small>目前價</small><strong>{formatPrice(currentPrice, pricePrecision)}</strong></div><div><small>剩餘操作者幣量</small><strong>{positionQuote.data ? `${positionQuote.data.display_quantity} ${positionQuote.data.display_currency}` : "資料不足"}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
       </section>
       {metadata.requires_manual_review === true && <div className="error-state"><AlertTriangle size={17} /> 此單位需要人工對帳：{String(metadata.reconciliation_review_reason ?? metadata.recovery_reason ?? "來源或數量尚未確認")}。系統不會猜測外部減倉應分配到哪一個邏輯單位。</div>}
@@ -467,7 +478,7 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
       </section>
 
       <section className="panel">
-        <div className="panel-heading"><div><h2>擁有的交易所保護</h2><p>每個仍有真實曝險的邏輯單位應擁有一筆數量完全相符的 OKX 保護停損。</p></div>{position.protection?.status === "active" ? <span className="protection-state good"><ShieldCheck size={19} /> 保護有效</span> : <span className="protection-state bad"><ShieldAlert size={19} /> {position.protection?.status ?? "沒有保護"}</span>}</div>
+        <div className="panel-heading"><div><h2>擁有的交易所保護</h2><p>每個仍有真實曝險的邏輯單位應擁有一筆數量完全相符的 OKX 保護停損。</p></div>{position.protection?.status === "active" ? <span className="protection-state good"><ShieldCheck size={19} /> 保護有效</span> : <span className="protection-state bad"><ShieldAlert size={19} /> {statusLabel(position.protection?.status ?? "沒有保護")}</span>}</div>
         {position.protection ? <div className="metric-grid"><div><small>停損價</small><strong>{formatPrice(position.protection.stop_loss, pricePrecision)}</strong></div><div><small>保護數量</small><strong>{number(position.protection.quantity)}</strong></div><div><small>Algo ID</small><strong className="mono">{position.protection.algo_id}</strong></div><div><small>觸發委託</small><strong className="mono">{position.protection.trigger_order_id || "尚未觸發"}</strong></div></div> : <div className="error-state">此單位沒有可見的 OKX 保護紀錄。</div>}
         <div className="form-actions"><button type="button" className="btn btn-outline" disabled={Boolean(busyAction) || position.status !== "open"} onClick={protect}><RotateCcw size={15} /> {busyAction === "protect" ? "驗證中…" : "重試／驗證保護"}</button><button type="button" className="btn btn-outline" disabled={Boolean(busyAction) || position.status !== "open" || position.protection?.status !== "active"} onClick={breakEven}><ShieldCheck size={15} /> {busyAction === "break-even" ? "修改中…" : "移至保本／鎖利"}</button></div>
         <BreakEvenLifecycle position={position} refresh={refresh} />

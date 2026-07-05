@@ -44,17 +44,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-1. Localize all operator-facing protection lifecycle controls consistently in
-   Traditional Chinese(some english ok but mainly chinese). Position Management currently mixes the Chinese shell
-   with English sections and statuses such as `Automatic cost-adjusted
-   break-even`, `Activation profit`, `Persisted target stop`, `applied`, and
-   the optional trailing lifecycle. Translate labels, state, validation,
-   confirmations, and failure/recovery text while retaining exact exchange
-   identifiers where necessary; verify desktop/mobile layouts and every
-   inactive, pending, applied, failed, and restart-restored state before
-   removing this item.
-
-2. Make trade history distinguish separate logical executions. The Simulation
+1. Make trade history distinguish separate logical executions. The Simulation
    audit displayed five visually identical stop-loss rows and five visually
    identical take-profit rows, while `/trades/history` proved they have unique
    trade IDs, correlation IDs, and entry times roughly 10–12 seconds apart.
@@ -63,7 +53,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    ingestion; verify repeated same-strategy exits remain individually traceable
    on desktop and mobile before removing this item.
 
-3. Make the documented local frontend URL work cleanly in development. A real
+2. Make the documented local frontend URL work cleanly in development. A real
    Next.js 16.2.9 run opened at `http://127.0.0.1:3000` blocks
    `/_next/webpack-hmr` as a cross-origin development resource because
    `frontend/next.config.ts` does not include `127.0.0.1` in
