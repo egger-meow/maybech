@@ -44,14 +44,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-1. Make the documented local frontend URL work cleanly in development. A real
-   Next.js 16.2.9(now updated to 16.2.10, no sure if it automatically soloved it) run opened at `http://127.0.0.1:3000` blocks
-   `/_next/webpack-hmr` as a cross-origin development resource because
-   `frontend/next.config.ts` does not include `127.0.0.1` in
-   `allowedDevOrigins`, even though the backend and testing instructions use
-   that host. Add the narrow development origin, verify HMR/reconnect from both
-   documented loopback hostnames, and retain Next.js's default protection for
-   unlisted origins before removing this item.
+None at the moment.
 
 The completed position-rule and market-analysis phase is audited in
 `docs/position-rule-phase-audit.md`.
