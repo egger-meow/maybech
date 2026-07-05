@@ -15,6 +15,7 @@ from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.executor import Executor
 from src.trading.entry_control import ENTRY_EXECUTION_LOCK
+from src.trading.execution_health import evaluate_execution_health
 from src.trading.logical_position_store import (
     LogicalPositionAllocation,
     LogicalPositionProtection,
@@ -727,8 +728,7 @@ class StrategyService(DaemonService):
         status = self.runtime.get_value("execution.fills.status")
         return bool(
             isinstance(status, dict)
-            and status.get("caught_up") is True
-            and status.get("websocket_connected") is True
+            and evaluate_execution_health(status)["healthy"]
         )
 
     def _retry_emergency_closes(self, status: dict[str, Any]) -> None:

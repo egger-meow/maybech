@@ -121,6 +121,13 @@ export type EntryControlResponse = {
 };
 
 export type ExecutionFillIngestionStatusResponse = {
+  "service_available"?: boolean;
+  "healthy"?: boolean;
+  "health_state"?: "healthy" | "degraded" | "stale" | "unavailable";
+  "health_reasons"?: string[];
+  "status_age_seconds"?: number | null;
+  "last_health_failure_at"?: string;
+  "last_health_failure_reasons"?: string[];
   "fetched"?: number;
   "applied"?: number;
   "idempotent"?: number;
@@ -139,6 +146,9 @@ export type ExecutionFillIngestionStatusResponse = {
   "protections_checked"?: number;
   "protection_rearmed"?: number;
   "protection_errors"?: number;
+  "unprotected_positions"?: number;
+  "oldest_protection_gap_seconds"?: number;
+  "protection_gap_alerts"?: number;
   "rule_materializations"?: number;
   "rule_materialization_errors"?: number;
   "pages_fetched"?: number;
@@ -157,6 +167,7 @@ export type ExecutionFillIngestionStatusResponse = {
   "websocket_terminal_recovered"?: number;
   "websocket_reconnects"?: number;
   "websocket_dropped_events"?: number;
+  "websocket_drops_pending_catchup"?: number;
   "websocket_last_message_at"?: string;
   "websocket_last_error"?: string;
   "updated_at"?: string | null;

@@ -279,6 +279,13 @@ class AccountSnapshotResponse(BaseModel):
 
 
 class ExecutionFillIngestionStatusResponse(BaseModel):
+    service_available: bool = False
+    healthy: bool = False
+    health_state: Literal["healthy", "degraded", "stale", "unavailable"] = "unavailable"
+    health_reasons: list[str] = Field(default_factory=list)
+    status_age_seconds: float | None = None
+    last_health_failure_at: str = ""
+    last_health_failure_reasons: list[str] = Field(default_factory=list)
     fetched: int = 0
     applied: int = 0
     idempotent: int = 0
@@ -297,6 +304,12 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     protections_checked: int = 0
     protection_rearmed: int = 0
     protection_errors: int = 0
+    unprotected_positions: int = 0
+    oldest_protection_gap_seconds: float = 0.0
+    protection_gap_alerts: int = 0
+    unprotected_positions: int = 0
+    oldest_protection_gap_seconds: float = 0.0
+    protection_gap_alerts: int = 0
     rule_materializations: int = 0
     rule_materialization_errors: int = 0
     pages_fetched: int = 0
@@ -315,6 +328,7 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     websocket_terminal_recovered: int = 0
     websocket_reconnects: int = 0
     websocket_dropped_events: int = 0
+    websocket_drops_pending_catchup: int = 0
     websocket_last_message_at: str = ""
     websocket_last_error: str = ""
     updated_at: str | None = None

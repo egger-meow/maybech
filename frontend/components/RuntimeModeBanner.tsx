@@ -4,7 +4,7 @@ import useSWR from "swr";
 import { useRef, useState } from "react";
 import { AlertTriangle, FlaskConical, ShieldCheck, ShieldOff } from "lucide-react";
 
-import { ApiError, enableEntries, getEntryControl, getLivePreflight, getRiskLimits, killEntries, listInstruments, listStrategies } from "@/lib/api";
+import { ApiError, enableEntries, getEntryControl, getExecutionFillStatus, getLivePreflight, getRiskLimits, killEntries, listInstruments, listStrategies } from "@/lib/api";
 
 type Mode = "simulation" | "demo" | "live_safe" | "live_armed" | "blocked" | "stale";
 
@@ -59,6 +59,7 @@ export default function RuntimeModeBanner() {
   const preflight = useSWR("runtime-preflight", getLivePreflight, { refreshInterval: 10_000 });
   const risk = useSWR("risk-limits", getRiskLimits, { refreshInterval: 10_000 });
   const entries = useSWR("entry-control", getEntryControl, { refreshInterval: 10_000 });
+  const execution = useSWR("execution-fill-health", getExecutionFillStatus, { refreshInterval: 3_000 });
   const strategies = useSWR("strategies", listStrategies, { refreshInterval: 10_000 });
   const instruments = useSWR("instrument-metadata", listInstruments, { refreshInterval: 60_000 });
   const entryMutation = useRef(false);
@@ -92,7 +93,9 @@ export default function RuntimeModeBanner() {
 
   let mode: Mode = "stale";
   if (!preflight.error && preflight.data) {
-    if (!preflight.data.passed || (preflight.data.order_submission_enabled && (!risk.data?.enabled || Boolean(risk.error)))) {
+    const executionBlocked = preflight.data.order_submission_enabled
+      && (!execution.data?.healthy || Boolean(execution.error));
+    if (!preflight.data.passed || executionBlocked || (preflight.data.order_submission_enabled && (!risk.data?.enabled || Boolean(risk.error)))) {
       mode = "blocked";
     } else {
       mode = preflight.data.execution_mode;
@@ -108,12 +111,26 @@ export default function RuntimeModeBanner() {
     ? entries.data.entries_enabled && entries.data.process_entry_enabled ? "已啟用" : "已停用"
     : failure(entries.error);
   const allowedInstruments = risk.data?.allowed_instruments ?? [];
+  const executionEvidence = execution.data
+    ? `REST ${execution.data.caught_up ? "已追平" : "追補中"}；私有串流 ${execution.data.websocket_connected ? "已連線" : "未連線"}；重連 ${execution.data.websocket_reconnects ?? 0} 次；丟棄 ${execution.data.websocket_dropped_events ?? 0} 筆${execution.data.last_health_failure_at ? `；最近異常 ${formatTime(execution.data.last_health_failure_at)}` : ""}`
+    : "持續檢查成交補抓、游標、私有串流、配置與保護狀態。";
 
   const diagnostics: DiagnosticCard[] = [
     {
       endpoint: "/runtime/preflight",
       status: preflight.data ? "正常" : failure(preflight.error),
       detail: preflight.data ? `啟動檢查 ${formatTime(preflight.data.checked_at)}` : "這是執行模式的主來源。",
+    },
+    {
+      endpoint: "/execution/fills/status",
+      status: execution.data
+        ? execution.data.healthy ? "健康" : `封鎖（${execution.data.health_state}）`
+        : failure(execution.error),
+      detail: execution.data
+        ? execution.data.health_reasons?.length
+          ? `${execution.data.health_reasons.join("；")}。${executionEvidence}`
+          : `持續監控正常；${executionEvidence}；更新 ${formatTime(execution.data.updated_at ?? undefined)}`
+        : executionEvidence,
     },
     {
       endpoint: "/risk/limits",
@@ -198,7 +215,7 @@ export default function RuntimeModeBanner() {
         <span>進場：{entries.data ? entryState : "未知"}</span>
       </div>
       <div className="form-actions" aria-label="策略進場控制">
-        <button type="button" className="btn btn-primary" disabled={Boolean(entryBusy) || Boolean(entries.data?.entries_enabled)} onClick={() => mutateEntries("enable")}>{entryBusy === "enable" ? "啟用中…" : "啟用新進場"}</button>
+        <button type="button" className="btn btn-primary" disabled={Boolean(entryBusy) || Boolean(entries.data?.entries_enabled) || Boolean(preflight.data?.order_submission_enabled && !execution.data?.healthy)} onClick={() => mutateEntries("enable")}>{entryBusy === "enable" ? "啟用中…" : "啟用新進場"}</button>
         <button type="button" className="btn btn-danger" disabled={Boolean(entryBusy)} onClick={() => mutateEntries("kill")}>{entryBusy === "kill" ? "停止與取消中…" : "停止新進場（Kill）"}</button>
       </div>
       {entryMessage && <div className={entryMessage.includes("錯誤") || entryMessage.includes("無法") ? "error-state" : "mode-notice"}>{entryMessage}</div>}

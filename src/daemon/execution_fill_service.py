@@ -16,6 +16,7 @@ from src.exchange.client import disable_entry_order_placement
 from src.trading.account_risk import AccountRiskStore
 from src.trading.logical_position_store import AllocationConflictError
 from src.trading.execution_cursor_store import ExecutionCursorStore
+from src.trading.execution_health import evaluate_execution_health
 from src.trading.execution_allocation import ExecutionAllocationService
 from src.trading.position_protection import (
     PositionProtectionError,
@@ -66,6 +67,9 @@ class ExecutionFillService(DaemonService):
         self.rest_poll_interval = max(0.0, rest_poll_interval)
         self._next_rest_poll = 0.0
         self._last_rest_status: dict[str, Any] = {}
+        self._reconciled_dropped_events = 0
+        self._last_health_failure_at = ""
+        self._last_health_failure_reasons: list[str] = []
         self.protection_service = protection_service
         self.allow_order_mutations = allow_order_mutations
         self.protection_gap_alert_seconds = max(0.0, protection_gap_alert_seconds)
@@ -99,6 +103,8 @@ class ExecutionFillService(DaemonService):
         status = self._empty_status()
         catchup_error: Exception | None = None
         now = time.monotonic()
+        self._apply_private_stream_status(status)
+        dropped_before_rest = int(status["websocket_dropped_events"])
         if now >= self._next_rest_poll:
             try:
                 self._catch_up_fills(status)
@@ -119,13 +125,30 @@ class ExecutionFillService(DaemonService):
                 for key, value in status.items()
                 if not key.startswith("websocket_") and key != "updated_at"
             }
+            if catchup_error is None:
+                self._reconciled_dropped_events = dropped_before_rest
             self._next_rest_poll = now + self.rest_poll_interval
         else:
             status.update(self._last_rest_status)
             status["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         self._drain_private_order_events(status)
+        status["websocket_drops_pending_catchup"] = max(
+            0,
+            int(status["websocket_dropped_events"])
+            - self._reconciled_dropped_events,
+        )
+        if status["websocket_drops_pending_catchup"]:
+            self._next_rest_poll = 0.0
         self._track_protection_gaps(status)
+        status = evaluate_execution_health(status)
+        if not status["healthy"]:
+            self._last_health_failure_at = str(status["updated_at"])
+            self._last_health_failure_reasons = list(status["health_reasons"])
+        status["last_health_failure_at"] = self._last_health_failure_at
+        status["last_health_failure_reasons"] = self._last_health_failure_reasons
+        if self.allow_order_mutations and not status["healthy"]:
+            self._disable_entries_for_execution_error()
 
         if self.runtime is not None:
             self.runtime.set_value("execution.fills.status", status)
@@ -175,8 +198,12 @@ class ExecutionFillService(DaemonService):
             "websocket_terminal_recovered": 0,
             "websocket_reconnects": 0,
             "websocket_dropped_events": 0,
+            "websocket_drops_pending_catchup": 0,
             "websocket_last_message_at": "",
             "websocket_last_error": "",
+            "service_available": True,
+            "last_health_failure_at": "",
+            "last_health_failure_reasons": [],
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -844,7 +871,7 @@ class ExecutionFillService(DaemonService):
             protection = self.allocator.position_store.get_protection(position.id)
             if protection is not None and protection.status == "triggered":
                 status["protection_errors"] += 1
-                self._disable_entries_for_protection_error()
+                self._disable_entries_for_execution_error()
                 continue
             try:
                 self.protection_service.verify_active(position.id)
@@ -858,7 +885,7 @@ class ExecutionFillService(DaemonService):
                 status["protection_rearmed"] += 1
             except PositionProtectionError as exc:
                 status["protection_errors"] += 1
-                self._disable_entries_for_protection_error()
+                self._disable_entries_for_execution_error()
                 self.allocator.audit_store.create(
                     type="position.protection_reconcile_failed",
                     source=self.name,
@@ -875,7 +902,7 @@ class ExecutionFillService(DaemonService):
             if protection is not None and protection.status == "active":
                 continue
             status["unprotected_positions"] += 1
-            self._disable_entries_for_protection_error()
+            self._disable_entries_for_execution_error()
             try:
                 metadata = json.loads(position.metadata_json or "{}")
             except json.JSONDecodeError:
@@ -925,7 +952,7 @@ class ExecutionFillService(DaemonService):
                 )
                 status["protection_gap_alerts"] += 1
 
-    def _disable_entries_for_protection_error(self) -> None:
+    def _disable_entries_for_execution_error(self) -> None:
         AccountRiskStore(self.allocator.trade_store.db_path).set_entries_enabled(False)
         disable_entry_order_placement()
 

@@ -51,6 +51,7 @@ class FakeOrderStream:
         self.events = list(events or [])
         self.started = False
         self.stopped = False
+        self.dropped_events = 0
 
     def start(self):
         self.started = True
@@ -69,7 +70,7 @@ class FakeOrderStream:
             "connected": self.started and not self.stopped,
             "events_received": 1,
             "reconnects": 0,
-            "dropped_events": 0,
+            "dropped_events": self.dropped_events,
             "last_message_at": "2026-06-28T00:00:00+00:00",
             "last_error": "",
         }
@@ -204,6 +205,38 @@ def test_private_order_fill_is_idempotent_with_rest_catchup(tmp_path):
 
     assert position_store.get("same-unit").opened_quantity == 0.1
     assert len(position_store.list_allocations("same-unit")) == 1
+
+
+def test_private_stream_drop_forces_rest_catchup_before_health_recovers(tmp_path):
+    trade_store = TradeStore(str(tmp_path / "trades.db"))
+    stream = FakeOrderStream()
+    stream.started = True
+    service = ExecutionFillService(
+        client=FakeFillClient([]),
+        allocator=ExecutionAllocationService(trade_store=trade_store),
+        private_order_stream=stream,
+        rest_poll_interval=60,
+    )
+    runner = DaemonRunner()
+    runner.register(service)
+    disabled = []
+    service._disable_entries_for_execution_error = lambda: disabled.append(True)
+
+    service.tick()
+    stream.dropped_events = 1
+    service.tick()
+    dropped = runner.runtime.get_value("execution.fills.status")
+    service.tick()
+    recovered = runner.runtime.get_value("execution.fills.status")
+
+    assert dropped["health_state"] == "degraded"
+    assert dropped["websocket_drops_pending_catchup"] == 1
+    assert disabled == [True]
+    assert recovered["health_state"] == "healthy"
+    assert recovered["websocket_drops_pending_catchup"] == 0
+    assert recovered["last_health_failure_at"] == dropped["updated_at"]
+    assert "await REST catch-up" in recovered["last_health_failure_reasons"][0]
+    assert len(service.client.fill_calls) == 2
 
 
 def test_private_reduce_fill_rearms_confirmed_remainder_in_same_tick(tmp_path):

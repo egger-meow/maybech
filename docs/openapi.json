@@ -726,6 +726,29 @@
             "title": "Filled Awaiting Allocation",
             "type": "integer"
           },
+          "health_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Health Reasons",
+            "type": "array"
+          },
+          "health_state": {
+            "default": "unavailable",
+            "enum": [
+              "healthy",
+              "degraded",
+              "stale",
+              "unavailable"
+            ],
+            "title": "Health State",
+            "type": "string"
+          },
+          "healthy": {
+            "default": false,
+            "title": "Healthy",
+            "type": "boolean"
+          },
           "high_water_bill_id": {
             "default": "",
             "title": "High Water Bill Id",
@@ -746,6 +769,18 @@
             "title": "Invalid",
             "type": "integer"
           },
+          "last_health_failure_at": {
+            "default": "",
+            "title": "Last Health Failure At",
+            "type": "string"
+          },
+          "last_health_failure_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Last Health Failure Reasons",
+            "type": "array"
+          },
           "missing_client_orders_recovered": {
             "default": 0,
             "title": "Missing Client Orders Recovered",
@@ -760,6 +795,11 @@
             "default": "",
             "title": "Next After Bill Id",
             "type": "string"
+          },
+          "oldest_protection_gap_seconds": {
+            "default": 0.0,
+            "title": "Oldest Protection Gap Seconds",
+            "type": "number"
           },
           "order_errors": {
             "default": 0,
@@ -779,6 +819,11 @@
           "protection_errors": {
             "default": 0,
             "title": "Protection Errors",
+            "type": "integer"
+          },
+          "protection_gap_alerts": {
+            "default": 0,
+            "title": "Protection Gap Alerts",
             "type": "integer"
           },
           "protection_rearmed": {
@@ -806,10 +851,26 @@
             "title": "Rule Materializations",
             "type": "integer"
           },
+          "service_available": {
+            "default": false,
+            "title": "Service Available",
+            "type": "boolean"
+          },
           "stale_cancel_requested": {
             "default": 0,
             "title": "Stale Cancel Requested",
             "type": "integer"
+          },
+          "status_age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Age Seconds"
           },
           "terminal_recovered": {
             "default": 0,
@@ -819,6 +880,11 @@
           "unmatched": {
             "default": 0,
             "title": "Unmatched",
+            "type": "integer"
+          },
+          "unprotected_positions": {
+            "default": 0,
+            "title": "Unprotected Positions",
             "type": "integer"
           },
           "updated_at": {
@@ -840,6 +906,11 @@
           "websocket_dropped_events": {
             "default": 0,
             "title": "Websocket Dropped Events",
+            "type": "integer"
+          },
+          "websocket_drops_pending_catchup": {
+            "default": 0,
+            "title": "Websocket Drops Pending Catchup",
             "type": "integer"
           },
           "websocket_enabled": {

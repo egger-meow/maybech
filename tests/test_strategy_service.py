@@ -1,5 +1,6 @@
 import threading
 import json
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -139,7 +140,13 @@ def _service(tmp_path, *, dry_run=True, audit_store=None):
         runner.register(service)
         runner.runtime.set_value(
             "execution.fills.status",
-            {"caught_up": True, "websocket_connected": True},
+            {
+                "service_available": True,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "caught_up": True,
+                "websocket_enabled": True,
+                "websocket_connected": True,
+            },
         )
     return service, strategy
 
@@ -482,7 +489,13 @@ def test_live_strategy_does_not_consume_signal_edge_before_ingestion_is_ready(tm
     service.candle_manager = FakeCandleManager()
     service.runtime.set_value(
         "execution.fills.status",
-        {"caught_up": False, "websocket_connected": True},
+        {
+            "service_available": True,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "caught_up": False,
+            "websocket_enabled": True,
+            "websocket_connected": True,
+        },
     )
     service.runtime.set_value(
         "market.btc_regime",
@@ -492,7 +505,13 @@ def test_live_strategy_does_not_consume_signal_edge_before_ingestion_is_ready(tm
     service.tick()
     service.runtime.set_value(
         "execution.fills.status",
-        {"caught_up": True, "websocket_connected": True},
+        {
+            "service_available": True,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "caught_up": True,
+            "websocket_enabled": True,
+            "websocket_connected": True,
+        },
     )
     service.tick()
 

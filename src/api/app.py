@@ -32,6 +32,7 @@ from src.trading.execution_allocation import (
     ConfirmedExecutionFill,
     ExecutionAllocationService,
 )
+from src.trading.execution_health import evaluate_execution_health
 from src.trading.entry_control import ENTRY_EXECUTION_LOCK, EntryControlManager
 from src.trading.logical_position_store import (
     AllocationConflictError,
@@ -1266,6 +1267,20 @@ def create_app(
 
     @app.post("/risk/entries/enable", response_model=EntryControlResponse)
     def enable_entries(payload: EntryControlCommand) -> EntryControlResponse:
+        preflight = runner.runtime.get_value("runtime.live_preflight") or {}
+        if preflight.get("order_submission_enabled"):
+            execution_health = evaluate_execution_health(
+                runner.runtime.get_value("execution.fills.status")
+            )
+            if not execution_health["healthy"]:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Execution correctness health blocks new entries",
+                        "health_state": execution_health["health_state"],
+                        "reasons": execution_health["health_reasons"],
+                    },
+                )
         try:
             result = EntryControlManager().enable_entries()
         except (PermissionError, ValueError) as exc:
@@ -1451,7 +1466,9 @@ def create_app(
         response_model=ExecutionFillIngestionStatusResponse,
     )
     def get_execution_fill_status() -> ExecutionFillIngestionStatusResponse:
-        status = runner.runtime.get_value("execution.fills.status") or {}
+        status = evaluate_execution_health(
+            runner.runtime.get_value("execution.fills.status")
+        )
         return ExecutionFillIngestionStatusResponse(**status)
 
     @app.get("/account/positions", response_model=list[dict])

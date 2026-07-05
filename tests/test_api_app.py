@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime, timezone
 import json
 
 import pytest
@@ -1494,6 +1495,7 @@ def test_api_returns_execution_fill_ingestion_status():
     runner.runtime.set_value(
         "execution.fills.status",
         {
+            "service_available": True,
             "fetched": 5,
             "applied": 2,
             "idempotent": 1,
@@ -1506,7 +1508,7 @@ def test_api_returns_execution_fill_ingestion_status():
             "websocket_enabled": True,
             "websocket_connected": True,
             "websocket_events_received": 4,
-            "updated_at": "2026-06-27T00:00:00+00:00",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         },
     )
     client = TestClient(create_app(runner))
@@ -1521,6 +1523,24 @@ def test_api_returns_execution_fill_ingestion_status():
     assert response.json()["high_water_bill_id"] == "bill-300"
     assert response.json()["websocket_connected"] is True
     assert response.json()["websocket_events_received"] == 4
+    assert response.json()["healthy"] is False
+    assert response.json()["health_state"] == "degraded"
+    assert "invalid fills" in response.json()["health_reasons"][0]
+
+
+def test_execution_health_blocks_entry_enable_for_order_capable_runtime():
+    runner = DaemonRunner()
+    runner.runtime.set_value(
+        "runtime.live_preflight",
+        {"order_submission_enabled": True},
+    )
+    client = TestClient(create_app(runner, api_token=""))
+
+    response = client.post("/risk/entries/enable", json={"confirm": True})
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["health_state"] == "unavailable"
+    assert "Execution correctness health" in response.json()["detail"]["message"]
 
 
 def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):
