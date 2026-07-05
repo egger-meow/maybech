@@ -68,6 +68,7 @@ class LivePreflightResponse(BaseModel):
     entries_enabled: bool = False
     instruments: list[str] = Field(default_factory=list)
     checked_at: str
+    errors: list[str] = Field(default_factory=list)
 
 
 class RuntimeLeaseResponse(BaseModel):

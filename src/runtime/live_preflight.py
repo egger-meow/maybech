@@ -48,6 +48,7 @@ class LivePreflightReport:
     order_submission_enabled: bool = False
     credential_environment: str = "production"
     applicable_checks: tuple[str, ...] = ()
+    errors: tuple[str, ...] = ()
 
     def to_dict(self, *, armed: bool | None = None) -> dict[str, Any]:
         value = asdict(self)
@@ -135,9 +136,14 @@ def run_live_preflight(
         errors.append("OKX position mode must be net_mode for the current executor")
 
     risk_limits = risk_store.get()
+    demo_bootstrap_errors: list[str] = []
     if mode.submits_orders:
         if risk_limits is None:
-            errors.append("account risk limits are not configured in SQLite")
+            message = "account risk limits are not configured in SQLite"
+            if mode is RuntimeMode.DEMO:
+                demo_bootstrap_errors.append(message)
+            else:
+                errors.append(message)
         elif not risk_limits.enabled:
             errors.append("account risk limits are disabled")
         else:
@@ -218,6 +224,46 @@ def run_live_preflight(
 
     if errors:
         raise LivePreflightError(errors)
+    if demo_bootstrap_errors:
+        return LivePreflightReport(
+            passed=False,
+            armed=False,
+            execution_mode=mode.value,
+            account_level=account_level,
+            position_mode=position_mode,
+            account_scope=account_scope,
+            enabled_strategies=len(enabled_strategies),
+            risk_limits_enabled=False,
+            entries_enabled=False,
+            instruments=tuple(sorted(instruments)),
+            checked_at=datetime.now(timezone.utc).isoformat(),
+            order_submission_enabled=False,
+            credential_environment="demo" if mode is RuntimeMode.DEMO else "production",
+            applicable_checks=(
+                (
+                    "credentials",
+                    "account_level",
+                    "position_mode",
+                    "reconciliation",
+                    "risk_limits",
+                    "strategies",
+                    "instrument_constraints",
+                    "position_protection",
+                    "explicit_arming",
+                    "private_order_stream",
+                )
+                if mode.submits_orders
+                else (
+                    "credentials",
+                    "account_level",
+                    "position_mode",
+                    "reconciliation",
+                    "instrument_constraints",
+                    "orders_disarmed",
+                )
+            ),
+            errors=tuple(demo_bootstrap_errors),
+        )
 
     return LivePreflightReport(
         passed=True,

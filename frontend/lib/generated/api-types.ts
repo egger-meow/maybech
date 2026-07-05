@@ -306,6 +306,7 @@ export type LivePreflightResponse = {
   "entries_enabled"?: boolean;
   "instruments"?: string[];
   "checked_at": string;
+  "errors"?: string[];
 };
 
 export type LogicalPositionAllocationResponse = {

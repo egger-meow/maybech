@@ -29,8 +29,9 @@ class FakePreflightClient:
         instruments=None,
         pending_algos=None,
         positions=None,
+        flag="1",
     ):
-        self.flag = "1"
+        self.flag = flag
         self.position_mode = position_mode
         self.account_level = account_level
         self.account_uid = account_uid
@@ -407,14 +408,16 @@ def test_live_preflight_skips_strategy_checks_when_service_is_disabled(monkeypat
 
 def test_live_preflight_requires_enabled_persisted_risk_limits(monkeypatch, tmp_path):
     _set_live_environment(monkeypatch)
+    monkeypatch.setenv("OKX_FLAG", "0")
     strategy_store = StrategyStore(str(tmp_path / "trades.db"))
 
     with pytest.raises(LivePreflightError, match="risk limits are not configured"):
         run_live_preflight(
-            client=FakePreflightClient(),
+            client=FakePreflightClient(flag="0"),
             strategy_store=strategy_store,
             position_store=LogicalPositionStore(strategy_store.db_path),
             include_strategy=False,
+            runtime_mode="live_armed",
         )
 
 
@@ -507,6 +510,42 @@ def test_failed_runner_preflight_leaves_orders_disarmed(monkeypatch, tmp_path):
         runtime_module.create_default_runner(dry_run=False)
 
     assert client_module._ORDER_PLACEMENT_ARMED is False
+
+
+def test_demo_runner_boots_without_risk_limits_and_skips_strategy_service(
+    monkeypatch, tmp_path
+):
+    store = TradeStore(str(tmp_path / "demo.db"))
+    monkeypatch.setattr(runtime_module, "TradeStore", lambda: store)
+    real_lease = runtime_module.RuntimeLease
+    monkeypatch.setattr(
+        runtime_module,
+        "RuntimeLease",
+        lambda **kwargs: real_lease(**kwargs, lock_root=tmp_path / "locks"),
+    )
+    monkeypatch.setenv("OKX_FLAG", "1")
+    monkeypatch.setenv("DEMO_OKX_API_KEY", "key")
+    monkeypatch.setenv("DEMO_OKX_API_SECRET", "secret")
+    monkeypatch.setenv("DEMO_OKX_PASSPHRASE", "passphrase")
+    monkeypatch.setenv("MAYBECH_ARM_ORDERS", "1")
+    monkeypatch.setattr(
+        "src.runtime.live_preflight.OKXClient",
+        lambda: FakePreflightClient(),
+    )
+    monkeypatch.setattr(runtime_module.AccountSnapshotService, "setup", lambda self: None)
+    monkeypatch.setattr(runtime_module.BTCRegimeService, "setup", lambda self: None)
+    monkeypatch.setattr(runtime_module.ExecutionFillService, "setup", lambda self: None)
+
+    runner = runtime_module.create_default_runner(mode="demo", include_strategy=True)
+
+    preflight = runner.runtime.get_value("runtime.live_preflight")
+    assert preflight["passed"] is False
+    assert preflight["execution_mode"] == "demo"
+    assert preflight["errors"] == ("account risk limits are not configured in SQLite",)
+    assert "strategy" not in runner.services
+    assert client_module._ORDER_PLACEMENT_ARMED is False
+
+    runner.teardown_services()
 
 
 def test_live_safe_uses_production_reads_without_registering_execution_services(

@@ -1623,6 +1623,13 @@
             "title": "Entries Enabled",
             "type": "boolean"
           },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
           "exchange_enabled": {
             "default": false,
             "title": "Exchange Enabled",

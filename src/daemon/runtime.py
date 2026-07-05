@@ -105,7 +105,8 @@ def create_default_runner(
                     allow_order_mutations=order_capable,
                 )
             )
-        if include_strategy and not live_safe:
+        should_register_strategy = include_strategy and not live_safe and preflight_status.get("passed", False)
+        if should_register_strategy:
             runner.register(
                 StrategyService(
                     dry_run=simulation,
@@ -128,14 +129,17 @@ def create_default_runner(
             }
             if not live_safe:
                 required_services.add("position_manager")
-            if include_strategy and not live_safe:
+            if should_register_strategy:
                 required_services.add("strategy")
             runner.setup_services(required_services=required_services)
-            if order_capable:
-                arm_order_placement(preflight_passed=report.passed)
+            should_arm_orders = order_capable and report.passed
+            if should_arm_orders:
+                arm_order_placement(preflight_passed=True)
+            else:
+                disarm_order_placement()
             runner.runtime.set_value(
                 "runtime.live_preflight",
-                report.to_dict(armed=order_capable),
+                report.to_dict(armed=should_arm_orders),
             )
     except Exception:
         disarm_order_placement()
