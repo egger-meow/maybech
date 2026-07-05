@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
+    "dev:turbopack": "next dev",
     "contract": "uv run python ../scripts/generate_openapi_types.py --check",
     "typecheck": "tsc --noEmit",
     "verify": "npm run contract && npm run lint && npm run typecheck && npm run build",
@@ -13,7 +14,7 @@
   },
   "dependencies": {
     "lucide-react": "^1.21.0",
-    "next": "16.2.9",
+    "next": "16.2.10",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "swr": "^2.4.1"
@@ -23,7 +24,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.2.10",
     "typescript": "^5"
   }
 }
