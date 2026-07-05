@@ -1676,8 +1676,16 @@ def test_api_rejects_strategy_enable_outside_account_allowlist(monkeypatch, tmp_
     monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
     client = TestClient(create_app(DaemonRunner()))
 
+    create_response = client.post("/strategies", json={
+        "id": "outside-at-save",
+        "name": "Outside at save",
+        "target_instruments": ["ETH-USDT-SWAP"],
+        "entry_signal": {"type": "price_above", "symbol": "self", "value": 100},
+    })
     response = client.post("/strategies/eth-breakout/enable", json={"confirm": True, "expected_updated_at": store.get("eth-breakout").updated_at})
 
+    assert create_response.status_code == 409
+    assert create_response.json()["detail"]["instruments"] == ["ETH-USDT-SWAP"]
     assert response.status_code == 400
     assert "outside account risk allowlist" in response.json()["detail"]["errors"][0]
     assert store.get("eth-breakout").enabled is False

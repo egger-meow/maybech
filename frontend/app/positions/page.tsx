@@ -19,6 +19,7 @@ import {
   deleteLogicalPositionCloseCondition,
   getLogicalPositionChart,
   getLivePreflight,
+  getRiskLimits,
   getMarketCandles,
   listInstruments,
   listLogicalPositions,
@@ -67,7 +68,7 @@ function stale(timestamp?: string): boolean {
   return !Number.isFinite(age) || age > 120_000;
 }
 
-function ManualOpenForm({ catalog, catalogStale, onCreated }: { catalog: InstrumentMetadataResponse[]; catalogStale: boolean; onCreated: (positionId: string) => Promise<unknown> }) {
+function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }: { catalog: InstrumentMetadataResponse[]; catalogStale: boolean; allowedInstruments?: string[]; onCreated: (positionId: string) => Promise<unknown> }) {
   const preflight = useSWR("runtime-preflight", getLivePreflight);
   const [instrument, setInstrument] = useState("");
   const [side, setSide] = useState<"long" | "short">("long");
@@ -121,7 +122,7 @@ function ManualOpenForm({ catalog, catalogStale, onCreated }: { catalog: Instrum
     <section className="panel manual-open-panel">
       <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以本機重播價格預填；你仍可修改。此版本只允許 Simulation 建立，不會連接交易所。</p></div><span className={`badge ${dryRun ? "success" : "danger"}`}>{dryRun ? "Simulation 可用" : "非 Simulation 已封鎖"}</span></div>
       <div className="form-grid">
-        <div className="field full"><span>OKX 交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} value={instrument ? [instrument] : []} onChange={selectInstrument} /></div>
+        <div className="field full"><span>OKX 交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} value={instrument ? [instrument] : []} onChange={selectInstrument} eligibleInstruments={allowedInstruments} /></div>
         <label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
         <label className="field"><span>操作者幣量（{instrument.split("-")[0] || "基礎幣"}）</span><input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>
         <label className="field"><span>進場限價（預填目前價）</span><input type="number" min="0" step="any" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} /></label>
@@ -493,6 +494,7 @@ export default function PositionsPage() {
   const { data, error, mutate, isLoading } = useSWR("logical-positions", () => listLogicalPositions("all"), { refreshInterval: 5000 });
   const catalog = useSWR("instrument-metadata", listInstruments);
   const preflight = useSWR("runtime-preflight", getLivePreflight);
+  const risk = useSWR("risk-limits", getRiskLimits);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [catalogActionError, setCatalogActionError] = useState("");
   const managedPositions = (data ?? []).filter((position) => activeStatuses.has(position.status));
@@ -515,7 +517,7 @@ export default function PositionsPage() {
     <div className="page-stack">
       <header className="page-header"><div><h1>部位管理</h1><p>逐一管理 Maybech 邏輯部位單位，並與 OKX 合併後的淨部位分開檢視。</p></div></header>
       <RuntimeModeBanner />
-      <ManualOpenForm catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} onCreated={created} />
+      <ManualOpenForm catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} onCreated={created} />
       {catalog.error && preflight.data?.execution_mode !== "simulation" && <div className="error-state">OKX 商品快取無法使用，手動建立已停用；畫面不會提供硬編碼商品。</div>}
       {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> 商品快取已過期，數量換算與手動建立已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{preflight.data?.execution_mode === "simulation" ? "建立 Simulation 商品資料" : "立即更新商品資料"}</button></div>}
       {catalog.error && preflight.data?.execution_mode === "simulation" && <div className="error-state"><AlertTriangle size={17} />Simulation 商品資料尚未建立。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>建立 Simulation 商品資料</button></div>}

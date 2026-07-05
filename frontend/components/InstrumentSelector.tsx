@@ -1,7 +1,7 @@
 "use client";
 
 import { Search, X } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type KeyboardEvent } from "react";
 
 import type { InstrumentMetadataResponse } from "@/lib/api";
 
@@ -14,6 +14,7 @@ type Props = {
   disabled?: boolean;
   stale?: boolean;
   placeholder?: string;
+  eligibleInstruments?: string[];
 };
 
 export default function InstrumentSelector({
@@ -25,9 +26,11 @@ export default function InstrumentSelector({
   disabled = false,
   stale = false,
   placeholder = "輸入 BTC、ETH 或 USDT 搜尋",
+  eligibleInstruments,
 }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const optionsId = useId();
   const options = useMemo(() => {
     const all = includeSelf
@@ -38,7 +41,11 @@ export default function InstrumentSelector({
       .filter((item) => !multiple || !value.includes(item))
       .filter((item) => !normalized || item.toUpperCase().includes(normalized))
       .sort((left, right) => {
-        const rank = (item: string) => item === "self" ? 0 : item === "BTC-USDT-SWAP" ? 1 : 2;
+        const preferred = ["self", "BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP", "XRP-USDT-SWAP", "DOGE-USDT-SWAP"];
+        const rank = (item: string) => {
+          const index = preferred.indexOf(item);
+          return index === -1 ? preferred.length : index;
+        };
         return rank(left) - rank(right) || left.localeCompare(right);
       });
   }, [includeSelf, instruments, multiple, query, value]);
@@ -47,6 +54,23 @@ export default function InstrumentSelector({
     onChange(multiple ? [...value, instId] : [instId]);
     setQuery("");
     setOpen(false);
+  };
+
+  const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((current) => Math.min(current + 1, Math.max(0, options.length - 1)));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((current) => Math.max(0, current - 1));
+    } else if (event.key === "Enter" && open && options[activeIndex]) {
+      event.preventDefault();
+      select(options[activeIndex]);
+    } else if (event.key === "Escape") {
+      setOpen(false);
+    }
   };
 
   return (
@@ -69,12 +93,14 @@ export default function InstrumentSelector({
           role="combobox"
           aria-expanded={open}
           aria-controls={optionsId}
+          aria-activedescendant={open && options[activeIndex] ? `${optionsId}-${activeIndex}` : undefined}
           disabled={disabled || stale}
           value={query}
           placeholder={!multiple && value[0] ? value[0] : placeholder}
-          onFocus={() => setOpen(true)}
+          onFocus={() => { setOpen(true); setActiveIndex(0); }}
           onBlur={() => setOpen(false)}
-          onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
+          onChange={(event) => { setQuery(event.target.value); setOpen(true); setActiveIndex(0); }}
+          onKeyDown={keyDown}
         />
         {!multiple && value[0] && (
           <button type="button" className="selector-clear" aria-label="清除商品" onMouseDown={(event) => event.preventDefault()} onClick={() => onChange([])}>
@@ -83,17 +109,20 @@ export default function InstrumentSelector({
         )}
         {open && (
           <div id={optionsId} className="instrument-options" role="listbox">
-            {options.map((instId) => (
+            {options.map((instId, index) => (
               <button
                 type="button"
                 role="option"
+                id={`${optionsId}-${index}`}
                 aria-selected={value.includes(instId)}
                 key={instId}
                 onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => select(instId)}
+                className={activeIndex === index ? "active" : undefined}
               >
                 <strong>{instId === "self" ? "本商品（self）" : instId}</strong>
-                <small>{instId === "self" ? "依目前策略或部位的商品判定" : "OKX 快取中可交易的 SWAP"}</small>
+                <small>{instId === "self" ? "依目前策略或部位的商品判定" : eligibleInstruments ? eligibleInstruments.includes(instId) ? "帳戶風險邊界允許 · 可交易 SWAP" : "不在帳戶 allowlist · 可先研究或儲存，啟用時會封鎖" : "快取中可交易的 SWAP"}</small>
               </button>
             ))}
             {!options.length && <div className="instrument-no-result">沒有符合的可交易商品</div>}

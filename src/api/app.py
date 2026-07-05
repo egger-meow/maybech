@@ -529,6 +529,24 @@ def _strategy_validation_errors(strategy: StrategyRecord, store: StrategyStore) 
     return errors
 
 
+def _require_targets_within_account_allowlist(
+    store: StrategyStore,
+    target_instruments: list[str],
+) -> None:
+    risk_limits = AccountRiskStore(store.db_path, initialize=False).get()
+    if risk_limits is None:
+        return
+    outside = sorted(set(target_instruments) - set(risk_limits.allowed_instruments))
+    if outside:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Strategy targets are outside the account risk allowlist",
+                "instruments": outside,
+            },
+        )
+
+
 def _as_float(value: object) -> float | None:
     try:
         if value in (None, ""):
@@ -1657,6 +1675,7 @@ def create_app(
     @app.post("/strategies", response_model=StrategySummaryResponse, status_code=201)
     def create_strategy(payload: StrategyCreate) -> StrategySummaryResponse:
         store = StrategyStore()
+        _require_targets_within_account_allowlist(store, payload.target_instruments)
         audit_store = AuditEventStore(store.db_path)
         with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
             if payload.id and store.get(payload.id) is not None:
@@ -1821,6 +1840,11 @@ def create_app(
                         "message": "Enabled strategy edits require confirmed disable for review",
                         "current_updated_at": previous.updated_at,
                     },
+                )
+            if payload.target_instruments is not None:
+                _require_targets_within_account_allowlist(
+                    store,
+                    payload.target_instruments,
                 )
             strategy = store.update(
                 strategy_id,
@@ -2277,6 +2301,15 @@ def create_app(
             raise HTTPException(
                 status_code=409,
                 detail="Cached OKX instrument metadata is stale; refresh is required",
+            )
+        risk_limits = AccountRiskStore(metadata_store.db_path).get()
+        if (
+            risk_limits is not None
+            and payload.inst_id not in risk_limits.allowed_instruments
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=f"{payload.inst_id} is outside the account risk allowlist",
             )
         try:
             quote = InstrumentSizer(metadata).quote(

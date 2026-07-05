@@ -4,6 +4,7 @@ from src.api.app import create_app
 from src.daemon.events import RuntimeState
 from src.daemon.service import DaemonRunner
 from src.trading.audit_event_store import AuditEventStore
+from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
 from src.trading.instrument_metadata import InstrumentMetadataStore
 from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.trade_store import TradeStore
@@ -98,6 +99,38 @@ def test_manual_open_rejects_live_unarmed_before_writing(monkeypatch, tmp_path):
 
     assert response.status_code == 409
     assert "armed runtime" in response.json()["detail"]
+    assert position_store.list(status="all") == []
+
+
+def test_manual_open_rejects_instrument_outside_account_allowlist(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    metadata_store = InstrumentMetadataStore(db_path)
+    metadata_store.replace_type("SWAP", [_instrument()])
+    AccountRiskStore(db_path).save(AccountRiskLimits(
+        enabled=True,
+        max_order_notional_usd=1000,
+        max_total_exposure_usd=5000,
+        max_leverage=5,
+        allowed_instruments=("BTC-USDT-SWAP",),
+    ))
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    monkeypatch.setattr("src.api.app.LogicalPositionStore", lambda *_: position_store)
+    monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: metadata_store)
+    runtime = RuntimeState()
+    runtime.set_value(
+        "runtime.live_preflight",
+        {"execution_mode": "simulation", "armed": False},
+    )
+
+    response = TestClient(create_app(DaemonRunner(runtime))).post(
+        "/positions/manual-open",
+        json=_payload(),
+    )
+
+    assert response.status_code == 409
+    assert "outside the account risk allowlist" in response.json()["detail"]
     assert position_store.list(status="all") == []
 
 

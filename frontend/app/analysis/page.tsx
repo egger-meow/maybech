@@ -4,7 +4,8 @@ import { AlertTriangle, BarChart3, Database, ShieldAlert } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
 
-import { getMarketCandles, getSupportResistanceAnalysis, listLogicalPositions, listStrategies, promotePositionRiskStop, promoteStrategyRiskStop, quoteInstrumentRisk, type InstrumentRiskQuoteRequest, type MarketCandlesResponse, type SupportResistanceAnalysisResponse } from "@/lib/api";
+import InstrumentSelector from "@/components/InstrumentSelector";
+import { getMarketCandles, getRiskLimits, getSupportResistanceAnalysis, listInstruments, listLogicalPositions, listStrategies, promotePositionRiskStop, promoteStrategyRiskStop, quoteInstrumentRisk, type InstrumentRiskQuoteRequest, type MarketCandlesResponse, type SupportResistanceAnalysisResponse } from "@/lib/api";
 import { formatPrice } from "@/lib/price-format";
 
 const bars = ["1m", "5m", "15m", "1H", "4H", "1D"];
@@ -111,6 +112,8 @@ export default function AnalysisPage() {
   const [exitFeePct, setExitFeePct] = useState("0.05");
   const [slippagePct, setSlippagePct] = useState("0.05");
   const limit = 200;
+  const catalog = useSWR("instrument-metadata", listInstruments);
+  const risk = useSWR("risk-limits", getRiskLimits);
   const analysis = useSWR(["support-resistance", instrument, bar], () => getSupportResistanceAnalysis(instrument, { bar, limit }), { refreshInterval: 30_000 });
   const candles = useSWR(["analysis-candles", instrument, bar], () => getMarketCandles(instrument, { bar, limit }), { refreshInterval: 30_000 });
   const sortedLevels = useMemo(() => [...(analysis.data?.levels ?? [])].sort((a, b) => b.score - a.score), [analysis.data?.levels]);
@@ -119,7 +122,8 @@ export default function AnalysisPage() {
   const stateClass = analysis.data?.freshness.stale ? "stale" : analysis.data?.status ?? "unavailable";
   return <div className="page-stack">
     <header className="page-header"><div><h1>市場分析</h1><p>把支撐與壓力當作研究證據，不直接當作交易指令。</p></div></header>
-    <section className="panel"><form onSubmit={submit} className="analysis-form"><label className="field"><span>OKX 商品</span><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={64} /></label><label className="field"><span>時間週期</span><select value={bar} onChange={(event) => setBar(event.target.value)}>{bars.map((item) => <option key={item}>{item}</option>)}</select></label><button className="btn btn-primary" type="submit"><BarChart3 size={16} /> 分析</button></form></section>
+    <section className="panel"><form onSubmit={submit} className="analysis-form"><div className="field"><span>OKX 商品</span><InstrumentSelector instruments={catalog.data?.items ?? []} stale={catalog.data?.stale ?? true} value={draft ? [draft] : []} onChange={(next) => setDraft(next[0] ?? "")} eligibleInstruments={risk.data?.allowed_instruments} /><small>可研究所有快取 SWAP；不在 allowlist 的商品不可推廣為實盤策略。</small></div><label className="field"><span>時間週期</span><select value={bar} onChange={(event) => setBar(event.target.value)}>{bars.map((item) => <option key={item}>{item}</option>)}</select></label><button className="btn btn-primary" type="submit" disabled={!draft || !catalog.data || catalog.data.stale}><BarChart3 size={16} /> 分析</button></form></section>
+    {catalog.error && <div className="error-state"><AlertTriangle size={17} />商品快取無法使用；市場分析不接受未驗證的自由輸入。</div>}
     {analysis.error && <div className="error-state"><AlertTriangle size={17} />分析 API 無法連線；目前沒有可安全採用的證據。</div>}
     {analysis.isLoading && <div className="loading-state">正在取得 K 線並計算研究證據…</div>}
     {analysis.data && <>

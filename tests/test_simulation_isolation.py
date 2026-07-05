@@ -68,7 +68,7 @@ def test_simulation_api_market_reads_and_exchange_mutations_never_construct_okx(
         lambda: metadata_store,
     )
     monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
-    monkeypatch.setattr("src.api.app.AccountRiskStore", lambda *_: risk_store)
+    monkeypatch.setattr("src.api.app.AccountRiskStore", lambda *_, **__: risk_store)
     monkeypatch.setattr("src.api.app.StrategyStore", lambda *_: strategy_store)
     monkeypatch.setattr("src.api.app.LogicalPositionStore", lambda *_: position_store)
     monkeypatch.setattr(

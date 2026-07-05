@@ -344,9 +344,6 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
   const [newSignal, setNewSignal] = useState(false);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => { setDraft((current) => ({ ...current, [key]: value })); setDirty(true); };
   const instruments = draft.instruments;
-  const selectableCatalog = allowedInstruments
-    ? catalog.filter((item) => allowedInstruments.includes(item.inst_id))
-    : catalog;
   const outsideAllowlist = allowedInstruments
     ? instruments.filter((item) => !allowedInstruments.includes(item))
     : [];
@@ -424,7 +421,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       <div className="form-grid">
         <label className="field"><span>策略名稱</span><input value={draft.name} onChange={(event) => set("name", event.target.value)} /></label>
         <label className="field"><span>方向</span><select value={draft.side} onChange={(event) => set("side", event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
-        <div className="field full"><span>交易商品</span><InstrumentSelector instruments={selectableCatalog} stale={catalogStale} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} />{allowedInstruments ? <small>只顯示帳戶風險上限允許的 {allowedInstruments.length} 個商品。</small> : <div className="inline-warning">帳戶風險 allowlist 尚未建立；策略可先儲存為停用，但實盤不能通過 preflight。</div>}{outsideAllowlist.length > 0 && <div className="error-state">目前策略超出帳戶 allowlist：{outsideAllowlist.join("、")}。請移除商品或先至「風險上限」調整邊界。</div>}</div>
+        <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} eligibleInstruments={allowedInstruments} />{allowedInstruments ? <small>顯示所有可交易 SWAP；選項會標示是否位於帳戶 allowlist（目前允許 {allowedInstruments.length} 個）。</small> : <div className="inline-warning">帳戶風險 allowlist 尚未建立；策略可先儲存為停用，但實盤不能通過 preflight。</div>}{outsideAllowlist.length > 0 && <div className="error-state">目前策略超出帳戶 allowlist：{outsideAllowlist.join("、")}。請移除商品或先至「風險上限」調整邊界。</div>}</div>
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
         <label className="field"><span>訊號成立後執行延遲</span><span className="input-with-suffix"><input type="number" min="0" max="86400" step="1" value={draft.executionDelaySeconds} onChange={(event) => set("executionDelaySeconds", event.target.value)} /><small>秒</small></span><small>{Number(draft.executionDelaySeconds) > 0 ? "到期後會重新驗證訊號與風險；失效即取消。" : "0 秒＝停用延遲，沿用立即執行。"}</small></label>
         <div className="field full"><span>每個商品的操作者幣量</span><div className="contract-size-grid">{instruments.map((instrument) => <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><label><small>換算參考價格（USDT）</small><input type="number" min="0" step="any" value={draft.referencePrices[instrument] ?? ""} onChange={(event) => set("referencePrices", { ...draft.referencePrices, [instrument]: event.target.value })} /></label><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={draft.referencePrices[instrument] ?? ""} side={draft.side} /></div>)}</div></div>

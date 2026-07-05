@@ -44,18 +44,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-1. Provide one consistent searchable SWAP selector across Strategy creation,
-   Position creation, Market Analysis, and risk allowlists. With no prior
-   selection, open a real dropdown containing at least three to five useful
-   liquid/hot SWAP candidates; as the operator types, filter and show matching
-   cached SWAPs immediately instead of an empty dropdown. Do not hard-limit the
-   discovery UI to the current risk allowlist: show boundary eligibility and
-   enforce it at save/enable/preflight, while filtering out non-SWAP products.
-   Use an explicit safe bootstrap when no cache exists and verify keyboard,
-   mouse, empty-query, no-result, stale-cache, low-price, desktop, and mobile
-   behavior before removing this item.
-
-2. Prevent Next.js 16.2.9 Turbopack from terminating the dashboard development
+1. Prevent Next.js 16.2.9 Turbopack from terminating the dashboard development
    server while processing Traditional Chinese source. During the real
    Playwright run, `next-code-frame/src/highlight.rs` panicked because a byte
    index landed inside the UTF-8 character `組`; the next launch reported an
@@ -65,7 +54,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    repeated navigation/edit/HMR cycles across Chinese-heavy pages do not stop
    the frontend before removing this item.
 
-3. Remove the persisted-theme hydration mismatch. The Playwright interaction
+2. Remove the persisted-theme hydration mismatch. The Playwright interaction
    pass proved that switching to light mode persists correctly, but a reload
    makes `ThemeToggle` server-render a sun icon while its client initializer
    reads local storage and renders a moon icon; React reports hydration failure
@@ -74,7 +63,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    console output on first load, reload, and navigation in both themes before
    removing this item.
 
-4. Localize all operator-facing protection lifecycle controls consistently in
+3. Localize all operator-facing protection lifecycle controls consistently in
    Traditional Chinese(some english ok but mainly chinese). Position Management currently mixes the Chinese shell
    with English sections and statuses such as `Automatic cost-adjusted
    break-even`, `Activation profit`, `Persisted target stop`, `applied`, and
@@ -84,7 +73,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    inactive, pending, applied, failed, and restart-restored state before
    removing this item.
 
-5. Make trade history distinguish separate logical executions. The Simulation
+4. Make trade history distinguish separate logical executions. The Simulation
    audit displayed five visually identical stop-loss rows and five visually
    identical take-profit rows, while `/trades/history` proved they have unique
    trade IDs, correlation IDs, and entry times roughly 10–12 seconds apart.
@@ -93,7 +82,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
    ingestion; verify repeated same-strategy exits remain individually traceable
    on desktop and mobile before removing this item.
 
-6. Make the documented local frontend URL work cleanly in development. A real
+5. Make the documented local frontend URL work cleanly in development. A real
    Next.js 16.2.9 run opened at `http://127.0.0.1:3000` blocks
    `/_next/webpack-hmr` as a cross-origin development resource because
    `frontend/next.config.ts` does not include `127.0.0.1` in
