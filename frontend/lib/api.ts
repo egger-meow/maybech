@@ -286,6 +286,9 @@ export const listInstruments = (): Promise<InstrumentMetadataListResponse> =>
 export const refreshInstruments = (): Promise<InstrumentMetadataListResponse> =>
   postData<InstrumentMetadataListResponse>("/instruments/refresh");
 
+export const bootstrapSimulationInstruments = (): Promise<InstrumentMetadataListResponse> =>
+  postData<InstrumentMetadataListResponse>("/instruments/simulation-bootstrap");
+
 export const quoteInstrumentSize = (
   instId: string,
   payload: InstrumentSizeQuoteRequest,

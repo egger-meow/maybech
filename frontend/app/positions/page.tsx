@@ -10,6 +10,7 @@ import RuntimeModeBanner from "@/components/RuntimeModeBanner";
 import { formatPrice } from "@/lib/price-format";
 import {
   ApiError,
+  bootstrapSimulationInstruments,
   adoptRecoveredLogicalPosition,
   amendLogicalPositionStop,
   attachLogicalPositionProtection,
@@ -491,18 +492,34 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
 export default function PositionsPage() {
   const { data, error, mutate, isLoading } = useSWR("logical-positions", () => listLogicalPositions("all"), { refreshInterval: 5000 });
   const catalog = useSWR("instrument-metadata", listInstruments);
+  const preflight = useSWR("runtime-preflight", getLivePreflight);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [catalogActionError, setCatalogActionError] = useState("");
   const managedPositions = (data ?? []).filter((position) => activeStatuses.has(position.status));
   const selected = managedPositions.find((position) => position.id === selectedId) ?? managedPositions[0];
   const created = async (positionId: string) => { await mutate(); setSelectedId(positionId); };
-  const refreshCatalog = async () => { await refreshInstruments(); await catalog.mutate(); };
+  const refreshCatalog = async () => {
+    setCatalogActionError("");
+    try {
+      if (preflight.data?.execution_mode === "simulation") {
+        await bootstrapSimulationInstruments();
+      } else {
+        await refreshInstruments();
+      }
+      await catalog.mutate();
+    } catch (reason) {
+      setCatalogActionError(reason instanceof Error ? reason.message : "商品資料建立失敗。");
+    }
+  };
   return (
     <div className="page-stack">
       <header className="page-header"><div><h1>部位管理</h1><p>逐一管理 Maybech 邏輯部位單位，並與 OKX 合併後的淨部位分開檢視。</p></div></header>
       <RuntimeModeBanner />
       <ManualOpenForm catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} onCreated={created} />
-      {catalog.error && <div className="error-state">OKX 商品快取無法使用，手動建立已停用；畫面不會提供硬編碼商品。</div>}
-      {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> OKX 商品快取已過期，數量換算與手動建立已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>立即更新商品資料</button></div>}
+      {catalog.error && preflight.data?.execution_mode !== "simulation" && <div className="error-state">OKX 商品快取無法使用，手動建立已停用；畫面不會提供硬編碼商品。</div>}
+      {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> 商品快取已過期，數量換算與手動建立已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{preflight.data?.execution_mode === "simulation" ? "建立 Simulation 商品資料" : "立即更新商品資料"}</button></div>}
+      {catalog.error && preflight.data?.execution_mode === "simulation" && <div className="error-state"><AlertTriangle size={17} />Simulation 商品資料尚未建立。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>建立 Simulation 商品資料</button></div>}
+      {catalogActionError && <div className="error-state"><AlertTriangle size={17} />{catalogActionError}</div>}
       {error && <div className="error-state">邏輯部位 API 無法使用。畫面不會使用假資料，所有交易操作已停用。</div>}
       {isLoading && <div className="loading-state">正在讀取邏輯部位…</div>}
       {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={selected.id} position={selected} refresh={mutate} instrumentMetadata={catalog.data?.items.find((item) => item.inst_id === selected.inst_id)} /> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}

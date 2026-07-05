@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta, timezone
+import sqlite3
 
 import pytest
 
@@ -38,11 +39,28 @@ def test_instrument_cache_migrates_replaces_and_persists(tmp_path):
     saved = store.replace_type("SWAP", [_instrument()])
     reopened = InstrumentMetadataStore(db_path)
 
-    assert store.applied_schema_versions() == [1]
+    assert store.applied_schema_versions() == [1, 2]
     assert saved[0].contract_value == "0.1"
     assert saved[0].contract_currency == "ETH"
     assert saved[0].size_precision == 2
     assert reopened.list()[0].inst_id == "ETH-USDT-SWAP"
+
+
+def test_instrument_cache_migrates_existing_rows_to_okx_provenance(tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    store = InstrumentMetadataStore(db_path)
+    store.replace_type("SWAP", [_instrument()])
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE instrument_metadata DROP COLUMN source")
+        conn.execute(
+            "DELETE FROM schema_migrations WHERE component = ? AND version = 2",
+            ("instrument_metadata",),
+        )
+
+    migrated = InstrumentMetadataStore(db_path)
+
+    assert migrated.applied_schema_versions() == [1, 2]
+    assert migrated.list()[0].source == "okx"
 
 
 def test_instrument_cache_rejects_incomplete_metadata_without_losing_cache(tmp_path):
@@ -110,6 +128,30 @@ def test_instrument_cache_refreshes_only_when_daily_ttl_expires(tmp_path):
     assert fresh[0].inst_id == "ETH-USDT-SWAP"
     assert stale[0].inst_id == "ETH-USDT-SWAP"
     assert store.cache_status(now=datetime.now(timezone.utc))["refresh_due_at"]
+
+
+def test_exchange_refresh_replaces_fresh_simulation_metadata(tmp_path):
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    store.replace_type(
+        "SWAP",
+        [_instrument("BTC-USDT-SWAP")],
+        source="simulation_builtin",
+    )
+
+    class Client:
+        calls = 0
+
+        def get_instruments(self, *, inst_type):
+            self.calls += 1
+            return [_instrument("ETH-USDT-SWAP")]
+
+    client = Client()
+    refreshed = store.refresh_if_stale(client)
+
+    assert client.calls == 1
+    assert [item.inst_id for item in refreshed] == ["ETH-USDT-SWAP"]
+    assert refreshed[0].source == "okx"
+    assert store.cache_status()["source"] == "okx"
 
 
 def test_account_service_automatically_populates_instrument_cache(monkeypatch, tmp_path):

@@ -13,7 +13,7 @@ from typing import Any, Generator, Iterable
 
 from src.config.settings import settings
 from src.trading.instrument_constraints import InstrumentConstraints
-from src.trading.sqlite_schema import applied_schema_versions, connect_database, configure_connection, initialize_schema, sqlite_read_only
+from src.trading.sqlite_schema import applied_schema_versions, connect_database, configure_connection, initialize_schema, record_schema_version, sqlite_read_only
 
 _SCHEMA_COMPONENT = "instrument_metadata"
 _SCHEMA_VERSION = 1
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS instrument_metadata (
     lot_size TEXT NOT NULL, min_size TEXT NOT NULL, tick_size TEXT NOT NULL,
     size_precision INTEGER NOT NULL, price_precision INTEGER NOT NULL,
     max_limit_size TEXT NOT NULL, max_market_size TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'okx',
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_instrument_metadata_type_state
@@ -67,10 +68,17 @@ class InstrumentMetadata:
     price_precision: int
     max_limit_size: str
     max_market_size: str
+    source: str
     updated_at: str
 
     @classmethod
-    def from_okx(cls, payload: dict[str, Any], *, updated_at: str) -> "InstrumentMetadata":
+    def from_okx(
+        cls,
+        payload: dict[str, Any],
+        *,
+        updated_at: str,
+        source: str = "okx",
+    ) -> "InstrumentMetadata":
         inst_id = str(payload.get("instId") or "").strip()
         inst_type = str(payload.get("instType") or "").strip()
         if not inst_id or not inst_type:
@@ -93,6 +101,7 @@ class InstrumentMetadata:
             contract_multiplier=str(payload.get("ctMult") or ""), lot_size=lot_size, min_size=min_size,
             tick_size=tick_size, size_precision=_precision(lot_size), price_precision=_precision(tick_size),
             max_limit_size=str(payload.get("maxLmtSz") or ""), max_market_size=str(payload.get("maxMktSz") or ""),
+            source=source,
             updated_at=updated_at,
         )
 
@@ -127,6 +136,16 @@ class InstrumentMetadataStore:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
             with self._conn() as conn:
                 initialize_schema(conn, schema_sql=_SCHEMA, component=_SCHEMA_COMPONENT, version=_SCHEMA_VERSION)
+                columns = {
+                    str(row["name"])
+                    for row in conn.execute("PRAGMA table_info(instrument_metadata)")
+                }
+                if "source" not in columns:
+                    conn.execute(
+                        "ALTER TABLE instrument_metadata "
+                        "ADD COLUMN source TEXT NOT NULL DEFAULT 'okx'"
+                    )
+                record_schema_version(conn, component=_SCHEMA_COMPONENT, version=2)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -145,8 +164,17 @@ class InstrumentMetadataStore:
         with self._conn() as conn:
             return applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
 
-    def replace_type(self, inst_type: str, payloads: Iterable[dict[str, Any]]) -> list[InstrumentMetadata]:
+    def replace_type(
+        self,
+        inst_type: str,
+        payloads: Iterable[dict[str, Any]],
+        *,
+        source: str = "okx",
+    ) -> list[InstrumentMetadata]:
         normalized_type = inst_type.strip().upper()
+        normalized_source = source.strip().lower()
+        if normalized_source not in {"okx", "simulation_builtin"}:
+            raise ValueError("instrument metadata source is unsupported")
         now = datetime.now(timezone.utc).isoformat()
         records: list[InstrumentMetadata] = []
         rejections: list[InstrumentMetadataRejection] = []
@@ -156,7 +184,11 @@ class InstrumentMetadataStore:
             inst_id = str(payload.get("instId") or "").strip().upper()
             rejection_key = inst_id or f"missing-inst-id:{index}"
             try:
-                record = InstrumentMetadata.from_okx(payload, updated_at=now)
+                record = InstrumentMetadata.from_okx(
+                    payload,
+                    updated_at=now,
+                    source=normalized_source,
+                )
                 if record.inst_type != normalized_type:
                     raise ValueError(
                         f"{record.inst_id} has unexpected instrument type {record.inst_type}"
@@ -278,7 +310,12 @@ class InstrumentMetadataStore:
     ) -> dict[str, Any]:
         records = self.list(inst_type=inst_type, tradable_only=False)
         if not records:
-            return {"stale": True, "refreshed_at": "", "refresh_due_at": ""}
+            return {
+                "stale": True,
+                "refreshed_at": "",
+                "refresh_due_at": "",
+                "source": "",
+            }
         refreshed_at = max(record.updated_at for record in records)
         refreshed = datetime.fromisoformat(refreshed_at)
         if refreshed.tzinfo is None:
@@ -289,6 +326,9 @@ class InstrumentMetadataStore:
             "stale": current >= due,
             "refreshed_at": refreshed_at,
             "refresh_due_at": due.isoformat(),
+            "source": records[0].source if all(
+                record.source == records[0].source for record in records
+            ) else "mixed",
         }
 
     def refresh_if_stale(
@@ -299,7 +339,8 @@ class InstrumentMetadataStore:
         max_age: timedelta = timedelta(days=1),
         now: datetime | None = None,
     ) -> list[InstrumentMetadata]:
-        if self.cache_status(inst_type=inst_type, max_age=max_age, now=now)["stale"]:
+        cache = self.cache_status(inst_type=inst_type, max_age=max_age, now=now)
+        if cache["stale"] or cache["source"] != "okx":
             return self.replace_type(
                 inst_type,
                 client.get_instruments(inst_type=inst_type),

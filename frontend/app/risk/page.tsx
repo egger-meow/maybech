@@ -6,7 +6,9 @@ import { AlertTriangle, CheckCircle2, RefreshCw, Save, ShieldCheck } from "lucid
 import InstrumentSelector from "@/components/InstrumentSelector";
 import {
   ApiError,
+  bootstrapSimulationInstruments,
   getEntryControl,
+  getLivePreflight,
   getRiskLimits,
   listInstruments,
   updateRiskLimits,
@@ -48,15 +50,21 @@ export default function RiskLimitsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [simulationMode, setSimulationMode] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [riskResult, entryResult, instrumentResult] = await Promise.allSettled([
+      const [riskResult, entryResult, instrumentResult, preflightResult] = await Promise.allSettled([
         getRiskLimits(),
         getEntryControl(),
         listInstruments(),
+        getLivePreflight(),
       ]);
+      setSimulationMode(
+        preflightResult.status === "fulfilled"
+        && preflightResult.value.execution_mode === "simulation"
+      );
       if (entryResult.status === "fulfilled") {
         setEntriesEnabled(entryResult.value.entries_enabled);
       } else {
@@ -78,6 +86,17 @@ export default function RiskLimitsPage() {
       setLoading(false);
     }
   }, []);
+
+  const bootstrapCatalog = async () => {
+    setError("");
+    try {
+      const result = await bootstrapSimulationInstruments();
+      setInstruments(result);
+      setNotice("已建立本機 Simulation 商品資料；此動作未連接 OKX，切換 Demo／Live 時會強制由交易所覆寫。");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Simulation 商品資料建立失敗。");
+    }
+  };
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
@@ -177,7 +196,7 @@ export default function RiskLimitsPage() {
               stale={!instruments || instruments.stale}
               placeholder="輸入 BTC、ETH 或 USDT 搜尋允許商品"
             />
-            {!instruments && <div className="error-state">無法取得 OKX 商品快取；不提供假選項，請先確認 /instruments。</div>}
+            {!instruments && <div className="error-state">商品快取尚未建立；不提供未標示來源的假選項。{simulationMode && <button type="button" className="btn btn-outline" onClick={() => void bootstrapCatalog()}>建立 Simulation 商品資料</button>}</div>}
           </div>
 
           <label className="risk-enable-toggle"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} /><span><strong>啟用此風險信封</strong><small>實盤啟動要求此項已啟用；它不等於允許送單。</small></span></label>

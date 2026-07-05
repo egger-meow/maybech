@@ -1112,6 +1112,11 @@
             "title": "Rejected Items",
             "type": "array"
           },
+          "source": {
+            "default": "",
+            "title": "Source",
+            "type": "string"
+          },
           "stale": {
             "title": "Stale",
             "type": "boolean"
@@ -1235,6 +1240,11 @@
           "size_precision": {
             "title": "Size Precision",
             "type": "integer"
+          },
+          "source": {
+            "default": "okx",
+            "title": "Source",
+            "type": "string"
           },
           "state": {
             "title": "State",
@@ -6202,6 +6212,24 @@
           }
         },
         "summary": "Refresh Instruments"
+      }
+    },
+    "/instruments/simulation-bootstrap": {
+      "post": {
+        "operationId": "bootstrap_simulation_instruments_instruments_simulation_bootstrap_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentMetadataListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Bootstrap Simulation Instruments"
       }
     },
     "/instruments/{inst_id}/contract-quote": {

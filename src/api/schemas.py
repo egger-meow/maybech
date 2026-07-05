@@ -146,6 +146,7 @@ class InstrumentMetadataResponse(BaseModel):
     price_precision: int
     max_limit_size: str = ""
     max_market_size: str = ""
+    source: str = "okx"
     updated_at: str
 
 
@@ -164,6 +165,7 @@ class InstrumentMetadataListResponse(BaseModel):
     refreshed_at: str
     refresh_due_at: str
     stale: bool
+    source: str = ""
 
 
 class InstrumentSizeQuoteRequest(BaseModel):

@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from src.config.settings import settings
 from src.data.candles import CandleManager
 from src.data.simulation_market import SimulationMarketClient
+from src.data.simulation_instruments import SIMULATION_SWAP_INSTRUMENTS
 from src.market.support_resistance import SupportResistanceService
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
@@ -1188,6 +1189,28 @@ def create_app(
             items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
             rejected_items=[rejection.to_dict() for rejection in store.list_rejections(inst_type="SWAP")],
             **cache,
+        )
+
+    @app.post(
+        "/instruments/simulation-bootstrap",
+        response_model=InstrumentMetadataListResponse,
+    )
+    def bootstrap_simulation_instruments() -> InstrumentMetadataListResponse:
+        if runtime_mode() != "simulation":
+            raise HTTPException(
+                status_code=409,
+                detail="Simulation metadata bootstrap is only available in Simulation mode",
+            )
+        store = InstrumentMetadataStore()
+        records = store.replace_type(
+            "SWAP",
+            SIMULATION_SWAP_INSTRUMENTS,
+            source="simulation_builtin",
+        )
+        return InstrumentMetadataListResponse(
+            items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
+            rejected_items=[],
+            **store.cache_status(inst_type="SWAP"),
         )
 
     @app.post(

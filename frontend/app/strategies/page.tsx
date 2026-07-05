@@ -9,6 +9,7 @@ import InstrumentSelector from "@/components/InstrumentSelector";
 import RuntimeModeBanner from "@/components/RuntimeModeBanner";
 import {
   ApiError,
+  bootstrapSimulationInstruments,
   createStrategy,
   createStrategySignal,
   deleteStrategy,
@@ -16,6 +17,7 @@ import {
   disableStrategy,
   enableStrategy,
   getRiskLimits,
+  getLivePreflight,
   listPersistedStrategyDecisions,
   listInstruments,
   listStrategies,
@@ -472,18 +474,34 @@ function Decisions({ strategyId }: { strategyId: string }) {
 export default function StrategiesPage() {
   const { data: strategies, error, mutate, isLoading } = useSWR("strategies", listStrategies, { refreshInterval: 10_000 });
   const catalog = useSWR("instrument-metadata", listInstruments);
+  const preflight = useSWR("runtime-preflight", getLivePreflight);
   const risk = useSWR("risk-limits", getRiskLimits, { refreshInterval: 10_000 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [catalogActionError, setCatalogActionError] = useState("");
   const selected = strategies?.find((strategy) => strategy.id === selectedId) ?? strategies?.[0];
   const refresh = async (id?: string) => { await mutate(); if (id) setSelectedId(id); else if (id === undefined) setSelectedId(null); setCreating(false); };
-  const refreshCatalog = async () => { await refreshInstruments(); await catalog.mutate(); };
+  const refreshCatalog = async () => {
+    setCatalogActionError("");
+    try {
+      if (preflight.data?.execution_mode === "simulation") {
+        await bootstrapSimulationInstruments();
+      } else {
+        await refreshInstruments();
+      }
+      await catalog.mutate();
+    } catch (reason) {
+      setCatalogActionError(reason instanceof Error ? reason.message : "商品資料建立失敗。");
+    }
+  };
+  const catalogAction = preflight.data?.execution_mode === "simulation" ? "建立 Simulation 商品資料" : "立即更新商品資料";
   return (
     <div className="page-stack">
       <header className="page-header"><div><h1>策略管理</h1><p>建立進場計畫、組合市場訊號，並定義每個新部位收到的初始風險規則。</p></div><button type="button" className="btn btn-primary" onClick={() => setCreating(true)}><CirclePlus size={17} /> 建立策略</button></header>
       <RuntimeModeBanner />
-      {catalog.error && <div className="error-state"><AlertTriangle size={17} /> OKX 商品快取尚未建立，無法選擇交易商品。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>立即更新商品資料</button></div>}
-      {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> OKX 商品快取已過期（最近更新：{new Date(catalog.data.refreshed_at).toLocaleString("zh-TW")}）。換算與新選擇已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>立即更新</button></div>}
+      {catalog.error && <div className="error-state"><AlertTriangle size={17} /> 商品快取尚未建立，無法選擇交易商品。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{catalogAction}</button></div>}
+      {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> 商品快取已過期（最近更新：{new Date(catalog.data.refreshed_at).toLocaleString("zh-TW")}）。換算與新選擇已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{catalogAction}</button></div>}
+      {catalogActionError && <div className="error-state"><AlertTriangle size={17} />{catalogActionError}</div>}
       {error && <div className="error-state">策略 API 無法使用。畫面不會用假資料替代，所有操作已停用。</div>}
       {isLoading && <div className="loading-state">正在讀取策略…</div>}
       {!error && strategies && <div className="strategy-workspace"><StrategyList strategies={strategies} selectedId={creating ? null : selected?.id ?? null} onSelect={(id) => { setSelectedId(id); setCreating(false); }} onCreate={() => setCreating(true)} /><div className="strategy-main">{creating ? <StrategyEditor key="new" onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} /> : selected ? <><StrategyEditor key={`${selected.id}-${selected.updated_at}`} strategy={selected} onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} /><Decisions strategyId={selected.id} /></> : <div className="panel empty-state">建立第一個策略，開始定義進場訊號與預設部位規則。</div>}</div></div>}

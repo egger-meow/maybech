@@ -205,6 +205,7 @@ export type InstrumentMetadataListResponse = {
   "refreshed_at": string;
   "refresh_due_at": string;
   "stale": boolean;
+  "source"?: string;
 };
 
 export type InstrumentMetadataRejectionResponse = {
@@ -234,6 +235,7 @@ export type InstrumentMetadataResponse = {
   "price_precision": number;
   "max_limit_size"?: string;
   "max_market_size"?: string;
+  "source"?: string;
   "updated_at": string;
 };
 
