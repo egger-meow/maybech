@@ -9,6 +9,7 @@ export default function Events() {
   const [isConnected, setIsConnected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [connectionError, setConnectionError] = useState("");
   const eventLogRef = useRef<HTMLDivElement>(null);
   const isPausedRef = useRef(isPaused);
 
@@ -17,29 +18,53 @@ export default function Events() {
   }, [isPaused]);
 
   useEffect(() => {
+    let active = true;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempt = 0;
+
     listRecentEvents(50)
       .then((data) => {
         setEvents(data.reverse());
       })
-      .catch((error: unknown) => {
-        console.error("Failed to fetch events", error);
-      });
+      .catch(() => setConnectionError("無法讀取受保護的事件紀錄。"));
 
-    const ws = new WebSocket(wsUrl("/ws/events"));
-    ws.onopen = () => setIsConnected(true);
-    ws.onclose = () => setIsConnected(false);
-    ws.onmessage = (msg) => {
-      if (isPausedRef.current) return;
-      try {
-        const data = JSON.parse(msg.data) as RuntimeEvent;
-        setEvents((prev) => [...prev, data].slice(-200));
-      } catch (error: unknown) {
-        console.error("Failed to parse runtime event", error);
-      }
+    const connect = () => {
+      if (!active) return;
+      socket = new WebSocket(wsUrl("/ws/events"));
+      socket.onopen = () => {
+        reconnectAttempt = 0;
+        setConnectionError("");
+        setIsConnected(true);
+      };
+      socket.onclose = (event) => {
+        setIsConnected(false);
+        if (!active) return;
+        if (event.code === 1008) {
+          window.dispatchEvent(new Event("maybech:authentication-required"));
+          return;
+        }
+        const delay = Math.min(1000 * (2 ** reconnectAttempt), 10_000);
+        reconnectAttempt += 1;
+        setConnectionError(`事件串流已中斷，${Math.ceil(delay / 1000)} 秒後重連。`);
+        reconnectTimer = setTimeout(connect, delay);
+      };
+      socket.onmessage = (msg) => {
+        if (isPausedRef.current) return;
+        try {
+          const data = JSON.parse(msg.data) as RuntimeEvent;
+          setEvents((prev) => [...prev, data].slice(-200));
+        } catch {
+          setConnectionError("收到無法解析的事件資料。");
+        }
+      };
     };
+    connect();
 
     return () => {
-      ws.close();
+      active = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      socket?.close();
     };
   }, []);
 
@@ -90,6 +115,8 @@ export default function Events() {
           </button>
         </div>
       </header>
+
+      {connectionError && <div className="error-state">{connectionError}</div>}
 
       <div
         ref={eventLogRef}

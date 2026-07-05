@@ -162,6 +162,12 @@ export const configureApiToken = (token: string): void => {
   apiToken = token.trim();
 };
 
+const notifyAuthenticationRequired = (status: number): void => {
+  if (status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("maybech:authentication-required"));
+  }
+};
+
 const requestHeaders = (json = false): HeadersInit => ({
   ...(json ? { "Content-Type": "application/json" } : {}),
   ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
@@ -170,6 +176,7 @@ const requestHeaders = (json = false): HeadersInit => ({
 export const fetcher = async <T = unknown>(url: string): Promise<T> => {
   const res = await fetch(apiUrl(url), { headers: requestHeaders() });
   if (!res.ok) {
+    notifyAuthenticationRequired(res.status);
     const info = await res.json().catch(() => null);
     throw new ApiError("An error occurred while fetching the data.", res.status, info);
   }
@@ -183,6 +190,7 @@ export const postData = async <T = unknown>(url: string, data?: unknown): Promis
     body: data ? JSON.stringify(data) : undefined,
   });
   if (!res.ok) {
+    notifyAuthenticationRequired(res.status);
     const info = await res.json().catch(() => null);
     throw new ApiError(`POST ${url} failed`, res.status, info);
   }
@@ -196,6 +204,7 @@ export const patchData = async <T = unknown>(url: string, data?: unknown): Promi
     body: data ? JSON.stringify(data) : undefined,
   });
   if (!res.ok) {
+    notifyAuthenticationRequired(res.status);
     const info = await res.json().catch(() => null);
     throw new ApiError(`PATCH ${url} failed`, res.status, info);
   }
@@ -209,6 +218,7 @@ export const putData = async <T = unknown>(url: string, data?: unknown): Promise
     body: data ? JSON.stringify(data) : undefined,
   });
   if (!res.ok) {
+    notifyAuthenticationRequired(res.status);
     const info = await res.json().catch(() => null);
     throw new ApiError(`PUT ${url} failed`, res.status, info);
   }
@@ -222,6 +232,7 @@ export const deleteData = async <T = unknown>(url: string, data?: unknown): Prom
     body: data ? JSON.stringify(data) : undefined,
   });
   if (!res.ok) {
+    notifyAuthenticationRequired(res.status);
     const info = await res.json().catch(() => null);
     throw new ApiError(`DELETE ${url} failed`, res.status, info);
   }

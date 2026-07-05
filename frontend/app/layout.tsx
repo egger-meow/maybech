@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import Sidebar from '@/components/Sidebar';
+import AuthenticationGate from '@/components/AuthenticationGate';
 
 export const metadata: Metadata = {
   title: 'Maybech Trading Workspace',
@@ -18,7 +19,7 @@ export default function RootLayout({
         <div className="app-shell">
           <Sidebar />
           <main className="app-main">
-            {children}
+            <AuthenticationGate>{children}</AuthenticationGate>
           </main>
         </div>
       </body>
