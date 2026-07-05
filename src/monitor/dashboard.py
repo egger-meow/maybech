@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 
 from src.exchange.client import OKXClient
 
@@ -30,25 +31,55 @@ class Dashboard:
             return {}
 
         acct = data[0]
+        available_equity = _number_or_none(acct.get("availEq"))
+        unrealized_pnl = _number_or_none(acct.get("upl"))
         summary = {
-            "total_equity": acct.get("totalEq", "0"),
-            "available_equity": acct.get("availEq", "0"),
-            "initial_margin": acct.get("imr", "0"),
-            "maintenance_margin": acct.get("mmr", "0"),
+            "total_equity": _number_or_none(acct.get("totalEq")),
+            "total_equity_currency": "USD",
+            "available_equity": available_equity,
+            "available_equity_currency": "USD" if available_equity is not None else None,
+            "available_equity_status": (
+                "account_valued" if available_equity is not None else "per_currency_only"
+            ),
+            "available_equity_source": "account.availEq" if available_equity is not None else "",
+            "unrealized_pnl": unrealized_pnl,
+            "unrealized_pnl_currency": "USD" if unrealized_pnl is not None else None,
+            "unrealized_pnl_status": (
+                "account_valued" if unrealized_pnl is not None else "per_currency_only"
+            ),
+            "unrealized_pnl_source": "account.upl" if unrealized_pnl is not None else "",
+            "initial_margin": _number_or_none(acct.get("imr")),
+            "maintenance_margin": _number_or_none(acct.get("mmr")),
             "margin_ratio": acct.get("mgnRatio", ""),
             "update_time": _ts_to_str(acct.get("uTime", "")),
             "currencies": [],
         }
 
         for detail in acct.get("details", []):
-            summary["currencies"].append({
-                "ccy": detail.get("ccy", ""),
-                "equity": detail.get("eq", "0"),
-                "available_balance": detail.get("availBal", "0"),
-                "cash_balance": detail.get("cashBal", "0"),
-                "frozen_balance": detail.get("frozenBal", "0"),
-                "unrealised_pnl": detail.get("upl", "0"),
-            })
+            currency = str(detail.get("ccy") or "")
+            summary["currencies"].append(
+                {
+                    "ccy": currency,
+                    "equity": _number_or_none(detail.get("eq")),
+                    "equity_usd": _number_or_none(detail.get("eqUsd")),
+                    "discounted_equity_usd": _number_or_none(detail.get("disEq")),
+                    "available_balance": _number_or_none(detail.get("availBal")),
+                    "available_equity": _number_or_none(detail.get("availEq")),
+                    "cash_balance": _number_or_none(detail.get("cashBal")),
+                    "frozen_balance": _number_or_none(detail.get("frozenBal")),
+                    "unrealized_pnl": _number_or_none(detail.get("upl")),
+                    "unrealised_pnl": _number_or_none(detail.get("upl")),
+                    "native_currency": currency,
+                }
+            )
+
+        if not summary["currencies"]:
+            summary["available_equity_status"] = (
+                "account_valued" if available_equity is not None else "unavailable"
+            )
+            summary["unrealized_pnl_status"] = (
+                "account_valued" if unrealized_pnl is not None else "unavailable"
+            )
 
         return summary
 
@@ -126,9 +157,15 @@ class Dashboard:
         if summary["currencies"]:
             print("\n  --- Currencies ---")
             for c in summary["currencies"]:
+                equity = str(c["equity"] if c["equity"] is not None else "N/A")
+                available = str(
+                    c["available_balance"]
+                    if c["available_balance"] is not None
+                    else "N/A"
+                )
                 print(
-                    f"  {c['ccy']:>6s}  eq={c['equity']:>15s}  "
-                    f"avail={c['available_balance']:>15s}  "
+                    f"  {c['ccy']:>6s}  eq={equity:>15s}  "
+                    f"avail={available:>15s}  "
                     f"upl={c['unrealised_pnl']}"
                 )
 
@@ -155,6 +192,16 @@ def _ts_to_str(ts_ms: str) -> str:
         return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
     except (ValueError, OSError):
         return ts_ms
+
+
+def _number_or_none(value: object) -> str | None:
+    if value in (None, ""):
+        return None
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    return str(value) if number.is_finite() else None
 
 if __name__ == "__main__":
     import sys

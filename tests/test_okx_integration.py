@@ -220,10 +220,19 @@ def test_dashboard_summary(dashboard):
     assert isinstance(summary, dict)
     assert "total_equity" in summary
     assert "available_equity" in summary
+    assert summary["total_equity_currency"] == "USD"
+    assert summary["available_equity_status"] in {
+        "account_valued", "per_currency_only", "unavailable",
+    }
+    assert summary["unrealized_pnl_status"] in {
+        "account_valued", "per_currency_only", "unavailable",
+    }
     assert "currencies" in summary
     print(f"\n  Total Equity: {summary['total_equity']}")
     print(f"  Available Equity: {summary['available_equity']}")
     if summary["currencies"]:
+        assert all(item["native_currency"] == item["ccy"] for item in summary["currencies"])
+        assert all("equity_usd" in item for item in summary["currencies"])
         print(f"  Currencies: {[c['ccy'] for c in summary['currencies']]}")
 
 
