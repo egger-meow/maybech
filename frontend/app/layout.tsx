@@ -1,12 +1,25 @@
-import type { Metadata } from 'next';
-import './globals.css';
-import Sidebar from '@/components/Sidebar';
-import AuthenticationGate from '@/components/AuthenticationGate';
+import type { Metadata } from "next";
+import Sidebar from "@/components/Sidebar";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: 'Maybech Trading Workspace',
-  description: 'Local-first strategy and logical-position management for OKX perpetuals',
+  title: "Maybech",
+  description: "Maybech trading workspace",
 };
+
+const themeInitScript = `
+(function () {
+  try {
+    var theme = localStorage.getItem("theme");
+    if (theme !== "dark" && theme !== "light") {
+      theme = "light";
+    }
+    document.documentElement.setAttribute("data-theme", theme);
+  } catch (_) {
+    document.documentElement.setAttribute("data-theme", "light");
+  }
+})();
+`;
 
 export default function RootLayout({
   children,
@@ -15,12 +28,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-TW" suppressHydrationWarning>
-      <body suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
+      <body>
         <div className="app-shell">
           <Sidebar />
-          <main className="app-main">
-            <AuthenticationGate>{children}</AuthenticationGate>
-          </main>
+          <main className="app-main">{children}</main>
         </div>
       </body>
     </html>
