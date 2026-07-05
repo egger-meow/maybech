@@ -5432,6 +5432,17 @@
             ],
             "title": "Btc Price At Exit"
           },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
           "entry_price": {
             "title": "Entry Price",
             "type": "number"
@@ -5541,6 +5552,11 @@
           "pnl_source": {
             "default": "legacy_price_delta",
             "title": "Pnl Source",
+            "type": "string"
+          },
+          "short_id": {
+            "default": "",
+            "title": "Short Id",
             "type": "string"
           },
           "side": {
@@ -5616,6 +5632,17 @@
             ],
             "title": "Btc Price At Exit"
           },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
           "entry_price": {
             "title": "Entry Price",
             "type": "number"
@@ -5725,6 +5752,11 @@
           "pnl_source": {
             "default": "legacy_price_delta",
             "title": "Pnl Source",
+            "type": "string"
+          },
+          "short_id": {
+            "default": "",
+            "title": "Short Id",
             "type": "string"
           },
           "side": {
