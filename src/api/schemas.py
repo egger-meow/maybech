@@ -292,6 +292,8 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     unmatched: int = 0
     invalid: int = 0
     conflicts: int = 0
+    quarantined: int = 0
+    quarantine_repeats: int = 0
     orders_checked: int = 0
     terminal_recovered: int = 0
     stale_cancel_requested: int = 0

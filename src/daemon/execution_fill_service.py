@@ -165,6 +165,8 @@ class ExecutionFillService(DaemonService):
             "unmatched": 0,
             "invalid": 0,
             "conflicts": 0,
+            "quarantined": 0,
+            "quarantine_repeats": 0,
             "orders_checked": 0,
             "terminal_recovered": 0,
             "stale_cancel_requested": 0,
@@ -348,7 +350,10 @@ class ExecutionFillService(DaemonService):
             except ValueError as exc:
                 status["invalid"] += 1
                 logger.warning("Ignoring invalid OKX fill: %s", exc)
-                self._record_fill_rejection(raw_fill, str(exc), category="invalid")
+                created = self._record_fill_rejection(
+                    raw_fill, str(exc), category="invalid"
+                )
+                status["quarantined" if created else "quarantine_repeats"] += 1
                 continue
             try:
                 result = self.allocator.ingest(fill)
@@ -362,12 +367,18 @@ class ExecutionFillService(DaemonService):
                     "execution.fill_conflict",
                     {"fill_id": fill.fill_id, "error": str(exc)},
                 )
-                self._record_fill_rejection(raw_fill, str(exc), category="conflict")
+                created = self._record_fill_rejection(
+                    raw_fill, str(exc), category="conflict"
+                )
+                status["quarantined" if created else "quarantine_repeats"] += 1
                 continue
             except ValueError as exc:
                 status["invalid"] += 1
                 logger.warning("Rejected OKX fill %s: %s", fill.fill_id, exc)
-                self._record_fill_rejection(raw_fill, str(exc), category="rejected")
+                created = self._record_fill_rejection(
+                    raw_fill, str(exc), category="rejected"
+                )
+                status["quarantined" if created else "quarantine_repeats"] += 1
                 continue
             if result.allocation.action == "open":
                 self._apply_pending_rule_materializations(result.position.id, status)
@@ -546,32 +557,28 @@ class ExecutionFillService(DaemonService):
         error: str,
         *,
         category: str,
-    ) -> None:
+    ) -> bool:
         bill_id = str(raw_fill.get("billId") or "")
         trade_id = str(raw_fill.get("tradeId") or raw_fill.get("fillId") or "")
-        reference = bill_id or trade_id or "unknown"
-        self.allocator.audit_store.create(
-            id=f"fill-rejection:{reference}",
-            type="execution.fill_rejected",
+        quarantine, created = self.allocator.audit_store.quarantine_fill_rejection(
+            raw_fill=raw_fill,
+            error=error,
+            category=category,
             source=self.name,
-            payload={
-                "category": category,
-                "bill_id": bill_id,
-                "fill_id": trade_id,
-                "exchange_order_id": str(raw_fill.get("ordId") or ""),
-                "instrument_id": str(raw_fill.get("instId") or ""),
-                "error": error,
-            },
         )
-        self.publish_event(
-            "execution.fill_rejected",
-            {
-                "category": category,
-                "bill_id": bill_id,
-                "fill_id": trade_id,
-                "error": error,
-            },
-        )
+        if created:
+            self.publish_event(
+                "execution.fill_rejected",
+                {
+                    "category": category,
+                    "bill_id": bill_id,
+                    "fill_id": trade_id,
+                    "error": error,
+                    "error_signature": quarantine["error_signature"],
+                    "disposition": "quarantined",
+                },
+            )
+        return created
 
     def _reconcile_pending_orders(self, status: dict[str, Any]) -> None:
         if self.client is None:

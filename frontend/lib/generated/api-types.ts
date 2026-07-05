@@ -134,6 +134,8 @@ export type ExecutionFillIngestionStatusResponse = {
   "unmatched"?: number;
   "invalid"?: number;
   "conflicts"?: number;
+  "quarantined"?: number;
+  "quarantine_repeats"?: number;
   "orders_checked"?: number;
   "terminal_recovered"?: number;
   "stale_cancel_requested"?: number;

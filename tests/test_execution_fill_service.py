@@ -823,6 +823,38 @@ def test_execution_fill_service_applies_duplicates_and_reports_unmatched(tmp_pat
     assert rejected[0].payload["bill_id"] == "bill-invalid"
 
 
+def test_rejected_fill_is_quarantined_once_across_ticks_and_restart(tmp_path):
+    trade_store = TradeStore(str(tmp_path / "trades.db"))
+    raw_fill = {"billId": "bill-invalid"}
+    client = FakeFillClient([raw_fill])
+    first = ExecutionFillService(
+        client=client,
+        allocator=ExecutionAllocationService(trade_store=trade_store),
+    )
+    first_runner = DaemonRunner()
+    first_runner.register(first)
+
+    first.tick()
+    first.tick()
+    restarted = ExecutionFillService(
+        client=FakeFillClient([raw_fill]),
+        allocator=ExecutionAllocationService(trade_store=trade_store),
+    )
+    restart_runner = DaemonRunner()
+    restart_runner.register(restarted)
+    restarted.tick()
+
+    quarantine = first.allocator.audit_store.list_fill_quarantine()
+    events = first.allocator.audit_store.list(event_type="execution.fill_rejected")
+    assert len(quarantine) == 1
+    assert quarantine[0]["occurrences"] == 3
+    assert quarantine[0]["disposition"] == "quarantined"
+    assert len(events) == 1
+    assert first_runner.runtime.get_value("execution.fills.status")["caught_up"] is True
+    assert first_runner.runtime.get_value("execution.fills.status")["quarantine_repeats"] == 1
+    assert restart_runner.runtime.get_value("execution.fills.status")["quarantine_repeats"] == 1
+
+
 def test_execution_cursor_store_persists_partial_and_committed_state(tmp_path):
     store = ExecutionCursorStore(str(tmp_path / "trades.db"))
 

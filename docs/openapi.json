@@ -841,6 +841,16 @@
             "title": "Protections Checked",
             "type": "integer"
           },
+          "quarantine_repeats": {
+            "default": 0,
+            "title": "Quarantine Repeats",
+            "type": "integer"
+          },
+          "quarantined": {
+            "default": 0,
+            "title": "Quarantined",
+            "type": "integer"
+          },
           "rule_materialization_errors": {
             "default": 0,
             "title": "Rule Materialization Errors",

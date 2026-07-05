@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -23,7 +24,7 @@ from src.trading.sqlite_schema import (
 
 
 _SCHEMA_COMPONENT = "audit_events"
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 
 _SCHEMA = """
@@ -89,6 +90,25 @@ CREATE TABLE IF NOT EXISTS notification_delivery_health (
 );
 """
 
+_SCHEMA_V5_FILL_QUARANTINE = """
+CREATE TABLE IF NOT EXISTS execution_fill_quarantine (
+    reference_id    TEXT NOT NULL,
+    bill_id         TEXT NOT NULL DEFAULT '',
+    fill_id         TEXT NOT NULL DEFAULT '',
+    error_signature TEXT NOT NULL,
+    category        TEXT NOT NULL,
+    error           TEXT NOT NULL,
+    payload_json    TEXT NOT NULL DEFAULT '{}',
+    disposition     TEXT NOT NULL DEFAULT 'quarantined',
+    occurrences     INTEGER NOT NULL DEFAULT 1,
+    first_seen_at   TEXT NOT NULL,
+    last_seen_at    TEXT NOT NULL,
+    PRIMARY KEY (reference_id, error_signature)
+);
+CREATE INDEX IF NOT EXISTS idx_execution_fill_quarantine_last_seen
+    ON execution_fill_quarantine(last_seen_at);
+"""
+
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), sort_keys=True)
@@ -99,6 +119,10 @@ def _json_loads(value: str, fallback: Any) -> Any:
         return json.loads(value or "")
     except json.JSONDecodeError:
         return fallback
+
+
+def _fill_error_signature(category: str, error: str) -> str:
+    return hashlib.sha256(f"{category}\0{error.strip()}".encode("utf-8")).hexdigest()
 
 
 class AuditEventRecord:
@@ -204,6 +228,9 @@ class AuditEventStore:
             versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
             if 4 not in versions:
                 self._migrate_v4(conn)
+            versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
+            if 5 not in versions:
+                self._migrate_v5(conn)
 
     @staticmethod
     def _migrate_v2(conn: sqlite3.Connection) -> None:
@@ -231,6 +258,44 @@ class AuditEventStore:
     def _migrate_v4(conn: sqlite3.Connection) -> None:
         conn.executescript(_SCHEMA_V4_NOTIFICATION_HEALTH)
         record_schema_version(conn, component=_SCHEMA_COMPONENT, version=4)
+
+    @staticmethod
+    def _migrate_v5(conn: sqlite3.Connection) -> None:
+        conn.executescript(_SCHEMA_V5_FILL_QUARANTINE)
+        rows = conn.execute(
+            """SELECT payload_json, created_at FROM audit_events
+               WHERE type = 'execution.fill_rejected'"""
+        ).fetchall()
+        for row in rows:
+            payload = _json_loads(str(row["payload_json"]), {})
+            if not isinstance(payload, dict):
+                continue
+            bill_id = str(payload.get("bill_id") or "")
+            fill_id = str(payload.get("fill_id") or "")
+            reference_id = bill_id or fill_id or "unknown"
+            category = str(payload.get("category") or "rejected")
+            error = str(payload.get("error") or "").strip()
+            signature = _fill_error_signature(category, error)
+            observed_at = str(row["created_at"])
+            conn.execute(
+                """INSERT OR IGNORE INTO execution_fill_quarantine
+                   (reference_id, bill_id, fill_id, error_signature, category,
+                    error, payload_json, disposition, occurrences,
+                    first_seen_at, last_seen_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'quarantined', 1, ?, ?)""",
+                (
+                    reference_id,
+                    bill_id,
+                    fill_id,
+                    signature,
+                    category,
+                    error,
+                    str(row["payload_json"]),
+                    observed_at,
+                    observed_at,
+                ),
+            )
+        record_schema_version(conn, component=_SCHEMA_COMPONENT, version=5)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -315,6 +380,94 @@ class AuditEventStore:
         )
         self.save(event, connection=connection)
         return event
+
+    def quarantine_fill_rejection(
+        self,
+        *,
+        raw_fill: dict[str, Any],
+        error: str,
+        category: str,
+        source: str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Persist one terminal disposition and one notification event per signature."""
+        bill_id = str(raw_fill.get("billId") or "")
+        fill_id = str(raw_fill.get("tradeId") or raw_fill.get("fillId") or "")
+        reference_id = bill_id or fill_id or "unknown"
+        normalized_error = error.strip()
+        signature = _fill_error_signature(category, normalized_error)
+        now = datetime.now(timezone.utc).isoformat()
+        created = False
+        with self._conn() as conn:
+            existing = conn.execute(
+                """SELECT * FROM execution_fill_quarantine
+                   WHERE reference_id = ? AND error_signature = ?""",
+                (reference_id, signature),
+            ).fetchone()
+            if existing is None:
+                created = True
+                conn.execute(
+                    """INSERT INTO execution_fill_quarantine
+                       (reference_id, bill_id, fill_id, error_signature, category,
+                        error, payload_json, disposition, occurrences,
+                        first_seen_at, last_seen_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 'quarantined', 1, ?, ?)""",
+                    (
+                        reference_id,
+                        bill_id,
+                        fill_id,
+                        signature,
+                        category,
+                        normalized_error,
+                        _json_dumps(raw_fill),
+                        now,
+                        now,
+                    ),
+                )
+                self.create(
+                    id=f"fill-rejection:{reference_id}:{signature[:16]}",
+                    type="execution.fill_rejected",
+                    source=source,
+                    payload={
+                        "category": category,
+                        "bill_id": bill_id,
+                        "fill_id": fill_id,
+                        "exchange_order_id": str(raw_fill.get("ordId") or ""),
+                        "instrument_id": str(raw_fill.get("instId") or ""),
+                        "error": normalized_error,
+                        "error_signature": signature,
+                        "disposition": "quarantined",
+                    },
+                    created_at=now,
+                    connection=conn,
+                )
+            else:
+                conn.execute(
+                    """UPDATE execution_fill_quarantine
+                       SET occurrences = occurrences + 1, last_seen_at = ?
+                       WHERE reference_id = ? AND error_signature = ?""",
+                    (now, reference_id, signature),
+                )
+            row = conn.execute(
+                """SELECT * FROM execution_fill_quarantine
+                   WHERE reference_id = ? AND error_signature = ?""",
+                (reference_id, signature),
+            ).fetchone()
+        return self._fill_quarantine_row(row), created
+
+    def list_fill_quarantine(self) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM execution_fill_quarantine
+                   ORDER BY last_seen_at DESC, reference_id"""
+            ).fetchall()
+        return [self._fill_quarantine_row(row) for row in rows]
+
+    @staticmethod
+    def _fill_quarantine_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            **dict(row),
+            "payload": _json_loads(str(row["payload_json"]), {}),
+        }
 
     def save_runtime_event(self, event: RuntimeEvent) -> str:
         return self.save(AuditEventRecord.from_runtime_event(event))

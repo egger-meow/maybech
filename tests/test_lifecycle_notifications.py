@@ -117,6 +117,53 @@ def test_lifecycle_cursor_resumes_events_written_during_restart(tmp_path):
     assert "策略已停用" in line.messages[0][0]
 
 
+def test_quarantined_fill_notifies_once_across_retries_and_restart(tmp_path):
+    store = AuditEventStore(str(tmp_path / "trades.db"))
+    raw_fill = {"billId": "bill-a", "tradeId": "fill-a"}
+    line = RecordingNotifier()
+    service = LifecycleNotificationService(
+        audit_store=store,
+        line=line,  # type: ignore[arg-type]
+        email=RecordingNotifier(),  # type: ignore[arg-type]
+    )
+    service.setup()
+    store.quarantine_fill_rejection(
+        raw_fill=raw_fill,
+        error="take_profit price must be above entry for long",
+        category="rejected",
+        source="execution_fills",
+    )
+    service.tick()
+    store.quarantine_fill_rejection(
+        raw_fill=raw_fill,
+        error="take_profit price must be above entry for long",
+        category="rejected",
+        source="execution_fills",
+    )
+    service.tick()
+    service.teardown()
+
+    restarted_line = RecordingNotifier()
+    restarted = LifecycleNotificationService(
+        audit_store=AuditEventStore(store.db_path),
+        line=restarted_line,  # type: ignore[arg-type]
+        email=RecordingNotifier(),  # type: ignore[arg-type]
+    )
+    restarted.setup()
+    restarted.tick()
+    restarted.audit_store.quarantine_fill_rejection(
+        raw_fill=raw_fill,
+        error="stop_loss price must be below entry for long",
+        category="rejected",
+        source="execution_fills",
+    )
+    restarted.tick()
+
+    assert len(line.messages) == 1
+    assert len(restarted_line.messages) == 1
+    assert "stop_loss price must be below entry" in restarted_line.messages[0][0]
+
+
 def test_lifecycle_cursor_retries_failure_before_later_events(tmp_path):
     store = AuditEventStore(str(tmp_path / "trades.db"))
     line = FailingNotifier()
