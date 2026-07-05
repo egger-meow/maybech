@@ -1163,13 +1163,15 @@ def create_app(
         cache = store.cache_status(inst_type="SWAP")
         return InstrumentMetadataListResponse(
             items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
+            rejected_items=[rejection.to_dict() for rejection in store.list_rejections(inst_type="SWAP")],
             **cache,
         )
 
     @app.post("/instruments/refresh", response_model=InstrumentMetadataListResponse)
     def refresh_instruments() -> InstrumentMetadataListResponse:
+        store = InstrumentMetadataStore()
         try:
-            records = InstrumentMetadataStore().replace_type(
+            records = store.replace_type(
                 "SWAP",
                 exchange_client().get_instruments(inst_type="SWAP"),
             )
@@ -1180,9 +1182,10 @@ def create_app(
                 status_code=502,
                 detail=f"OKX instrument metadata refresh failed: {exc}",
             ) from exc
-        cache = InstrumentMetadataStore().cache_status(inst_type="SWAP")
+        cache = store.cache_status(inst_type="SWAP")
         return InstrumentMetadataListResponse(
             items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
+            rejected_items=[rejection.to_dict() for rejection in store.list_rejections(inst_type="SWAP")],
             **cache,
         )
 

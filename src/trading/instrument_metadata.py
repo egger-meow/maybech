@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any, Generator, Iterable
 
 from src.config.settings import settings
+from src.trading.instrument_constraints import InstrumentConstraints
 from src.trading.sqlite_schema import applied_schema_versions, connect_database, configure_connection, initialize_schema, sqlite_read_only
 
 _SCHEMA_COMPONENT = "instrument_metadata"
@@ -28,6 +30,13 @@ CREATE TABLE IF NOT EXISTS instrument_metadata (
 );
 CREATE INDEX IF NOT EXISTS idx_instrument_metadata_type_state
 ON instrument_metadata(inst_type, state, inst_id);
+CREATE TABLE IF NOT EXISTS instrument_metadata_rejections (
+    inst_type TEXT NOT NULL, rejection_key TEXT NOT NULL, inst_id TEXT NOT NULL,
+    error TEXT NOT NULL, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+    PRIMARY KEY (inst_type, rejection_key)
+);
+CREATE INDEX IF NOT EXISTS idx_instrument_metadata_rejections_type
+ON instrument_metadata_rejections(inst_type, updated_at, rejection_key);
 """
 
 
@@ -75,6 +84,7 @@ class InstrumentMetadata:
             raise ValueError(f"{inst_id} metadata is missing lotSz, minSz, or tickSz")
         if inst_type == "SWAP" and (not contract_value or not contract_currency):
             raise ValueError(f"{inst_id} metadata is missing ctVal or ctValCcy")
+        InstrumentConstraints.from_okx(payload)
         return cls(
             inst_id=inst_id, inst_type=inst_type, state=str(payload.get("state") or ""),
             base_ccy=str(payload.get("baseCcy") or ""), quote_ccy=str(payload.get("quoteCcy") or ""),
@@ -88,6 +98,26 @@ class InstrumentMetadata:
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
+
+
+@dataclass(frozen=True)
+class InstrumentMetadataRejection:
+    inst_type: str
+    rejection_key: str
+    inst_id: str
+    error: str
+    payload: dict[str, Any]
+    updated_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "inst_type": self.inst_type,
+            "rejection_key": self.rejection_key,
+            "inst_id": self.inst_id,
+            "error": self.error,
+            "payload": self.payload,
+            "updated_at": self.updated_at,
+        }
 
 
 class InstrumentMetadataStore:
@@ -118,20 +148,107 @@ class InstrumentMetadataStore:
     def replace_type(self, inst_type: str, payloads: Iterable[dict[str, Any]]) -> list[InstrumentMetadata]:
         normalized_type = inst_type.strip().upper()
         now = datetime.now(timezone.utc).isoformat()
-        records = [InstrumentMetadata.from_okx(payload, updated_at=now) for payload in payloads]
-        if not records:
-            raise ValueError(f"OKX returned no {normalized_type} instruments")
-        if any(record.inst_type != normalized_type for record in records):
-            raise ValueError("OKX response contained an unexpected instrument type")
-        columns = tuple(records[0].to_dict())
-        placeholders = ", ".join("?" for _ in columns)
+        records: list[InstrumentMetadata] = []
+        rejections: list[InstrumentMetadataRejection] = []
+        seen_ids: set[str] = set()
+        used_rejection_keys: set[str] = set()
+        for index, payload in enumerate(payloads):
+            inst_id = str(payload.get("instId") or "").strip().upper()
+            rejection_key = inst_id or f"missing-inst-id:{index}"
+            try:
+                record = InstrumentMetadata.from_okx(payload, updated_at=now)
+                if record.inst_type != normalized_type:
+                    raise ValueError(
+                        f"{record.inst_id} has unexpected instrument type {record.inst_type}"
+                    )
+                if record.inst_id in seen_ids:
+                    raise ValueError(f"OKX returned duplicate instrument {record.inst_id}")
+                seen_ids.add(record.inst_id)
+                records.append(record)
+            except (TypeError, ValueError) as exc:
+                if rejection_key in used_rejection_keys:
+                    rejection_key = f"{rejection_key}:{index}"
+                used_rejection_keys.add(rejection_key)
+                rejections.append(
+                    InstrumentMetadataRejection(
+                        inst_type=normalized_type,
+                        rejection_key=rejection_key,
+                        inst_id=inst_id,
+                        error=str(exc),
+                        payload=dict(payload),
+                        updated_at=now,
+                    )
+                )
+
         with self._conn() as conn:
-            conn.execute("DELETE FROM instrument_metadata WHERE inst_type = ?", (normalized_type,))
+            if records:
+                columns = tuple(records[0].to_dict())
+                placeholders = ", ".join("?" for _ in columns)
+                conn.execute(
+                    "DELETE FROM instrument_metadata WHERE inst_type = ?",
+                    (normalized_type,),
+                )
+                conn.executemany(
+                    f"INSERT INTO instrument_metadata ({', '.join(columns)}) VALUES ({placeholders})",
+                    [
+                        tuple(record.to_dict()[column] for column in columns)
+                        for record in records
+                    ],
+                )
+            conn.execute(
+                "DELETE FROM instrument_metadata_rejections WHERE inst_type = ?",
+                (normalized_type,),
+            )
             conn.executemany(
-                f"INSERT INTO instrument_metadata ({', '.join(columns)}) VALUES ({placeholders})",
-                [tuple(record.to_dict()[column] for column in columns) for record in records],
+                """INSERT INTO instrument_metadata_rejections
+                   (inst_type, rejection_key, inst_id, error, payload_json, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        rejection.inst_type,
+                        rejection.rejection_key,
+                        rejection.inst_id,
+                        rejection.error,
+                        json.dumps(rejection.payload, ensure_ascii=False, sort_keys=True),
+                        rejection.updated_at,
+                    )
+                    for rejection in rejections
+                ],
+            )
+        if not records:
+            detail = (
+                rejections[0].error
+                if rejections
+                else f"OKX returned no {normalized_type} instruments"
+            )
+            raise ValueError(
+                f"OKX returned no valid {normalized_type} instruments; previous cache preserved: {detail}"
             )
         return self.list(inst_type=normalized_type)
+
+    def list_rejections(
+        self,
+        *,
+        inst_type: str = "SWAP",
+    ) -> list[InstrumentMetadataRejection]:
+        normalized_type = inst_type.strip().upper()
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM instrument_metadata_rejections
+                   WHERE inst_type = ? ORDER BY rejection_key""",
+                (normalized_type,),
+            ).fetchall()
+        return [
+            InstrumentMetadataRejection(
+                inst_type=str(row["inst_type"]),
+                rejection_key=str(row["rejection_key"]),
+                inst_id=str(row["inst_id"]),
+                error=str(row["error"]),
+                payload=json.loads(str(row["payload_json"])),
+                updated_at=str(row["updated_at"]),
+            )
+            for row in rows
+        ]
 
     def list(self, *, inst_type: str = "SWAP", tradable_only: bool = True) -> list[InstrumentMetadata]:
         clauses = ["inst_type = ?"]

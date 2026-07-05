@@ -60,6 +60,28 @@ def test_instrument_cache_rejects_incomplete_metadata_without_losing_cache(tmp_p
         raise AssertionError("incomplete metadata must fail visibly")
 
     assert [item.inst_id for item in store.list()] == ["ETH-USDT-SWAP"]
+    rejection = store.list_rejections()[0]
+    assert rejection.inst_id == "BTC-USDT-SWAP"
+    assert "lotSz" in rejection.error
+    assert rejection.payload["ctVal"] == ""
+
+
+def test_instrument_cache_isolates_malformed_rows_in_atomic_refresh(tmp_path):
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    malformed = _instrument("TESTING-USDT-SWAP")
+    malformed["lotSz"] = ""
+
+    saved = store.replace_type(
+        "SWAP",
+        [_instrument("BTC-USDT-SWAP"), malformed, _instrument("ETH-USDT-SWAP")],
+    )
+
+    assert [item.inst_id for item in saved] == ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
+    assert [item.inst_id for item in store.list_rejections()] == ["TESTING-USDT-SWAP"]
+
+    store.replace_type("SWAP", [_instrument("SOL-USDT-SWAP")])
+    assert [item.inst_id for item in store.list()] == ["SOL-USDT-SWAP"]
+    assert store.list_rejections() == []
 
 
 def test_instrument_cache_refreshes_only_when_daily_ttl_expires(tmp_path):
@@ -127,6 +149,39 @@ def test_account_service_automatically_populates_instrument_cache(monkeypatch, t
     assert InstrumentMetadataStore(db_path).list()[0].inst_id == "ETH-USDT-SWAP"
 
 
+def test_account_service_starts_when_unrelated_instrument_is_malformed(
+    monkeypatch,
+    tmp_path,
+):
+    db_path = str(tmp_path / "trades.db")
+    malformed = _instrument("TESTING-USDT-SWAP")
+    malformed["tickSz"] = ""
+
+    class Client:
+        def get_instruments(self, *, inst_type):
+            assert inst_type == "SWAP"
+            return [_instrument("BTC-USDT-SWAP"), malformed]
+
+    class Dashboard:
+        def __init__(self, client):
+            self.client = client
+
+    monkeypatch.setattr("src.daemon.account_service.OKXClient", Client)
+    monkeypatch.setattr("src.daemon.account_service.Dashboard", Dashboard)
+    service = AccountSnapshotService(position_store=LogicalPositionStore(db_path))
+
+    service.setup()
+
+    assert service.dashboard is not None
+    assert [item.inst_id for item in InstrumentMetadataStore(db_path).list()] == [
+        "BTC-USDT-SWAP"
+    ]
+    assert (
+        InstrumentMetadataStore(db_path).list_rejections()[0].inst_id
+        == "TESTING-USDT-SWAP"
+    )
+
+
 def test_instrument_api_exposes_cache_and_refresh_contract(monkeypatch, tmp_path):
     store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
     monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: store)
@@ -150,7 +205,33 @@ def test_instrument_api_exposes_cache_and_refresh_contract(monkeypatch, tmp_path
         "BTC-USDT-SWAP",
         "ETH-USDT-SWAP",
     ]
+    assert refreshed.json()["rejected_items"] == []
     assert cached.json() == refreshed.json()
+
+
+def test_instrument_api_exposes_rejected_rows_without_hiding_valid_catalog(
+    monkeypatch,
+    tmp_path,
+):
+    store = InstrumentMetadataStore(str(tmp_path / "trades.db"))
+    malformed = _instrument("TESTING-USDT-SWAP")
+    malformed["minSz"] = ""
+    monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: store)
+
+    class FakeOKXClient:
+        def get_instruments(self, *, inst_type):
+            assert inst_type == "SWAP"
+            return [_instrument("BTC-USDT-SWAP"), malformed]
+
+    monkeypatch.setattr("src.api.app.OKXClient", FakeOKXClient)
+    response = TestClient(create_app(DaemonRunner(), api_token="")).post(
+        "/instruments/refresh"
+    )
+
+    assert response.status_code == 200
+    assert [item["inst_id"] for item in response.json()["items"]] == ["BTC-USDT-SWAP"]
+    assert response.json()["rejected_items"][0]["inst_id"] == "TESTING-USDT-SWAP"
+    assert "minSz" in response.json()["rejected_items"][0]["error"]
 
 
 def test_instrument_sizer_maps_base_quantity_to_contracts_and_pnl(tmp_path):

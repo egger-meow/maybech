@@ -1024,6 +1024,13 @@
             "title": "Refreshed At",
             "type": "string"
           },
+          "rejected_items": {
+            "items": {
+              "$ref": "#/components/schemas/InstrumentMetadataRejectionResponse"
+            },
+            "title": "Rejected Items",
+            "type": "array"
+          },
           "stale": {
             "title": "Stale",
             "type": "boolean"
@@ -1036,6 +1043,45 @@
           "stale"
         ],
         "title": "InstrumentMetadataListResponse",
+        "type": "object"
+      },
+      "InstrumentMetadataRejectionResponse": {
+        "properties": {
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "inst_type": {
+            "title": "Inst Type",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "rejection_key": {
+            "title": "Rejection Key",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inst_type",
+          "rejection_key",
+          "inst_id",
+          "error",
+          "payload",
+          "updated_at"
+        ],
+        "title": "InstrumentMetadataRejectionResponse",
         "type": "object"
       },
       "InstrumentMetadataResponse": {

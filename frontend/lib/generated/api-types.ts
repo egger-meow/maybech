@@ -188,9 +188,19 @@ export type InstrumentContractQuoteRequest = {
 
 export type InstrumentMetadataListResponse = {
   "items": InstrumentMetadataResponse[];
+  "rejected_items"?: InstrumentMetadataRejectionResponse[];
   "refreshed_at": string;
   "refresh_due_at": string;
   "stale": boolean;
+};
+
+export type InstrumentMetadataRejectionResponse = {
+  "inst_type": string;
+  "rejection_key": string;
+  "inst_id": string;
+  "error": string;
+  "payload": Record<string, unknown>;
+  "updated_at": string;
 };
 
 export type InstrumentMetadataResponse = {
@@ -973,6 +983,7 @@ export type ApiSchemas = {
   "HealthResponse": HealthResponse;
   "InstrumentContractQuoteRequest": InstrumentContractQuoteRequest;
   "InstrumentMetadataListResponse": InstrumentMetadataListResponse;
+  "InstrumentMetadataRejectionResponse": InstrumentMetadataRejectionResponse;
   "InstrumentMetadataResponse": InstrumentMetadataResponse;
   "InstrumentRiskQuoteRequest": InstrumentRiskQuoteRequest;
   "InstrumentRiskQuoteResponse": InstrumentRiskQuoteResponse;

@@ -322,6 +322,11 @@ def test_live_preflight_rejects_strategy_target_outside_account_allowlist(
         ("long_short_mode", _instrument("ETH-USDT-SWAP"), "must be net_mode"),
         ("net_mode", _instrument("ETH-USDT-SWAP", state="suspend"), "not tradable"),
         ("net_mode", _instrument("ETH-USDT-SWAP", lot="0.3"), "not a multiple"),
+        (
+            "net_mode",
+            {**_instrument("ETH-USDT-SWAP"), "tickSz": ""},
+            "Invalid tickSz",
+        ),
     ],
 )
 def test_live_preflight_rejects_incompatible_exchange_state(

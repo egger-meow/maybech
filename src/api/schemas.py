@@ -149,8 +149,18 @@ class InstrumentMetadataResponse(BaseModel):
     updated_at: str
 
 
+class InstrumentMetadataRejectionResponse(BaseModel):
+    inst_type: str
+    rejection_key: str
+    inst_id: str
+    error: str
+    payload: dict[str, Any]
+    updated_at: str
+
+
 class InstrumentMetadataListResponse(BaseModel):
     items: list[InstrumentMetadataResponse]
+    rejected_items: list[InstrumentMetadataRejectionResponse] = Field(default_factory=list)
     refreshed_at: str
     refresh_due_at: str
     stale: bool
