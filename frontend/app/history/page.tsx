@@ -45,7 +45,13 @@ export default function History() {
                   <tr key={trade.id} style={{ borderBottom: "1px solid var(--border-color)" }}>
                     <td style={{ padding: "1rem 0.5rem", fontSize: "0.9rem" }}>
                       <div>{trade.exit_time ? new Date(trade.exit_time).toLocaleString("zh-TW") : "尚未結束"}</div>
-                      <div style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>策略：{trade.strategy_id || "手動"}</div>
+                      <div style={{ color: "var(--text-muted)", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                        <div>識別碼：{trade.short_id || trade.id}</div>
+                        {trade.correlation_id ? <div>關聯 ID：{trade.correlation_id}</div> : null}
+                        <div>入場：{trade.entry_time ? new Date(trade.entry_time).toLocaleString("zh-TW") : "—"}</div>
+                        <div>出場：{trade.exit_time ? new Date(trade.exit_time).toLocaleString("zh-TW") : "尚未結束"}</div>
+                        <div>策略：{trade.strategy_id || "手動"}</div>
+                      </div>
                     </td>
                     <td style={{ padding: "1rem 0.5rem", fontWeight: 600 }}>{trade.inst_id}</td>
                     <td style={{ padding: "1rem 0.5rem" }}>

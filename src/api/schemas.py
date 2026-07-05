@@ -448,6 +448,8 @@ class TradeRuleAttach(BaseModel):
 
 class TradeResponse(BaseModel):
     id: str
+    short_id: str = ""
+    correlation_id: str | None = None
     strategy_id: str
     inst_id: str
     side: str

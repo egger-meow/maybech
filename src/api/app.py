@@ -1609,6 +1609,7 @@ def create_app(
             evidence = metadata.get("realized_pnl", {}) if isinstance(metadata, dict) else {}
             if not isinstance(evidence, dict):
                 evidence = {}
+            correlation_id = metadata.get("correlation_id") if isinstance(metadata, dict) else None
             payload.update({
                 "pnl_currency": evidence.get("currency"),
                 "pnl_reliable": bool(evidence.get("reliable", False)),
@@ -1616,6 +1617,8 @@ def create_app(
                 "gross_pnl": _as_float(evidence.get("gross_pnl")),
                 "fees": _as_float(evidence.get("fees")),
                 "allocation_count": evidence.get("allocation_count"),
+                "short_id": (trade.id or "")[:8],
+                "correlation_id": str(correlation_id) if correlation_id else None,
             })
             result.append(TradeResponse(**payload))
         return result

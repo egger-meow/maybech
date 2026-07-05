@@ -940,6 +940,8 @@ export type TradeDetailResponse = {
 
 export type TradeResponse = {
   "id": string;
+  "short_id"?: string;
+  "correlation_id"?: string | null;
   "strategy_id": string;
   "inst_id": string;
   "side": string;

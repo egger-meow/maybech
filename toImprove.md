@@ -44,17 +44,8 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-1. Make trade history distinguish separate logical executions. The Simulation
-   audit displayed five visually identical stop-loss rows and five visually
-   identical take-profit rows, while `/trades/history` proved they have unique
-   trade IDs, correlation IDs, and entry times roughly 10–12 seconds apart.
-   Expose a stable short identity plus entry/exit timing or expandable audit
-   evidence so operators can distinguish repeated signal edges from duplicate
-   ingestion; verify repeated same-strategy exits remain individually traceable
-   on desktop and mobile before removing this item.
-
-2. Make the documented local frontend URL work cleanly in development. A real
-   Next.js 16.2.9 run opened at `http://127.0.0.1:3000` blocks
+1. Make the documented local frontend URL work cleanly in development. A real
+   Next.js 16.2.9(now updated to 16.2.10, no sure if it automatically soloved it) run opened at `http://127.0.0.1:3000` blocks
    `/_next/webpack-hmr` as a cross-origin development resource because
    `frontend/next.config.ts` does not include `127.0.0.1` in
    `allowedDevOrigins`, even though the backend and testing instructions use

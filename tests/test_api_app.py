@@ -2668,3 +2668,25 @@ def test_trade_history_exposes_confirmed_pnl_evidence(monkeypatch, tmp_path):
     assert trade["gross_pnl"] == pytest.approx(0.1)
     assert trade["fees"] == pytest.approx(-0.001)
     assert trade["allocation_count"] == 2
+
+
+def test_trade_history_exposes_short_identity_and_correlation(monkeypatch, tmp_path):
+    store = TradeStore(str(tmp_path / "trades.db"))
+    store.save_trade(TradeRecord(
+        id="trade-12345678",
+        inst_id="BTC-USDT-SWAP",
+        side="short",
+        entry_price=100,
+        exit_price=99,
+        status="closed",
+        pnl=-1.0,
+        pnl_pct=-1.0,
+        metadata_json=json.dumps({"correlation_id": "corr-778899"}),
+    ))
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    trade = client.get("/trades/history").json()[0]
+
+    assert trade["short_id"] == "trade-12"
+    assert trade["correlation_id"] == "corr-778899"
