@@ -1,7 +1,7 @@
 "use client";
 
 import { Search, X } from "lucide-react";
-import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 
 import type { InstrumentMetadataResponse } from "@/lib/api";
 
@@ -52,9 +52,15 @@ export default function InstrumentSelector({
 
   const select = (instId: string) => {
     onChange(multiple ? [...value, instId] : [instId]);
-    setQuery("");
+    setQuery(instId);
     setOpen(false);
   };
+
+  useEffect(() => {
+    if (!multiple) {
+      setQuery(value[0] ?? "");
+    }
+  }, [multiple, value]);
 
   const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
@@ -96,14 +102,14 @@ export default function InstrumentSelector({
           aria-activedescendant={open && options[activeIndex] ? `${optionsId}-${activeIndex}` : undefined}
           disabled={disabled || stale}
           value={query}
-          placeholder={!multiple && value[0] ? value[0] : placeholder}
+          placeholder={placeholder}
           onFocus={() => { setOpen(true); setActiveIndex(0); }}
           onBlur={() => setOpen(false)}
           onChange={(event) => { setQuery(event.target.value); setOpen(true); setActiveIndex(0); }}
           onKeyDown={keyDown}
         />
         {!multiple && value[0] && (
-          <button type="button" className="selector-clear" aria-label="清除商品" onMouseDown={(event) => event.preventDefault()} onClick={() => onChange([])}>
+          <button type="button" className="selector-clear" aria-label="清除商品" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange([]); setQuery(""); }}>
             <X size={15} />
           </button>
         )}
