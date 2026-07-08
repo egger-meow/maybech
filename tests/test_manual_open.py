@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 
 from src.api.app import create_app
@@ -8,6 +10,45 @@ from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
 from src.trading.instrument_metadata import InstrumentMetadataStore
 from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.trade_store import TradeStore
+
+
+class FakeDemoExecutor:
+    """Stands in for src.trading.executor.Executor in demo manual-open tests."""
+
+    def __init__(self, *_args, **_kwargs) -> None:
+        self.dry_run = False
+
+    def approve_entry(self, **kwargs):
+        return FakeRiskApproval(kwargs)
+
+    def execute(self, **kwargs):
+        return {
+            "ordId": "demo-order-1",
+            "maybechRequestedSize": kwargs["requested_size"],
+            "maybechProtectionVerified": True,
+            "maybechProtection": {"active": None},
+        }
+
+
+class FakeRiskApproval:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def to_dict(self):
+        return self.payload
+
+    def matches(self, **_kwargs):
+        return True
+
+
+def _ready_execution_status() -> dict[str, object]:
+    return {
+        "service_available": True,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "caught_up": True,
+        "websocket_enabled": True,
+        "websocket_connected": True,
+    }
 
 
 def _instrument() -> dict[str, str]:
@@ -77,7 +118,7 @@ def test_manual_open_creates_source_tagged_simulated_unit(monkeypatch, tmp_path)
     assert events[0].type == "position.manual_open_simulated"
 
 
-def test_manual_open_rejects_live_unarmed_before_writing(monkeypatch, tmp_path):
+def test_manual_open_rejects_live_safe_before_writing(monkeypatch, tmp_path):
     db_path = str(tmp_path / "trades.db")
     trade_store = TradeStore(db_path)
     position_store = LogicalPositionStore(db_path)
@@ -87,7 +128,7 @@ def test_manual_open_rejects_live_unarmed_before_writing(monkeypatch, tmp_path):
     runtime.set_value(
         "runtime.live_preflight",
         {
-            "execution_mode": "demo",
+            "execution_mode": "live_safe",
             "armed": False,
         },
     )
@@ -99,6 +140,32 @@ def test_manual_open_rejects_live_unarmed_before_writing(monkeypatch, tmp_path):
 
     assert response.status_code == 409
     assert "armed runtime" in response.json()["detail"]
+    assert position_store.list(status="all") == []
+
+
+def test_manual_open_rejects_live_armed_even_when_process_armed(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    monkeypatch.setattr("src.api.app.LogicalPositionStore", lambda *_: position_store)
+    monkeypatch.setattr("src.api.app.entry_order_placement_enabled", lambda: True)
+    runtime = RuntimeState()
+    runtime.set_value(
+        "runtime.live_preflight",
+        {
+            "execution_mode": "live_armed",
+            "armed": True,
+        },
+    )
+
+    response = TestClient(create_app(DaemonRunner(runtime))).post(
+        "/positions/manual-open",
+        json=_payload(),
+    )
+
+    assert response.status_code == 409
+    assert "Live Safe / Live Armed" in response.json()["detail"]
     assert position_store.list(status="all") == []
 
 
@@ -155,4 +222,66 @@ def test_manual_open_requires_confirmation_and_valid_stop(monkeypatch, tmp_path)
 
     assert unconfirmed.status_code == 422
     assert unsafe_stop.status_code == 409
+    assert position_store.list(status="all") == []
+
+
+def test_manual_open_demo_submits_real_order_via_shared_entry_path(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    metadata_store = InstrumentMetadataStore(db_path)
+    metadata_store.replace_type("SWAP", [_instrument()])
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    monkeypatch.setattr("src.api.app.LogicalPositionStore", lambda *_: position_store)
+    monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: metadata_store)
+    monkeypatch.setattr("src.api.app.OKXClient", lambda: object())
+    monkeypatch.setattr("src.api.app.Executor", FakeDemoExecutor)
+    runtime = RuntimeState()
+    runtime.set_value(
+        "runtime.live_preflight",
+        {"execution_mode": "demo", "armed": True},
+    )
+    runtime.set_value("execution.fills.status", _ready_execution_status())
+
+    response = TestClient(create_app(DaemonRunner(runtime))).post(
+        "/positions/manual-open",
+        json=_payload(),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["source"] == "manual"
+    # Stays pending_open until a confirmed OKX fill arrives; a submitted real
+    # order is not assumed filled, unlike the simulation fabrication path.
+    assert body["status"] == "pending_open"
+    assert body["exchange_order_id"] == "demo-order-1"
+    events = AuditEventStore(db_path).list(position_id=body["id"])
+    assert events[0].type == "position.manual_open_submitted"
+    assert events[0].payload["order_id"] == "demo-order-1"
+
+
+def test_manual_open_demo_blocked_until_execution_ingestion_ready(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    metadata_store = InstrumentMetadataStore(db_path)
+    metadata_store.replace_type("SWAP", [_instrument()])
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    monkeypatch.setattr("src.api.app.LogicalPositionStore", lambda *_: position_store)
+    monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: metadata_store)
+    monkeypatch.setattr("src.api.app.OKXClient", lambda: object())
+    monkeypatch.setattr("src.api.app.Executor", FakeDemoExecutor)
+    runtime = RuntimeState()
+    runtime.set_value(
+        "runtime.live_preflight",
+        {"execution_mode": "demo", "armed": True},
+    )
+
+    response = TestClient(create_app(DaemonRunner(runtime))).post(
+        "/positions/manual-open",
+        json=_payload(),
+    )
+
+    assert response.status_code == 409
+    assert "execution catch-up" in response.json()["detail"]
     assert position_store.list(status="all") == []

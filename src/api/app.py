@@ -35,6 +35,8 @@ from src.trading.execution_allocation import (
 )
 from src.trading.execution_health import evaluate_execution_health
 from src.trading.entry_control import ENTRY_EXECUTION_LOCK, EntryControlManager
+from src.trading.entry_submission import EntrySubmitter, execution_ingestion_ready, extract_order_id
+from src.trading.executor import Executor
 from src.trading.logical_position_store import (
     AllocationConflictError,
     LogicalPositionAllocation,
@@ -60,7 +62,7 @@ from src.trading.signal_engine import SignalExpressionEngine
 from src.trading.sqlite_schema import reset_sqlite_read_only, set_sqlite_read_only
 from src.trading.strategy_runtime import validate_strategy_for_execution
 from src.trading.strategy_store import SignalExpressionRecord, StrategyRecord, StrategyStore
-from src.trading.trade_store import TradeStore
+from src.trading.trade_store import TradeRecord, TradeStore
 from src.api.schemas import (
     AccountExposureReconciliationResponse,
     AccountRiskLimitsResponse,
@@ -2271,6 +2273,145 @@ def create_app(
             )
         return sorted(responses, key=lambda item: item.key)[:limit]
 
+    def _manual_open_demo_position(
+        *,
+        payload: ManualPositionOpenRequest,
+        metadata,
+        quote,
+        entry_price: Decimal,
+        stop_loss: Decimal,
+        take_profit: Decimal | None,
+        trade_store: TradeStore,
+        position_store: LogicalPositionStore,
+        audit_store: AuditEventStore,
+    ) -> LogicalPositionUnitResponse:
+        """Submit a real OKX demo-account order through the shared entry path."""
+        if not execution_ingestion_ready(runner.runtime):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Manual demo entry blocked until REST execution catch-up is "
+                    "current and the private order stream is connected"
+                ),
+            )
+
+        client_order_id = f"manual{uuid4().hex[:16]}"
+        trade = TradeRecord(
+            inst_id=metadata.inst_id,
+            side=payload.side,
+            entry_price=float(entry_price),
+            signal_reason="operator manual open",
+            status="pending_open",
+            metadata_json=json.dumps(
+                {
+                    "correlation_id": client_order_id,
+                    "client_order_id": client_order_id,
+                    "execution_status": "prepared",
+                    "expected_quantity": float(quote.api_quantity_contracts),
+                    "order_action": "open",
+                    "operator_display_quantity": quote.to_dict()["display_quantity"],
+                    "operator_display_currency": quote.display_currency,
+                    "api_quantity_contracts": quote.to_dict()["api_quantity_contracts"],
+                    "estimated_notional_usdt": quote.to_dict()["estimated_notional_usdt"],
+                    "dry_run": False,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        )
+        trade_store.save_trade(trade)
+        position = LogicalPositionRecord.from_trade(trade)
+        position.client_order_id = client_order_id
+        position_store.save(position)
+        position_store.create_close_condition(
+            position_id=position.id,
+            purpose="stop_loss",
+            expression={
+                "type": "price_below" if payload.side == "long" else "price_above",
+                "symbol": metadata.inst_id,
+                "value": float(stop_loss),
+            },
+            enabled=True,
+            metadata={"source": "manual_open"},
+        )
+        if take_profit is not None:
+            position_store.create_close_condition(
+                position_id=position.id,
+                purpose="take_profit",
+                expression={
+                    "type": "price_above" if payload.side == "long" else "price_below",
+                    "symbol": metadata.inst_id,
+                    "value": float(take_profit),
+                },
+                enabled=True,
+                metadata={"source": "manual_open"},
+            )
+
+        executor = Executor(
+            OKXClient(),
+            dry_run=False,
+            risk_store=AccountRiskStore(trade_store.db_path),
+        )
+        with ENTRY_EXECUTION_LOCK:
+            try:
+                risk_approval = executor.approve_entry(
+                    inst_id=metadata.inst_id,
+                    requested_size=quote.api_quantity_contracts,
+                    entry_price=entry_price,
+                )
+            except Exception as exc:
+                trade_store.mark_trade_failed(
+                    trade.id, reason=f"account risk check failed: {exc}"
+                )
+                position_store.recover_client_order_intent(
+                    position.id,
+                    client_order_id=client_order_id,
+                    execution_status="risk_blocked",
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Manual demo entry blocked by account risk check: {exc}",
+                ) from exc
+
+            entry_submitter = EntrySubmitter(
+                executor=executor,
+                position_store=position_store,
+                trade_store=trade_store,
+                dry_run=False,
+            )
+            position, result, execution_status = entry_submitter.submit(
+                trade=trade,
+                position=position,
+                client_order_id=client_order_id,
+                requested_size=float(quote.api_quantity_contracts),
+                entry_price=float(entry_price),
+                stop_loss_price=float(stop_loss),
+                take_profit_price=float(take_profit) if take_profit is not None else None,
+                risk_approval=risk_approval,
+            )
+
+        audit_store.create(
+            type="position.manual_open_submitted",
+            source="product_api",
+            payload={
+                "position_id": position.id,
+                "source": "manual",
+                "instrument": metadata.inst_id,
+                "side": payload.side,
+                "size_quote": quote.to_dict(),
+                "execution_status": execution_status,
+                "order_id": extract_order_id(result),
+            },
+        )
+        return _logical_position_response(
+            store=trade_store,
+            position_store=position_store,
+            position=position_store.get(position.id) or position,
+            account_snapshot={},
+            intents=[],
+            audit_events=[],
+        )
+
     @app.post(
         "/positions/manual-open",
         response_model=LogicalPositionUnitResponse,
@@ -2285,11 +2426,12 @@ def create_app(
                 status_code=503,
                 detail="Runtime execution mode is unavailable; manual open is blocked",
             )
-        if preflight.get("execution_mode") not in {"simulation", "dry_run"}:
+        execution_mode = preflight.get("execution_mode")
+        if execution_mode not in {"simulation", "demo", "dry_run"}:
             detail = (
                 "Manual live open requires an armed runtime and enabled entry gate"
                 if not preflight.get("armed") or not entry_order_placement_enabled()
-                else "Manual exchange open remains disabled in this build; use simulation"
+                else "Manual open is blocked in Live Safe / Live Armed; use Simulation or Demo"
             )
             raise HTTPException(status_code=409, detail=detail)
 
@@ -2342,6 +2484,20 @@ def create_app(
         trade_store = TradeStore()
         position_store = LogicalPositionStore(trade_store.db_path)
         audit_store = AuditEventStore(trade_store.db_path)
+
+        if execution_mode == "demo":
+            return _manual_open_demo_position(
+                payload=payload,
+                metadata=metadata,
+                quote=quote,
+                entry_price=entry_price,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                trade_store=trade_store,
+                position_store=position_store,
+                audit_store=audit_store,
+            )
+
         position_id = uuid4().hex[:12]
         position = LogicalPositionRecord(
             id=position_id,
