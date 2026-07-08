@@ -99,8 +99,12 @@ def create_default_runner(
         if not simulation:
             runner.register(
                 ExecutionFillService(
-                    allocator=ExecutionAllocationService(trade_store=store),
-                    enable_private_stream=True,
+                            allocator=ExecutionAllocationService(trade_store=store),
+                            # Allow skipping the OKX private order stream for local/dev
+                            # startups by setting MAYBECH_SKIP_PRIVATE_STREAM=1 in the
+                            # environment. This helps when network or credential access
+                            # to OKX is not available.
+                            enable_private_stream=(os.getenv("MAYBECH_SKIP_PRIVATE_STREAM", "0") != "1"),
                     rest_poll_interval=5.0,
                     allow_order_mutations=order_capable,
                 )

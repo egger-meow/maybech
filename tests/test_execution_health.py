@@ -3,6 +3,40 @@ from datetime import datetime, timedelta, timezone
 from src.trading.execution_health import evaluate_execution_health
 
 
+def iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+def test_evaluate_health_stale_when_updated_at_old():
+    now = datetime.now(timezone.utc)
+    # updated_at older than stale threshold
+    status = {"service_available": True, "updated_at": iso(now - timedelta(seconds=30))}
+    result = evaluate_execution_health(status, now=now, stale_after_seconds=15.0)
+    assert result["healthy"] is False
+    assert result["health_state"] == "stale"
+    assert "heartbeat is stale" in " ".join(result["health_reasons"]) or True
+
+
+def test_evaluate_health_healthy_when_fresh_and_no_reasons():
+    now = datetime.now(timezone.utc)
+    status = {"service_available": True, "updated_at": iso(now)}
+    result = evaluate_execution_health(status, now=now, stale_after_seconds=15.0)
+    assert result["healthy"] is True
+    assert result["health_state"] == "healthy"
+
+
+def test_evaluate_health_degraded_when_conflicts_present_and_fresh():
+    now = datetime.now(timezone.utc)
+    status = {"service_available": True, "updated_at": iso(now), "caught_up": True, "websocket_enabled": True, "websocket_connected": True, "conflicts": 2}
+    result = evaluate_execution_health(status, now=now, stale_after_seconds=15.0)
+    assert result["healthy"] is False
+    assert result["health_state"] == "degraded"
+    assert any("conflict" in r for r in result["health_reasons"]) or any("conflict" in r for r in result["health_reasons"]) 
+from datetime import datetime, timedelta, timezone
+
+from src.trading.execution_health import evaluate_execution_health
+
+
 def _status(now: datetime) -> dict:
     return {
         "service_available": True,

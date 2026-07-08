@@ -120,6 +120,12 @@ class ExecutionFillService(DaemonService):
             status["cursor_in_progress"] = cursor.in_progress
             status["high_water_bill_id"] = cursor.high_water_id
             status["next_after_bill_id"] = cursor.next_after_id
+            # Update the status timestamp after completing REST catch-up and reconciliation
+            # so the reported `updated_at` reflects processing completion time rather
+            # than the start of the poll. This prevents long polls from immediately
+            # appearing stale in `evaluate_execution_health`.
+            status["updated_at"] = datetime.now(timezone.utc).isoformat()
+
             self._last_rest_status = {
                 key: value
                 for key, value in status.items()
