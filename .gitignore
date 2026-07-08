@@ -10,6 +10,8 @@ build/
 *.egg
 .venv/
 venv/
+.playwright-mcp/
+.claude/
 
 # Logs
 logs/
