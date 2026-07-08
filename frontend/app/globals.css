@@ -210,9 +210,10 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .mode-diagnostic-card code { font-size: .76rem; color: inherit; opacity: .9; overflow-wrap: anywhere; }
 .mode-diagnostic-card strong { font-size: .92rem; }
 .mode-diagnostic-card span { color: var(--text-muted); font-size: .78rem; line-height: 1.35; overflow-wrap: anywhere; }
-.mode-dry { color: #075985; border-color: #38bdf8; background: #e0f2fe; }
-.mode-unarmed { color: #713f12; border-color: #fbbf24; background: #fef3c7; }
-.mode-armed { color: #14532d; border-color: #22c55e; background: #dcfce7; }
+.mode-simulation { color: #075985; border-color: #38bdf8; background: #e0f2fe; }
+.mode-demo { color: #5b21b6; border-color: #a78bfa; background: #ede9fe; }
+.mode-live_safe { color: #713f12; border-color: #fbbf24; background: #fef3c7; }
+.mode-live_armed { color: #14532d; border-color: #22c55e; background: #dcfce7; }
 .mode-blocked, .mode-stale { color: #7f1d1d; border-color: #f87171; background: #fee2e2; }
 .field { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
 .field > span:first-child { color: var(--text-muted); font-size: .76rem; font-weight: 800; text-transform: uppercase; letter-spacing: .035em; }
