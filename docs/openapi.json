@@ -866,6 +866,17 @@
             "title": "Service Available",
             "type": "boolean"
           },
+          "stale_after_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale After Seconds"
+          },
           "stale_cancel_requested": {
             "default": 0,
             "title": "Stale Cancel Requested",

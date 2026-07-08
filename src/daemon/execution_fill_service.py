@@ -52,6 +52,7 @@ class ExecutionFillService(DaemonService):
         protection_service: PositionProtectionService | None = None,
         allow_order_mutations: bool = True,
         protection_gap_alert_seconds: float = 5.0,
+        health_stale_after_seconds: float | None = None,
     ) -> None:
         super().__init__()
         self.client = client
@@ -65,7 +66,21 @@ class ExecutionFillService(DaemonService):
         self.private_order_stream = private_order_stream
         self.enable_private_stream = enable_private_stream
         self.rest_poll_interval = max(0.0, rest_poll_interval)
+        # A single tick can legitimately take longer than the REST poll interval
+        # once REST catch-up, order reconciliation, and protection verification
+        # for every open position are accounted for. The health staleness
+        # tolerance must exceed that realistic worst case or a slow-but-working
+        # tick gets misreported as an outage. Floor it well above the poll
+        # cadence rather than using a generic constant unrelated to this
+        # service's own configuration.
+        self.health_stale_after_seconds = (
+            health_stale_after_seconds
+            if health_stale_after_seconds is not None
+            else max(60.0, self.rest_poll_interval * 6.0)
+        )
         self._next_rest_poll = 0.0
+        self._next_private_stream_retry = 0.0
+        self._private_stream_retry_backoff = 5.0
         self._last_rest_status: dict[str, Any] = {}
         self._reconciled_dropped_events = 0
         self._last_health_failure_at = ""
@@ -90,12 +105,40 @@ class ExecutionFillService(DaemonService):
                     passphrase=settings.OKX_PASSPHRASE,
                     flag=settings.OKX_FLAG,
                 )
-            self.private_order_stream.start()
+            self._try_start_private_stream()
         initial_status = self._empty_status()
         self._apply_private_stream_status(initial_status)
         if self.runtime is not None:
             self.runtime.set_value("execution.fills.status", initial_status)
         logger.info("ExecutionFillService setup complete.")
+
+    def _try_start_private_stream(self) -> None:
+        """(Re)connect the private order stream without ever making a
+        transient connection failure fatal to the whole daemon.
+
+        The stream is a hard requirement for a *healthy* execution_fills
+        status (evaluate_execution_health already reports degraded/unhealthy
+        while disconnected — no fake green), but it must not be a
+        requirement for the process being able to start at all and stay
+        observable. A slow or momentarily-unreachable OKX WS handshake
+        previously aborted the entire required-service setup.
+        """
+        stream = self.private_order_stream
+        if stream is None:
+            return
+        try:
+            stream.start()
+        except (TimeoutError, RuntimeError) as exc:
+            logger.error("OKX private order stream connection failed: %s", exc)
+            self._next_private_stream_retry = (
+                time.monotonic() + self._private_stream_retry_backoff
+            )
+            self._private_stream_retry_backoff = min(
+                self._private_stream_retry_backoff * 2, 60.0
+            )
+        else:
+            self._private_stream_retry_backoff = 5.0
+            self._next_private_stream_retry = 0.0
 
     def tick(self) -> None:
         if self.client is None:
@@ -103,6 +146,13 @@ class ExecutionFillService(DaemonService):
         status = self._empty_status()
         catchup_error: Exception | None = None
         now = time.monotonic()
+        if (
+            self.enable_private_stream
+            and self.private_order_stream is not None
+            and not self.private_order_stream.status_dict()["connected"]
+            and now >= self._next_private_stream_retry
+        ):
+            self._try_start_private_stream()
         self._apply_private_stream_status(status)
         dropped_before_rest = int(status["websocket_dropped_events"])
         if now >= self._next_rest_poll:
@@ -147,6 +197,7 @@ class ExecutionFillService(DaemonService):
         if status["websocket_drops_pending_catchup"]:
             self._next_rest_poll = 0.0
         self._track_protection_gaps(status)
+        status["stale_after_seconds"] = self.health_stale_after_seconds
         status = evaluate_execution_health(status)
         if not status["healthy"]:
             self._last_health_failure_at = str(status["updated_at"])

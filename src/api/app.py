@@ -13,8 +13,6 @@ from typing import Literal, Optional
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-import os
-import logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -1312,24 +1310,18 @@ def create_app(
     def enable_entries(payload: EntryControlCommand) -> EntryControlResponse:
         preflight = runner.runtime.get_value("runtime.live_preflight") or {}
         if preflight.get("order_submission_enabled"):
-            # Allow an escape hatch for local operators to force-enable entries
-            # (dangerous). Set MAYBECH_FORCE_ENABLE_ENTRIES=1 in the environment
-            # when starting the runtime to bypass the execution health gate.
-            if os.getenv("MAYBECH_FORCE_ENABLE_ENTRIES", "0") != "1":
-                execution_health = evaluate_execution_health(
-                    runner.runtime.get_value("execution.fills.status")
+            execution_health = evaluate_execution_health(
+                runner.runtime.get_value("execution.fills.status")
+            )
+            if not execution_health["healthy"]:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Execution correctness health blocks new entries",
+                        "health_state": execution_health["health_state"],
+                        "reasons": execution_health["health_reasons"],
+                    },
                 )
-                if not execution_health["healthy"]:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "message": "Execution correctness health blocks new entries",
-                            "health_state": execution_health["health_state"],
-                            "reasons": execution_health["health_reasons"],
-                        },
-                    )
-            else:
-                logging.warning("MAYBECH_FORCE_ENABLE_ENTRIES=1 — skipping execution health check")
         try:
             result = EntryControlManager().enable_entries()
         except (PermissionError, ValueError) as exc:

@@ -288,6 +288,7 @@ class ExecutionFillIngestionStatusResponse(BaseModel):
     health_state: Literal["healthy", "degraded", "stale", "unavailable"] = "unavailable"
     health_reasons: list[str] = Field(default_factory=list)
     status_age_seconds: float | None = None
+    stale_after_seconds: float | None = None
     last_health_failure_at: str = ""
     last_health_failure_reasons: list[str] = Field(default_factory=list)
     fetched: int = 0

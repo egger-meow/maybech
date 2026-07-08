@@ -29,7 +29,12 @@ def evaluate_execution_health(
     current = now or datetime.now(timezone.utc)
     updated_at = _parse_time(status.get("updated_at"))
     age = None if updated_at is None else max(0.0, (current - updated_at).total_seconds())
-    if age is None or age > stale_after_seconds:
+    # A producer may stamp its own realistic tolerance (e.g. ExecutionFillService
+    # sizes this from its configured REST poll cadence) so a single legitimately
+    # slow tick is not misreported as an outage. Callers that omit it keep the
+    # generic default below.
+    effective_stale_after_seconds = status.get("stale_after_seconds") or stale_after_seconds
+    if age is None or age > effective_stale_after_seconds:
         return {
             **status,
             "healthy": False,

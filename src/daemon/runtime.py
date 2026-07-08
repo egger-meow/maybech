@@ -116,12 +116,14 @@ def create_default_runner(
         if not simulation:
             runner.register(
                 ExecutionFillService(
-                            allocator=ExecutionAllocationService(trade_store=store),
-                            # Allow skipping the OKX private order stream for local/dev
-                            # startups by setting MAYBECH_SKIP_PRIVATE_STREAM=1 in the
-                            # environment. This helps when network or credential access
-                            # to OKX is not available.
-                            enable_private_stream=(os.getenv("MAYBECH_SKIP_PRIVATE_STREAM", "0") != "1"),
+                    allocator=ExecutionAllocationService(trade_store=store),
+                    # The private order stream is a hard correctness requirement,
+                    # not an optional convenience: new entries stay blocked until
+                    # REST catch-up is current AND this stream is connected (see
+                    # README "Run Locally"). It must never be skippable — a
+                    # bypass here would make execution_fills report healthy
+                    # without ever actually confirming fills in real time.
+                    enable_private_stream=True,
                     rest_poll_interval=5.0,
                     allow_order_mutations=order_capable,
                 )
