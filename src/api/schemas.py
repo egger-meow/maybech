@@ -69,6 +69,7 @@ class LivePreflightResponse(BaseModel):
     instruments: list[str] = Field(default_factory=list)
     checked_at: str
     errors: list[str] = Field(default_factory=list)
+    db_path: dict[str, Any] | None = None
 
 
 class RuntimeLeaseResponse(BaseModel):

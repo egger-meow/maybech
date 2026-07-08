@@ -1613,6 +1613,18 @@
             "title": "Credential Environment",
             "type": "string"
           },
+          "db_path": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Db Path"
+          },
           "enabled_strategies": {
             "default": 0,
             "title": "Enabled Strategies",

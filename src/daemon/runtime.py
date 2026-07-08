@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from src.config.settings import resolve_db_path_diagnostics
 from src.daemon.account_service import AccountSnapshotService
 from src.daemon.btc_regime_service import BTCRegimeService
 from src.daemon.execution_fill_service import ExecutionFillService
@@ -29,6 +30,10 @@ from src.trading.execution_allocation import ExecutionAllocationService
 from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.entry_control import EntryControlManager
+from src.utils.logger import setup_logger
+
+
+logger = setup_logger(__name__)
 
 
 def create_default_runner(
@@ -50,6 +55,17 @@ def create_default_runner(
     order_capable = resolved_mode.submits_orders
     live_safe = resolved_mode is RuntimeMode.LIVE_SAFE
     disarm_order_placement()
+    # Resolve and log the DB path before any store touches disk. A process-level
+    # env var silently overrides .env (dotenv never overrides an already-set
+    # variable), which previously made "which database is this run actually
+    # using" invisible until state from an unexpected file showed up mid-session.
+    db_path_info = resolve_db_path_diagnostics()
+    logger.info(
+        "Maybech DB path resolved to %s (source=%s, existed_before_process=%s)",
+        db_path_info["resolved_path"],
+        db_path_info["source"],
+        db_path_info["existed_before_process"],
+    )
     runner = DaemonRunner()
     store = TradeStore()
     lease = RuntimeLease(db_path=store.db_path)
@@ -70,6 +86,7 @@ def create_default_runner(
             )
             lease.bind_account_scope(report.account_scope)
             preflight_status = report.to_dict(armed=False)
+        preflight_status = {**preflight_status, "db_path": db_path_info}
     except Exception:
         lease.release()
         raise
@@ -143,7 +160,7 @@ def create_default_runner(
                 disarm_order_placement()
             runner.runtime.set_value(
                 "runtime.live_preflight",
-                report.to_dict(armed=should_arm_orders),
+                {**report.to_dict(armed=should_arm_orders), "db_path": db_path_info},
             )
     except Exception:
         disarm_order_placement()

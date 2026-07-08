@@ -9,11 +9,18 @@ Usage:
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
-# Load .env from project root
+# Load .env from project root. Snapshot what was already set in the process
+# environment and what the .env file itself declares *before* loading it, so
+# resolve_db_path_diagnostics() can later report which source actually won —
+# a process-level env var always takes precedence over .env (dotenv does not
+# override existing variables), and that precedence is otherwise invisible.
 _env_path = Path(__file__).resolve().parents[2] / ".env"
+_pre_dotenv_environ_keys = frozenset(os.environ.keys())
+_dotenv_file_values = dotenv_values(_env_path)
 load_dotenv(_env_path)
 
 
@@ -131,3 +138,29 @@ class Settings:
 
 # Singleton instance — import this everywhere
 settings = Settings()
+
+
+def resolve_db_path_diagnostics(db_path: str | None = None) -> dict[str, Any]:
+    """Report exactly where the active SQLite path came from and whether it is new.
+
+    Every store falls back to ``settings.MAYBECH_DB_PATH`` when constructed
+    without an explicit path (see docs/storage.md), but that value is resolved
+    once, silently, at import time. A process-level environment variable wins
+    over ``.env`` without any indication of that happening, which previously
+    made "which database is this run actually touching" a matter of
+    archaeology. Call this once at startup and log/expose the result instead.
+    """
+    configured = db_path or settings.MAYBECH_DB_PATH
+    resolved_path = str(Path(configured).resolve())
+    if "MAYBECH_DB_PATH" in _pre_dotenv_environ_keys:
+        source = "process_environment"
+    elif "MAYBECH_DB_PATH" in _dotenv_file_values:
+        source = "dotenv_file"
+    else:
+        source = "default"
+    return {
+        "configured_path": configured,
+        "resolved_path": resolved_path,
+        "source": source,
+        "existed_before_process": Path(resolved_path).exists(),
+    }
