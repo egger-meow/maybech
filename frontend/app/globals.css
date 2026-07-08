@@ -399,7 +399,11 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .distinction-grid dl { display: grid; gap: .45rem; }.distinction-grid dl div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: .5rem; }.distinction-grid dt { color: var(--text-muted); }.distinction-grid dd { overflow-wrap: anywhere; }
 .panel-heading h2 { display: flex; align-items: center; gap: .45rem; }
 .chart-wrap { overflow-x: auto; }.chart-wrap svg { display: block; min-width: 650px; width: 100%; height: auto; }
-.kline-chart-canvas { min-width: 650px; width: 100%; height: 320px; }
+.kline-header { display: flex; align-items: baseline; gap: .6rem; padding-bottom: .5rem; }.kline-header .kline-header-label { color: var(--text-muted); font-size: .8rem; }.kline-header strong { font-size: 1.3rem; }.kline-header span:last-child { font-weight: 700; font-size: .85rem; }
+.kline-chart-shell { position: relative; min-width: 650px; }
+.kline-chart-canvas { width: 100%; height: 420px; cursor: default; }
+.kline-empty-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; background: color-mix(in srgb, var(--bg-primary) 70%, transparent); }
+.kline-hint { color: var(--text-muted); font-size: .74rem; padding-top: .5rem; margin: 0; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: .45rem 1rem; padding-top: .6rem; }.chart-legend span { display: inline-flex; align-items: center; gap: .35rem; color: var(--text-muted); font-size: .76rem; }.chart-legend i { width: 9px; height: 9px; border-radius: 50%; }
 .protection-state { display: inline-flex; align-items: center; gap: .35rem; font-weight: 800; }.protection-state.good { color: var(--accent-success); }.protection-state.bad { color: var(--accent-danger); }
 .badge { display: inline-flex; align-items: center; gap: .25rem; width: max-content; }
