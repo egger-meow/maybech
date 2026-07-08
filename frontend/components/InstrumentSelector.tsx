@@ -1,7 +1,7 @@
 "use client";
 
 import { Search, X } from "lucide-react";
-import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useId, useMemo, useState, type KeyboardEvent } from "react";
 
 import type { InstrumentMetadataResponse } from "@/lib/api";
 
@@ -28,7 +28,8 @@ export default function InstrumentSelector({
   placeholder = "輸入 BTC、ETH 或 USDT 搜尋",
   eligibleInstruments,
 }: Props) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => (!multiple ? value[0] ?? "" : ""));
+  const [syncedValue, setSyncedValue] = useState(value[0]);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const optionsId = useId();
@@ -56,11 +57,10 @@ export default function InstrumentSelector({
     setOpen(false);
   };
 
-  useEffect(() => {
-    if (!multiple) {
-      setQuery(value[0] ?? "");
-    }
-  }, [multiple, value]);
+  if (!multiple && value[0] !== syncedValue) {
+    setSyncedValue(value[0]);
+    setQuery(value[0] ?? "");
+  }
 
   const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
