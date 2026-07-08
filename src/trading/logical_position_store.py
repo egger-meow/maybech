@@ -1897,21 +1897,47 @@ class LogicalPositionStore:
             )
         return cursor.rowcount > 0
 
+    # Metadata keys that legitimately differ between independent deliveries of
+    # the same confirmed fill (e.g. websocket order-stream ingestion versus
+    # REST fills-history catch-up, or a correlation id backfilled after the
+    # fact). Harmless drift here must not raise AllocationConflictError and
+    # quarantine an otherwise-correct, already-applied fill.
+    _ALLOCATION_METADATA_VOLATILE_KEYS = frozenset({"correlation_id", "confirmation_source"})
+
     @staticmethod
+    def _numbers_equivalent(existing: float | None, candidate: float | None) -> bool:
+        if existing is None or candidate is None:
+            return existing == candidate
+        tolerance = 1e-9 * max(1.0, abs(existing), abs(candidate))
+        return abs(existing - candidate) <= tolerance
+
+    @classmethod
     def _allocations_equivalent(
+        cls,
         existing: LogicalPositionAllocation,
         candidate: LogicalPositionAllocation,
     ) -> bool:
+        existing_metadata = _json_loads(existing.metadata_json, {})
+        candidate_metadata = _json_loads(candidate.metadata_json, {})
+        existing_identity = {
+            key: value
+            for key, value in existing_metadata.items()
+            if key not in cls._ALLOCATION_METADATA_VOLATILE_KEYS
+        }
+        candidate_identity = {
+            key: value
+            for key, value in candidate_metadata.items()
+            if key not in cls._ALLOCATION_METADATA_VOLATILE_KEYS
+        }
         return (
             existing.position_id == candidate.position_id
             and existing.action == candidate.action
-            and existing.quantity == candidate.quantity
-            and existing.price == candidate.price
-            and existing.fee == candidate.fee
+            and cls._numbers_equivalent(existing.quantity, candidate.quantity)
+            and cls._numbers_equivalent(existing.price, candidate.price)
+            and cls._numbers_equivalent(existing.fee, candidate.fee)
             and existing.exchange_order_id == candidate.exchange_order_id
             and existing.reason == candidate.reason
-            and _json_loads(existing.metadata_json, {})
-            == _json_loads(candidate.metadata_json, {})
+            and existing_identity == candidate_identity
         )
 
     @staticmethod
