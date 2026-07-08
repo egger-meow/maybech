@@ -346,9 +346,11 @@ The Position Management page has a logical-position contract now:
 
 - `POST /positions/manual-open`: create one `source=manual` logical unit from a
   cached instrument and operator-facing base quantity. The request requires an
-  explicit confirmation and side-correct protective stop. In the current
-  guarded implementation this endpoint accepts Simulation only; Demo and Live modes
-  return `409` and no new live-order path is enabled.
+  explicit confirmation and side-correct protective stop. Simulation fabricates
+  a local dry-run record; Demo submits a real order through the shared
+  entry-submission path (risk approval, execution-ingestion-readiness gate,
+  protection verification, emergency-close-on-failure). Live Safe and Live
+  Armed return `409`; no manual live-order path is enabled.
 - `GET /account/exposure-reconciliation`: fetch fresh authenticated OKX SWAP
   positions and compare every instrument/side group with active SQLite logical
   units. Any exchange-only, missing, over-allocated, malformed, or unknown

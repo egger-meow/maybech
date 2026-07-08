@@ -89,8 +89,11 @@ verified:
    stream checks. A failed check aborts startup before services run.
 6. Inspect `/runtime/preflight`, `/risk/limits`, `/risk/entries`, reconciliation,
    and the dashboard mode banner. Then separately enable reviewed strategies
-   and explicitly confirm the entry gate. Every live restart disables entries
-   again. Reduce-only protection and exits remain independent of the entry gate.
+   and explicitly confirm the entry gate. Once enabled, that choice persists
+   and is restored automatically on a subsequent restart once the process
+   re-arms; use `POST /risk/entries/kill` before stopping the process if a
+   restart should come back with entries disabled. Reduce-only protection and
+   exits remain independent of the entry gate.
 7. Only after the complete demo path is repeatable should a dedicated
    production key be placed in `OKX_*` with `OKX_FLAG=0`. Repeat the read-only
    checks and bounded verifier at the smallest acceptable contract size before
