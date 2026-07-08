@@ -15,10 +15,8 @@ from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.executor import Executor
 from src.trading.entry_control import ENTRY_EXECUTION_LOCK
-from src.trading.execution_health import evaluate_execution_health
+from src.trading.entry_submission import EntrySubmitter, execution_ingestion_ready, extract_order_id
 from src.trading.logical_position_store import (
-    LogicalPositionAllocation,
-    LogicalPositionProtection,
     LogicalPositionRecord,
     LogicalPositionStore,
 )
@@ -87,6 +85,17 @@ class StrategyService(DaemonService):
         )
         logger.info("StrategyService setup complete. Dry run: %s", self.dry_run)
 
+    @property
+    def entry_submitter(self) -> EntrySubmitter | None:
+        if self.executor is None:
+            return None
+        return EntrySubmitter(
+            executor=self.executor,
+            position_store=self.position_store,
+            trade_store=self.trade_store,
+            dry_run=self.dry_run,
+        )
+
     def tick(self) -> None:
         if self.candle_manager is None or self.executor is None:
             raise RuntimeError("StrategyService.setup() must complete before tick()")
@@ -107,7 +116,7 @@ class StrategyService(DaemonService):
 
         self._cancel_disabled_pending()
 
-        if not self.dry_run and not self._execution_ingestion_ready():
+        if not self.dry_run and not execution_ingestion_ready(self.runtime):
             message = (
                 "Live entries blocked until REST execution catch-up is current "
                 "and the private order stream is connected"
@@ -482,9 +491,9 @@ class StrategyService(DaemonService):
         observed_at: str,
         decision_id: str | None = None,
     ) -> dict[str, Any] | None:
-        if self.executor is None:
+        if self.executor is None or self.entry_submitter is None:
             raise RuntimeError("Executor is required")
-        if not self.dry_run and not self._execution_ingestion_ready():
+        if not self.dry_run and not execution_ingestion_ready(self.runtime):
             logger.warning("Live strategy entry blocked because execution ingestion is not ready")
             return None
         with ENTRY_EXECUTION_LOCK:
@@ -618,89 +627,28 @@ class StrategyService(DaemonService):
             self._publish_decision_snapshot()
             return None
 
-        result = self.executor.execute(
-            inst_id=pair,
-            position_side=side,
+        position, result, execution_status = self.entry_submitter.submit(
+            trade=trade,
+            position=position,
+            client_order_id=decision_id,
+            requested_size=float(requested_size),
             entry_price=order_price,
-            requested_size=requested_size,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
-            client_order_id=decision_id,
             risk_approval=risk_approval,
-        ) or {}
-        if result and self.dry_run:
-            execution_status = "simulated"
-        elif result and result.get("maybechProtectionVerified") is True:
-            execution_status = "submitted"
-        elif result and result.get("maybechEmergencyCloseRequired") is True:
-            execution_status = "emergency_close_required"
-        elif result and result.get("maybechCancelRequested") is True:
-            execution_status = "protection_failed_canceling"
-        elif result:
-            execution_status = "protection_failed_unresolved"
-        else:
-            execution_status = "failed"
+        )
         lifecycle: dict[str, Any] = {
             "execution_status": execution_status,
             "execution_result": result,
-            "order_id": self._extract_order_id(result),
+            "order_id": extract_order_id(result),
             "trade_id": trade.id,
             "position_id": position.id,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
-        if result:
-            try:
-                position = self._record_entry_submission(
-                    trade=trade,
-                    position=position,
-                    client_order_id=decision_id,
-                    requested_size=float(requested_size),
-                    execution_result=result,
-                    execution_status=execution_status,
-                )
-                if result.get("maybechEmergencyCloseRequired") is True:
-                    position, close_result, execution_status = (
-                        self._submit_emergency_close(
-                            position=position,
-                            correlation_id=decision_id,
-                            client_order_id=str(
-                                result.get("maybechEmergencyCloseClientOrderId") or ""
-                            ),
-                            quantity=float(
-                                result.get("maybechEmergencyCloseQuantity") or 0
-                            ),
-                            parent_order_id=self._extract_order_id(result),
-                        )
-                    )
-                    result["maybechEmergencyCloseResult"] = close_result
-                    result["maybechEmergencyCloseOrderId"] = self._extract_order_id(
-                        close_result
-                    )
-                    lifecycle.update(
-                        {
-                            "execution_status": execution_status,
-                            "execution_result": result,
-                            "emergency_close_order_id": result[
-                                "maybechEmergencyCloseOrderId"
-                            ],
-                        }
-                    )
-            except Exception as exc:
-                logger.exception("Failed to persist submitted strategy action %s", decision_id)
-                execution_status = "persistence_failed"
-                lifecycle.update(
-                    {"execution_status": "persistence_failed", "persistence_error": str(exc)}
-                )
-        else:
-            self.position_store.recover_client_order_intent(
-                position.id,
-                client_order_id=decision_id,
-                execution_status="submission_failed",
-            )
-            self.trade_store.mark_trade_failed(
-                trade.id,
-                reason="entry order submission failed",
-            )
+        if result.get("maybechEmergencyCloseOrderId"):
+            lifecycle["emergency_close_order_id"] = result["maybechEmergencyCloseOrderId"]
+        if "maybechPersistenceError" in result:
+            lifecycle["persistence_error"] = result["maybechPersistenceError"]
 
         decision_entry.update(lifecycle)
         self._save_decision(decision_entry)
@@ -722,15 +670,6 @@ class StrategyService(DaemonService):
             "correlation_id": decision_id,
         }
 
-    def _execution_ingestion_ready(self) -> bool:
-        if self.runtime is None:
-            return False
-        status = self.runtime.get_value("execution.fills.status")
-        return bool(
-            isinstance(status, dict)
-            and evaluate_execution_health(status)["healthy"]
-        )
-
     def _retry_emergency_closes(self, status: dict[str, Any]) -> None:
         for position in self.position_store.list_pending_executions():
             if position.status != "closing" or position.exchange_order_id:
@@ -748,7 +687,7 @@ class StrategyService(DaemonService):
                     f"Emergency close intent {position.id} is incomplete"
                 )
                 continue
-            updated, close_result, execution_status = self._place_emergency_close(
+            updated, close_result, execution_status = self.entry_submitter.place_emergency_close(
                 position=position,
                 client_order_id=client_order_id,
                 quantity=quantity,
@@ -761,7 +700,7 @@ class StrategyService(DaemonService):
                         "strategy_id": updated.strategy_id,
                         "position_id": updated.id,
                         "client_order_id": client_order_id,
-                        "exchange_order_id": self._extract_order_id(close_result),
+                        "exchange_order_id": extract_order_id(close_result),
                     },
                 )
             else:
@@ -838,175 +777,6 @@ class StrategyService(DaemonService):
 
         return trade, position
 
-    def _record_entry_submission(
-        self,
-        *,
-        trade: TradeRecord,
-        position: LogicalPositionRecord,
-        client_order_id: str,
-        requested_size: float,
-        execution_result: dict[str, Any],
-        execution_status: str,
-    ) -> LogicalPositionRecord:
-        order_id = self._extract_order_id(execution_result)
-        if not order_id:
-            raise ValueError("Order submission response is missing ordId")
-        linked = self.position_store.link_exchange_order(
-            position.id,
-            client_order_id=client_order_id,
-            exchange_order_id=order_id,
-            metadata={
-                "execution_status": execution_status,
-                "execution_result": execution_result,
-                "exchange_order_id": order_id,
-            },
-        )
-        if linked is None:
-            raise RuntimeError("Prepared position could not link exchange order")
-        position = linked
-        protection = execution_result.get("maybechProtection")
-        active_protection = (
-            protection.get("active") if isinstance(protection, dict) else None
-        )
-        if isinstance(active_protection, dict):
-            self.position_store.save_protection(
-                LogicalPositionProtection(
-                    position_id=position.id,
-                    kind="attached_stop",
-                    status="active",
-                    algo_id=str(active_protection.get("algo_id") or ""),
-                    algo_client_order_id=str(
-                        active_protection.get("algo_client_order_id") or ""
-                    ),
-                    quantity=float(active_protection.get("quantity") or 0),
-                    stop_loss=float(active_protection.get("stop_loss") or 0),
-                    metadata_json=json.dumps(
-                        {
-                            "take_profit": active_protection.get("take_profit"),
-                            "parent_order_id": order_id,
-                        },
-                        separators=(",", ":"),
-                        sort_keys=True,
-                    ),
-                )
-            )
-
-        if self.dry_run:
-            updated = self.position_store.record_allocation(
-                LogicalPositionAllocation(
-                    id=f"dry-fill-{client_order_id}",
-                    position_id=position.id,
-                    action="open",
-                    quantity=requested_size,
-                    price=position.entry_price,
-                    exchange_order_id=order_id,
-                    reason="confirmed dry-run entry",
-                    metadata_json=json.dumps(
-                        {
-                            "confirmation_source": "dry_run",
-                            "correlation_id": client_order_id,
-                        },
-                        separators=(",", ":"),
-                        sort_keys=True,
-                    ),
-                )
-            )
-            if updated is not None:
-                position = updated
-            self.trade_store.mark_trade_open(trade.id, entry_price=position.entry_price)
-            tracked = self.position_store.update_execution_tracking(
-                position.id,
-                exchange_order_id=order_id,
-                execution_status="filled",
-                completed=True,
-            )
-            if tracked is not None:
-                position = tracked
-        return position
-
-    def _submit_emergency_close(
-        self,
-        *,
-        position: LogicalPositionRecord,
-        correlation_id: str,
-        client_order_id: str,
-        quantity: float,
-        parent_order_id: str,
-    ) -> tuple[LogicalPositionRecord, dict[str, Any], str]:
-        if self.executor is None:
-            raise RuntimeError("Executor is required")
-        if not client_order_id or not parent_order_id or quantity <= 0:
-            raise ValueError("Emergency close intent is incomplete")
-        claimed = self.position_store.claim_pending_execution(
-            position.id,
-            expected_status="pending_open",
-            status="closing",
-            client_order_id=client_order_id,
-            metadata={
-                "correlation_id": correlation_id,
-                "client_order_id": client_order_id,
-                "emergency_close_client_order_id": client_order_id,
-                "order_action": "close",
-                "close_reason": "active attached protection could not be verified",
-                "close_quantity": quantity,
-                "previous_exchange_order_id": parent_order_id,
-                "emergency_close": True,
-                "execution_status": "emergency_close_submitting",
-            },
-        )
-        if claimed is None:
-            raise RuntimeError("Emergency close intent could not claim logical position")
-        return self._place_emergency_close(
-            position=claimed,
-            client_order_id=client_order_id,
-            quantity=quantity,
-        )
-
-    def _place_emergency_close(
-        self,
-        *,
-        position: LogicalPositionRecord,
-        client_order_id: str,
-        quantity: float,
-    ) -> tuple[LogicalPositionRecord, dict[str, Any], str]:
-        if self.executor is None:
-            raise RuntimeError("Executor is required")
-        close_result = self.executor.close_position(
-            inst_id=position.inst_id,
-            position_side=position.side,
-            quantity=quantity,
-            client_order_id=client_order_id,
-            pos_side="net",
-        ) or {}
-        exchange_order_id = self._extract_order_id(close_result)
-        if not exchange_order_id:
-            pending = self.position_store.merge_metadata(
-                position.id,
-                {
-                    "execution_status": "emergency_close_retry_pending",
-                    "emergency_close_last_attempt_at": datetime.now(
-                        timezone.utc
-                    ).isoformat(),
-                },
-            )
-            if pending is None:
-                raise RuntimeError("Emergency close retry state could not be persisted")
-            return pending, close_result, "emergency_close_failed"
-
-        updated = self.position_store.mark_pending_execution(
-            position.id,
-            status="closing",
-            exchange_order_id=exchange_order_id,
-            client_order_id=client_order_id,
-            metadata={
-                "emergency_close_order_id": exchange_order_id,
-                "execution_status": "emergency_close_submitted",
-            },
-        )
-        if updated is None:
-            raise RuntimeError("Emergency close order could not link to logical position")
-        return updated, close_result, "emergency_close_submitted"
-
     def _save_decision(self, payload: dict[str, Any]) -> bool:
         try:
             self.audit_store.create(
@@ -1057,17 +827,6 @@ class StrategyService(DaemonService):
     def _publish_decision_snapshot(self) -> None:
         if self.runtime is not None:
             self.runtime.set_value("strategy.decisions", self.decisions_history[-20:])
-
-    @staticmethod
-    def _extract_order_id(result: dict[str, Any]) -> str | None:
-        direct = result.get("ordId") or result.get("order_id")
-        if direct:
-            return str(direct)
-        data = result.get("data")
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            nested = data[0].get("ordId") or data[0].get("order_id")
-            return str(nested) if nested else None
-        return None
 
     def teardown(self) -> None:
         logger.info("StrategyService shutting down.")
