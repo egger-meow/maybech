@@ -44,21 +44,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-1. Manual position creation must gate on `submits_orders` (simulation + demo
-   allowed, live_safe/live_armed blocked), and demo-mode manual open must
-   submit a real OKX demo order instead of fabricating a local record, so
-   demo behavior does not silently diverge from what the operator expects.
-   Acceptance gates:
-   - Real order submission for demo shares the exact same risk-approval /
-     execution-ingestion-readiness / emergency-close-on-protection-failure
-     path as strategy-triggered entries (one code path, not a duplicate).
-   - `live_safe` and `live_armed` remain blocked from manual open.
-   - Simulation behavior is unchanged (still a local fabricated record, no
-     exchange call).
-   - Backend tests cover: demo real-order success, demo blocked when entries
-     disabled/ingestion not ready, live_safe/live_armed rejection.
-   - Frontend reflects demo as available and simulation vs demo have
-     distinct copy (local record vs real demo-account order).
+None at the moment.
 
 The completed position-rule and market-analysis phase is audited in
 `docs/position-rule-phase-audit.md`.
