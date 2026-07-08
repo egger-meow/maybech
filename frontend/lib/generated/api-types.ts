@@ -126,6 +126,7 @@ export type ExecutionFillIngestionStatusResponse = {
   "health_state"?: "healthy" | "degraded" | "stale" | "unavailable";
   "health_reasons"?: string[];
   "status_age_seconds"?: number | null;
+  "stale_after_seconds"?: number | null;
   "last_health_failure_at"?: string;
   "last_health_failure_reasons"?: string[];
   "fetched"?: number;
@@ -307,6 +308,7 @@ export type LivePreflightResponse = {
   "instruments"?: string[];
   "checked_at": string;
   "errors"?: string[];
+  "db_path"?: Record<string, unknown> | null;
 };
 
 export type LogicalPositionAllocationResponse = {
