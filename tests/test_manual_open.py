@@ -285,3 +285,35 @@ def test_manual_open_demo_blocked_until_execution_ingestion_ready(monkeypatch, t
     assert response.status_code == 409
     assert "execution catch-up" in response.json()["detail"]
     assert position_store.list(status="all") == []
+
+
+def test_manual_open_demo_blocked_when_entries_not_enabled(monkeypatch, tmp_path):
+    """Real Executor + no configured risk limits -> AccountRiskGuard blocks entries."""
+    db_path = str(tmp_path / "trades.db")
+    trade_store = TradeStore(db_path)
+    position_store = LogicalPositionStore(db_path)
+    metadata_store = InstrumentMetadataStore(db_path)
+    metadata_store.replace_type("SWAP", [_instrument()])
+    monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)
+    monkeypatch.setattr("src.api.app.LogicalPositionStore", lambda *_: position_store)
+    monkeypatch.setattr("src.api.app.InstrumentMetadataStore", lambda: metadata_store)
+    monkeypatch.setattr("src.api.app.OKXClient", lambda: object())
+    runtime = RuntimeState()
+    runtime.set_value(
+        "runtime.live_preflight",
+        {"execution_mode": "demo", "armed": True},
+    )
+    runtime.set_value("execution.fills.status", _ready_execution_status())
+
+    response = TestClient(create_app(DaemonRunner(runtime))).post(
+        "/positions/manual-open",
+        json=_payload(),
+    )
+
+    assert response.status_code == 409
+    assert "account risk check" in response.json()["detail"]
+    # The prepared trade/position intent is recovered to a terminal state, not
+    # left dangling as pending_open.
+    positions = position_store.list(status="all")
+    assert len(positions) == 1
+    assert positions[0].status == "failed"

@@ -6,6 +6,7 @@ import { AlertTriangle, CandlestickChart, CirclePlus, RotateCcw, Save, ShieldAle
 
 import ExpressionEditor, { type SignalExpression } from "@/components/ExpressionEditor";
 import InstrumentSelector from "@/components/InstrumentSelector";
+import PositionKlineChart from "@/components/PositionKlineChart";
 import RuntimeModeBanner from "@/components/RuntimeModeBanner";
 import { formatPrice } from "@/lib/price-format";
 import {
@@ -31,7 +32,6 @@ import {
   refreshInstruments,
   updateLogicalPositionCloseCondition,
   validateSignal,
-  type LogicalPositionChartResponse,
   type LogicalPositionCloseCondition,
   type LogicalPositionUnit,
   type InstrumentMetadataResponse,
@@ -109,10 +109,16 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
       setError(`無法取得目前價格：${errorMessage(caught)}`);
     }
   };
+  const isSimulation = preflight.data?.execution_mode === "simulation";
+  const isDemo = preflight.data?.execution_mode === "demo";
+  const allowed = isSimulation || isDemo;
   const submit = async () => {
     if (!quote.data) { setError("商品數量尚未通過 OKX 單位換算，不能建立部位。"); return; }
     if (!stopLoss) { setError("必須設定保護性停損底線。"); return; }
-    if (!confirm(`建立 ${instrument} ${side === "long" ? "做多" : "做空"} Simulation 邏輯單位？\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`)) return;
+    const confirmMessage = isDemo
+      ? `送出 ${instrument} ${side === "long" ? "做多" : "做空"} Demo 真實訂單？此動作會連接 OKX Demo 帳戶下單。\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`
+      : `建立 ${instrument} ${side === "long" ? "做多" : "做空"} Simulation 邏輯單位？\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`;
+    if (!confirm(confirmMessage)) return;
     setBusy(true); setError("");
     try {
       const created = await manualOpenPosition({
@@ -128,10 +134,14 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
       setQuantity(""); setStopLoss(""); setTakeProfit("");
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   };
-  const dryRun = preflight.data?.execution_mode === "simulation";
+  const badgeLabel = isSimulation
+    ? "Simulation 可用"
+    : isDemo
+      ? "Demo 可用（真實下單）"
+      : `目前模式 ${preflight.data?.execution_mode ?? "未知"}，已封鎖`;
   return (
     <section className="panel manual-open-panel">
-      <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以本機重播價格預填；你仍可修改。此版本只允許 Simulation 建立，不會連接交易所。</p></div><span className={`badge ${dryRun ? "success" : "danger"}`}>{dryRun ? "Simulation 可用" : "非 Simulation 已封鎖"}</span></div>
+      <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以本機重播價格預填；你仍可修改。Simulation 僅建立本機模擬紀錄，不會連接交易所；Demo 會對 OKX Demo 帳戶送出真實訂單。Live Safe / Live Armed 一律封鎖手動建立。</p></div><span className={`badge ${allowed ? (isDemo ? "warning" : "success") : "danger"}`}>{badgeLabel}</span></div>
       <div className="form-grid">
         <div className="field full"><span>OKX 交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} value={instrument ? [instrument] : []} onChange={selectInstrument} eligibleInstruments={allowedInstruments} /></div>
         <label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
@@ -143,7 +153,7 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
       {quote.data && <div className="manual-open-quote"><span><small>顯示幣量</small><strong>{quote.data.display_quantity} {quote.data.display_currency}</strong></span><span><small>OKX API 數量</small><strong>{quote.data.api_quantity_contracts} 口</strong></span><span><small>估算名目</small><strong>{quote.data.estimated_notional_usdt} USDT</strong></span><span><small>停損估算</small><strong className={Number(quote.data.estimated_pnl_usdt) < 0 ? "negative" : ""}>{quote.data.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${quote.data.estimated_pnl_usdt} USDT`}</strong></span></div>}
       {quote.error && <div className="error-state">目前數量無法安全換算成 OKX 合約口數。</div>}
       {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
-      <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || !dryRun || !quote.data || !stopLoss} onClick={submit}>{busy ? "建立中…" : "確認建立 Simulation 單位"}</button></div>
+      <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || !allowed || !quote.data || !stopLoss} onClick={submit}>{busy ? (isDemo ? "送出中…" : "建立中…") : isDemo ? "確認送出 Demo 真實訂單" : "確認建立 Simulation 單位"}</button></div>
     </section>
   );
 }
@@ -173,27 +183,6 @@ function PositionListItem({ position, selected, onSelect }: { position: LogicalP
       <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · {quote.data ? `剩餘 ${quote.data.display_quantity} ${quote.data.display_currency} · API ${quote.data.api_quantity_contracts} 口` : `API 剩餘 ${number(position.remaining_quantity)} 口（顯示幣量不可用）`}</small><small className="mono">{position.id}</small></span>
       <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span>{metadata.requires_manual_review === true && <span className="badge danger">需人工對帳</span>}<span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{statusLabel(position.status)}</span></span>
     </button>
-  );
-}
-
-function MiniChart({ chart, pricePrecision }: { chart: LogicalPositionChartResponse; pricePrecision?: number | null }) {
-  const width = 900; const height = 260; const pad = 26;
-  const candles = chart.candles ?? [];
-  const prices = [...candles.flatMap((candle) => [candle.high, candle.low]), ...(chart.overlays ?? []).map((overlay) => overlay.price)];
-  if (!candles.length || !prices.length) return <div className="empty-state">目前沒有可繪製的 K 線資料。</div>;
-  const min = Math.min(...prices); const max = Math.max(...prices); const span = Math.max(max - min, .000001);
-  const y = (price: number) => pad + ((max - price) / span) * (height - pad * 2);
-  const step = (width - pad * 2) / candles.length; const bodyWidth = Math.max(2, Math.min(10, step * .6));
-  const overlayColors: Record<string, string> = { entry: "#3b82f6", current: "#8b5cf6", stop_loss: "#ef4444", take_profit: "#10b981", break_even: "#f59e0b", trailing: "#06b6d4", execution: "#64748b" };
-  return (
-    <div className="chart-wrap">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${chart.inst_id} 部位 K 線與規則價位`}>
-        <rect width={width} height={height} rx="16" fill="var(--bg-primary)" />
-        {candles.map((candle, index) => { const x = pad + step * index + step / 2; const up = candle.close >= candle.open; const color = up ? "#10b981" : "#ef4444"; return <g key={candle.timestamp}><line x1={x} x2={x} y1={y(candle.high)} y2={y(candle.low)} stroke={color} strokeWidth="1.5" /><rect x={x - bodyWidth / 2} y={Math.min(y(candle.open), y(candle.close))} width={bodyWidth} height={Math.max(2, Math.abs(y(candle.open) - y(candle.close)))} rx="1" fill={color} /></g>; })}
-        {(chart.overlays ?? []).filter((overlay) => overlay.kind !== "execution").map((overlay, index) => <g key={`${overlay.kind}-${index}`}><line x1={pad} x2={width - pad} y1={y(overlay.price)} y2={y(overlay.price)} stroke={overlayColors[overlay.kind] ?? "#64748b"} strokeWidth="1.5" strokeDasharray="6 4" /><text x={width - pad - 4} y={y(overlay.price) - 5} textAnchor="end" fill={overlayColors[overlay.kind] ?? "#64748b"} fontSize="11" fontWeight="700">{overlay.label} {formatPrice(overlay.price, pricePrecision)}</text></g>)}
-      </svg>
-      <div className="chart-legend">{(chart.overlays ?? []).map((overlay, index) => <span key={`${overlay.kind}-${index}`}><i style={{ background: overlayColors[overlay.kind] ?? "#64748b" }} />{overlay.label}: {formatPrice(overlay.price, pricePrecision)}</span>)}</div>
-    </div>
   );
 }
 
@@ -474,7 +463,7 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
 
       <section className="panel">
         <div className="panel-heading"><div><h2><CandlestickChart size={20} /> 部位價格脈絡</h2><p>進場、目前價、停損、停利與已確認成交均來自真實 API 資料。</p></div>{chart.data && <span className={`badge ${stale(chart.data.fetched_at) ? "danger" : "success"}`}>{stale(chart.data.fetched_at) ? "資料過期" : "資料新鮮"}</span>}</div>
-        {chart.error ? <div className="error-state">K 線 API 無法使用，畫面不會推測目前價格。</div> : !chart.data ? <div className="loading-state">讀取 K 線與價位標記…</div> : <MiniChart chart={chart.data} pricePrecision={pricePrecision} />}
+        {chart.error ? <div className="error-state">K 線 API 無法使用，畫面不會推測目前價格。</div> : !chart.data ? <div className="loading-state">讀取 K 線與價位標記…</div> : <PositionKlineChart chart={chart.data} pricePrecision={pricePrecision} />}
       </section>
 
       <section className="panel">
