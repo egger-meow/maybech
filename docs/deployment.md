@@ -119,11 +119,11 @@ are enabled, and writes a durable before/after audit in the same SQLite
 transaction. These values are SQLite configuration and do not belong in `.env`.
 Entry placement is a separate persisted control and defaults to disabled. Use
 `POST /risk/entries/enable` with `{ "confirm": true }` only after reviewing the
-risk envelope and successfully starting an armed live runtime. Every live
-startup first persists entries disabled and records an
-`entry_control.startup_disabled` audit event, so a restart never resumes new
-entries. Simulation, Live Safe, and offline enable attempts return a conflict instead of
-persisting future activation. `POST /risk/entries/kill` with the same
+risk envelope and successfully starting an armed live runtime. Once enabled, the
+persisted state is restored automatically on subsequent restarts once the process
+is armed again, so routine restarts do not resume-disable new entries. Simulation,
+Live Safe, and offline enable attempts return a conflict instead of persisting
+future activation. `POST /risk/entries/kill` with the same
 confirmation disables new entries first, then requests cancellation of every
 Maybech `pending_open` order it can resolve. Partial cancellation failures are
 returned explicitly; the disabled state is not rolled back. Reduce-only

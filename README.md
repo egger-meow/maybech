@@ -152,11 +152,12 @@ dry and live processes cannot mutate the same state concurrently. Live mode
 also locks a hashed demo/real OKX account scope. A second process targeting
 either resource exits before services run or orders are armed. Locks release
 automatically on process death and explicitly after order placement is disarmed.
-Strategy entries are disabled by default, including after the entry-control
-schema migration and every live runtime restart. Enabling entries requires a
-successfully preflighted order-capable process plus `{ "confirm": true }`; Simulation or
-offline enable attempts are rejected instead of being scheduled for restart.
-Killing entries requires the same confirmation.
+Strategy entries default to disabled until an operator enables them. Enabling entries
+requires a successfully preflighted order-capable process plus `{ "confirm": true }`;
+Simulation or offline enable attempts are rejected instead of being scheduled for restart.
+Once enabled, the state persists across restarts and is automatically restored once the
+process is armed again, so a routine restart does not require re-enabling. Killing entries
+requires the same confirmation and stays disabled until explicitly re-enabled.
 The kill command persists the disabled state before canceling Maybech
 `pending_open` orders and never disables reduce-only close submission.
 

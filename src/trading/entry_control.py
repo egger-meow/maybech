@@ -65,20 +65,6 @@ class EntryControlManager:
             updated_at=datetime.now(timezone.utc).isoformat(),
         )
 
-    def disable_for_startup(self) -> EntryControlResult:
-        """Require a fresh operator enable after every live runtime start."""
-        with ENTRY_EXECUTION_LOCK:
-            disable_entry_order_placement()
-            self.risk_store.set_entries_enabled(False)
-            result = EntryControlResult(
-                entries_enabled=False,
-                process_entry_enabled=False,
-                persisted=True,
-                updated_at=datetime.now(timezone.utc).isoformat(),
-            )
-            self._audit("entry_control.startup_disabled", result)
-            return result
-
     def enable_entries(self) -> EntryControlResult:
         with ENTRY_EXECUTION_LOCK:
             limits = self.risk_store.get()

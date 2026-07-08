@@ -143,20 +143,6 @@ def test_entry_enable_requires_an_armed_live_process(tmp_path):
     disarm_order_placement()
 
 
-def test_live_startup_reset_disables_persisted_and_process_entry_gates(tmp_path):
-    manager = _manager(tmp_path)
-    arm_order_placement(preflight_passed=True)
-    enable_entry_order_placement()
-
-    result = manager.disable_for_startup()
-
-    assert result.entries_enabled is False
-    assert result.process_entry_enabled is False
-    assert manager.risk_store.entries_enabled() is False
-    audits = manager.audit_store.list(event_type="entry_control.startup_disabled")
-    assert len(audits) == 1
-
-
 def test_entry_enable_rolls_back_when_audit_cannot_be_persisted(tmp_path):
     manager = _manager(tmp_path)
 

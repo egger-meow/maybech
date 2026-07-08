@@ -75,8 +75,6 @@ def create_default_runner(
         if simulation:
             preflight_status = simulation_preflight_report()
         else:
-            if order_capable:
-                EntryControlManager(risk_store=risk_store).disable_for_startup()
             report = run_live_preflight(
                 strategy_store=StrategyStore(store.db_path),
                 position_store=LogicalPositionStore(store.db_path),
@@ -158,6 +156,13 @@ def create_default_runner(
             should_arm_orders = order_capable and report.passed
             if should_arm_orders:
                 arm_order_placement(preflight_passed=True)
+                if risk_store.entries_enabled():
+                    try:
+                        EntryControlManager(risk_store=risk_store).enable_entries()
+                    except Exception:
+                        logger.exception(
+                            "Failed to restore previously enabled strategy entries at startup"
+                        )
             else:
                 disarm_order_placement()
             runner.runtime.set_value(
