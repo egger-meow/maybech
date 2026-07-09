@@ -45,28 +45,20 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 ## Current Priorities
 
 1. Position-creation UX build phase (operator explicitly activated). Order:
-   a. Chart-beside-form in manual-open: reuse `PositionKlineChart` via a
-      client-built `LogicalPositionChartResponse`-shaped adapter (candles
-      from existing `/market/candles` + draft entry/stop/take-profit
-      overlays from live form state) — no backend change.
-   b. Wire the existing chart-anchored risk-sizing engine
+   a. Wire the existing chart-anchored risk-sizing engine
       (`InstrumentSizer.quote_risk`, `POST /instruments/{id}/risk-quote`,
       already used in `analysis/page.tsx`) into manual-open so size can be
       derived from allowed-loss + a chart-picked stop, instead of manual-open
       and Analysis maintaining two disconnected sizing flows.
-   c. Account free-margin visibility + non-blocking warning when estimated
-      stop-loss $ loss exceeds visible free margin (cross-margin account —
-      no per-position margin top-up; see note above on why isolated-style
-      top-up doesn't apply here unless corrected).
-   d. `motion` package (successor to framer-motion) for panel/number/confirm
+   b. `motion` package (successor to framer-motion) for panel/number/confirm
       state transitions in manual-open and position cards — scoped there
       first, not a full-app pass.
-   e. Broader Position Management / Strategy Management visual pass
-      (ui-ux-pro-max skill guidance) once (a)-(d) are stable, preserving all
+   c. Broader Position Management / Strategy Management visual pass
+      (ui-ux-pro-max skill guidance) once (a)-(b) are stable, preserving all
       existing close-condition functionality (signal exit, stop/take-profit,
       break-even, trailing) — no functional regressions, clarity/layout only.
-   Acceptance per sub-item above; this phase stays active until (a)-(d) are
-   complete and verified. (e) may be split into its own follow-up phase.
+   Acceptance per sub-item above; this phase stays active until (a)-(b) are
+   complete and verified. (c) may be split into its own follow-up phase.
 
 The completed position-rule and market-analysis phase is audited in
 `docs/position-rule-phase-audit.md`.
