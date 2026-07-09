@@ -318,6 +318,7 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
 
 function PositionList({ positions, selectedId, onSelect }: { positions: LogicalPositionUnit[]; selectedId?: string; onSelect: (id: string) => void }) {
   return (
+    <MotionConfig reducedMotion="user">
     <aside className="position-list panel">
       <div className="panel-heading"><div><h2>邏輯部位單位</h2><p>{positions.length} 個獨立管理單位</p></div></div>
       <div className="position-list-items">
@@ -325,6 +326,7 @@ function PositionList({ positions, selectedId, onSelect }: { positions: LogicalP
         {!positions.length && <div className="empty-state">目前沒有邏輯部位單位。</div>}
       </div>
     </aside>
+    </MotionConfig>
   );
 }
 
@@ -337,6 +339,7 @@ function PositionListItem({ position, selected, onSelect }: { position: LogicalP
   );
   return (
     <button type="button" className={`position-list-item ${selected ? "selected" : ""}`} onClick={() => onSelect(position.id)}>
+      {selected && <motion.span layoutId="position-list-active-rail" className="list-active-rail" transition={{ type: "spring", stiffness: 500, damping: 35 }} />}
       <span className={`side-mark ${position.side === "long" ? "long" : "short"}`} />
       <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · {quote.data ? `剩餘 ${quote.data.display_quantity} ${quote.data.display_currency} · API ${quote.data.api_quantity_contracts} 口` : `API 剩餘 ${number(position.remaining_quantity)} 口（顯示幣量不可用）`}</small><small className="mono">{position.id}</small></span>
       <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span>{metadata.requires_manual_review === true && <span className="badge danger">需人工對帳</span>}<span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{statusLabel(position.status)}</span></span>
@@ -412,7 +415,7 @@ function RuleEditor({ position, condition, onSaved, onCancel, tickSize }: { posi
     catch (caught) { setError(errorMessage(caught)); setBusy(false); }
   };
   return (
-    <div className="sub-editor">
+    <motion.div className="sub-editor" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>
       <div className="sub-editor-head">
         <label className="field"><span>規則類型</span><select disabled={ownedStop} value={purpose} onChange={(event) => { const next = event.target.value; setPurpose(next); if (next === "stop_loss" || next === "take_profit") { setStyle("fixed_percent"); setOffsetPct(next === "stop_loss" ? "1" : "2"); } setDirty(true); }}><option value="stop_loss">停損</option><option value="take_profit">停利</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option></select></label>
         <label className="check-field"><input type="checkbox" disabled={ownedStop} checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setDirty(true); }} /> 啟用</label>
@@ -435,7 +438,7 @@ function RuleEditor({ position, condition, onSaved, onCancel, tickSize }: { posi
         {condition && <button type="button" className="btn btn-danger" disabled={busy || ownedStop} title={ownedStop ? "受保護停損不可直接刪除" : undefined} onClick={remove}><Trash2 size={15} /> 刪除</button>}
         <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={save}><Save size={15} /> {busy ? "確認中…" : ownedStop ? "驗證並修改停損" : "儲存規則"}</button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -475,8 +478,8 @@ function BreakEvenLifecycle({ position, refresh }: { position: LogicalPositionUn
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   };
   const status = String(lifecycle.status ?? (existing?.enabled ? "configured" : "not configured"));
-  return <div className="sub-editor">
-    <div className="sub-editor-head"><strong>自動成本調整保本</strong><span className={`badge ${status === "applied" ? "success" : status === "armed" ? "warning" : "info"}`}>{statusLabel(status)}</span></div>
+  return <details className="sub-editor lifecycle-details" open={status !== "not configured"}>
+    <summary className="sub-editor-head lifecycle-summary"><strong>自動成本調整保本</strong><span className={`badge ${status === "applied" ? "success" : status === "armed" ? "warning" : "info"}`}>{statusLabel(status)}</span></summary>
     <p className="muted">設定會於重啟後保留；僅在交易所保護單修改確認後才標示為「已套用」。</p>
     <div className="risk-sizing-grid">
       <label className="field"><span>啟動利潤</span><div className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={activationPct} onChange={(event) => setActivationPct(event.target.value)} /><small>%</small></div></label>
@@ -485,10 +488,12 @@ function BreakEvenLifecycle({ position, refresh }: { position: LogicalPositionUn
       <label className="field"><span>雙向滑價</span><div className="input-with-suffix"><input type="number" min="0" max="2" step="0.001" value={slippagePct} onChange={(event) => setSlippagePct(event.target.value)} /><small>%</small></div></label>
       <label className="field"><span>額外鎖定比例</span><div className="input-with-suffix"><input type="number" min="0" max="5" step="0.01" value={lockPct} onChange={(event) => setLockPct(event.target.value)} /><small>%</small></div></label>
     </div>
-    {lifecycle.target_stop != null && <div className="rule-pnl-estimate"><span>已儲存之目標停損</span><strong>{String(lifecycle.target_stop)}</strong></div>}
-    {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
+    <AnimatePresence>
+      {lifecycle.target_stop != null && <motion.div key="target-stop" className="rule-pnl-estimate" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><span>已儲存之目標停損</span><strong>{String(lifecycle.target_stop)}</strong></motion.div>}
+      {error && <motion.div key="break-even-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={16} /> {error}</motion.div>}
+    </AnimatePresence>
     <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || position.status !== "open" || status === "applied"} onClick={save}><Save size={15} /> {busy ? "儲存中…" : existing ? "更新保本規則" : "設定保本規則"}</button></div>
-  </div>;
+  </details>;
 }
 
 function TrailingLifecycle({ position, refresh }: { position: LogicalPositionUnit; refresh: () => Promise<unknown> }) {
@@ -529,8 +534,8 @@ function TrailingLifecycle({ position, refresh }: { position: LogicalPositionUni
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   };
   const status = String(lifecycle.status ?? (existing?.enabled ? "configured" : "not configured"));
-  return <div className="sub-editor">
-    <div className="sub-editor-head"><strong>移動停損（可選）</strong><span className={`badge ${status === "stale" ? "danger" : status === "active" ? "success" : "info"}`}>{statusLabel(status)}</span></div>
+  return <details className="sub-editor lifecycle-details" open={status !== "not configured"}>
+    <summary className="sub-editor-head lifecycle-summary"><strong>移動停損（可選）</strong><span className={`badge ${status === "stale" ? "danger" : status === "active" ? "success" : "info"}`}>{statusLabel(status)}</span></summary>
     <div className="risk-sizing-grid">
       <label className="field"><span>語意</span><select value={kind} onChange={(event) => setKind(event.target.value)}><option value="stop">單向保護停損</option><option value="take_profit">回撤後停利</option></select></label>
       <label className="field"><span>啟動利潤</span><div className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={activationPct} onChange={(event) => setActivationPct(event.target.value)} /><small>%</small></div></label>
@@ -540,11 +545,15 @@ function TrailingLifecycle({ position, refresh }: { position: LogicalPositionUni
       {kind === "take_profit" && <label className="check-field"><input type="checkbox" checked={reduceOnly} onChange={(event) => setReduceOnly(event.target.checked)} /> 僅減倉並保留尾倉</label>}
       {kind === "take_profit" && reduceOnly && <label className="field"><span>減倉比例</span><div className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={reducePct} onChange={(event) => setReducePct(event.target.value)} /><small>%</small></div></label>}
     </div>
-    {(lifecycle.water_price != null || lifecycle.candidate_price != null) && <div className="risk-sizing-result"><div><small>有利水位</small><strong>{String(lifecycle.water_price ?? "—")}</strong></div><div><small>目前候選價</small><strong>{String(lifecycle.candidate_price ?? "—")}</strong></div><div><small>最後觀測</small><strong>{lifecycle.observed_at ? new Date(String(lifecycle.observed_at)).toLocaleString("zh-TW") : "—"}</strong></div></div>}
+    <AnimatePresence>
+      {(lifecycle.water_price != null || lifecycle.candidate_price != null) && <motion.div key="trailing-water" className="risk-sizing-result" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><div><small>有利水位</small><strong>{String(lifecycle.water_price ?? "—")}</strong></div><div><small>目前候選價</small><strong>{String(lifecycle.candidate_price ?? "—")}</strong></div><div><small>最後觀測</small><strong>{lifecycle.observed_at ? new Date(String(lifecycle.observed_at)).toLocaleString("zh-TW") : "—"}</strong></div></motion.div>}
+    </AnimatePresence>
     <div className="inline-warning">過度激進的移動停損可能提早切斷有效趨勢。缺少或過期的觀測會暫停生命週期，而不是移動保護價位。</div>
-    {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
+    <AnimatePresence>
+      {error && <motion.div key="trailing-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={16} /> {error}</motion.div>}
+    </AnimatePresence>
     <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || position.status !== "open"} onClick={save}><Save size={15} /> {busy ? "儲存中…" : existing ? "更新移動停損規則" : "設定移動停損規則"}</button></div>
-  </div>;
+  </details>;
 }
 
 function PositionDetail({ position, refresh, instrumentMetadata }: { position: LogicalPositionUnit; refresh: () => Promise<unknown>; instrumentMetadata?: InstrumentMetadataResponse }) {
@@ -602,17 +611,19 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
         <div className="position-title"><div><div className="status-row"><h2>{position.inst_id}</h2><span className={`badge ${position.side === "long" ? "success" : "danger"}`}>{position.side === "long" ? "做多 LONG" : "做空 SHORT"}</span><span className="badge info">{statusLabel(position.status)}</span></div><p className="mono">Maybech 單位：{position.id}</p></div><div className="position-metric"><small>未實現損益估算</small><strong className={pnlPct != null && pnlPct >= 0 ? "positive" : "negative"}>{pnlPct == null ? "資料不足" : `${pnlPct >= 0 ? "+" : ""}${number(pnlPct, 2)}%`}</strong></div></div>
         <div className="metric-grid"><div><small>進場價</small><strong>{formatPrice(position.entry_price, pricePrecision)}</strong></div><div><small>目前價</small><strong>{formatPrice(currentPrice, pricePrecision)}</strong></div><div><small>剩餘操作者幣量</small><strong>{positionQuote.data ? `${positionQuote.data.display_quantity} ${positionQuote.data.display_currency}` : "資料不足"}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
       </section>
-      {metadata.requires_manual_review === true && <div className="error-state"><AlertTriangle size={17} /> 此單位需要人工對帳：{String(metadata.reconciliation_review_reason ?? metadata.recovery_reason ?? "來源或數量尚未確認")}。系統不會猜測外部減倉應分配到哪一個邏輯單位。</div>}
-      {position.source === "recovery" && metadata.requires_manual_review === true && !metadata.reconciliation_review_reason && (
-        <section className="panel danger-zone">
-          <div className="panel-heading"><div><h2><ShieldAlert size={20} /> 採納外部部位</h2><p>先設定方向正確的底線停損。Maybech 會核對 OKX 淨數量、建立獨立保護單，再以交易所回報證明保護有效；任何一步失敗都不會解除人工檢查。</p></div><span className="badge danger">尚未受 Maybech 保護</span></div>
-          <div className="form-grid">
-            <label className="field"><span>目前市場價</span><input value={number(currentPrice)} disabled /></label>
-            <label className="field"><span>{position.side === "long" ? "多單停損（必須低於目前價）" : "空單停損（必須高於目前價）"}</span><input type="number" min="0" step="any" value={recoveryStop} onChange={(event) => setRecoveryStop(event.target.value)} placeholder={position.side === "long" ? "例如 2900" : "例如 3200"} />{recoveryQuote.data && <small>若觸發，依進場價估算損益：{recoveryQuote.data.estimated_pnl_usdt ?? "資料不足"} USDT</small>}{recoveryQuote.error && <small className="negative">無法依商品規格估算此停損</small>}</label>
-          </div>
-          <div className="form-actions"><button type="button" className="btn btn-danger" disabled={Boolean(busyAction) || !recoveryQuote.data || !currentPrice} onClick={adoptRecovery}><ShieldCheck size={16} /> {busyAction === "adopt-recovery" ? "等待 OKX 證明…" : "確認採納並建立停損"}</button></div>
-        </section>
-      )}
+      <AnimatePresence>
+        {metadata.requires_manual_review === true && <motion.div key="manual-review-banner" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={17} /> 此單位需要人工對帳：{String(metadata.reconciliation_review_reason ?? metadata.recovery_reason ?? "來源或數量尚未確認")}。系統不會猜測外部減倉應分配到哪一個邏輯單位。</motion.div>}
+        {position.source === "recovery" && metadata.requires_manual_review === true && !metadata.reconciliation_review_reason && (
+          <motion.section key="recovery-adoption" className="panel danger-zone" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>
+            <div className="panel-heading"><div><h2><ShieldAlert size={20} /> 採納外部部位</h2><p>先設定方向正確的底線停損。Maybech 會核對 OKX 淨數量、建立獨立保護單，再以交易所回報證明保護有效；任何一步失敗都不會解除人工檢查。</p></div><span className="badge danger">尚未受 Maybech 保護</span></div>
+            <div className="form-grid">
+              <label className="field"><span>目前市場價</span><input value={number(currentPrice)} disabled /></label>
+              <label className="field"><span>{position.side === "long" ? "多單停損（必須低於目前價）" : "空單停損（必須高於目前價）"}</span><input type="number" min="0" step="any" value={recoveryStop} onChange={(event) => setRecoveryStop(event.target.value)} placeholder={position.side === "long" ? "例如 2900" : "例如 3200"} />{recoveryQuote.data && <small>若觸發，依進場價估算損益：{recoveryQuote.data.estimated_pnl_usdt ?? "資料不足"} USDT</small>}{recoveryQuote.error && <small className="negative">無法依商品規格估算此停損</small>}</label>
+            </div>
+            <div className="form-actions"><button type="button" className="btn btn-danger" disabled={Boolean(busyAction) || !recoveryQuote.data || !currentPrice} onClick={adoptRecovery}><ShieldCheck size={16} /> {busyAction === "adopt-recovery" ? "等待 OKX 證明…" : "確認採納並建立停損"}</button></div>
+          </motion.section>
+        )}
+      </AnimatePresence>
 
       <section className="distinction-grid">
         <article className="panel unit-card"><h3>Maybech 邏輯單位</h3><p>規則、數量、稽核與委託識別都屬於這一個進場單位。</p><dl><div><dt>Entry Client Order ID</dt><dd className="mono">{position.entry_client_order_id || position.client_order_id || "尚無"}</dd></div><div><dt>Entry Exchange Order ID</dt><dd className="mono">{position.entry_exchange_order_id || position.exchange_order_id || "尚無"}</dd></div></dl></article>
@@ -634,16 +645,18 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
 
       <section className="panel">
         <div className="panel-heading"><div><h2>單位專屬出場規則</h2><p>支援 AND、OR 與括號群組；規則只管理這一個 Maybech 邏輯單位。</p></div><button type="button" className="btn btn-outline" onClick={() => setNewRule(true)}><CirclePlus size={15} /> 新增規則</button></div>
-        <div className="rule-stack">{position.close_conditions?.filter((condition) => !["break_even", "trailing"].includes(condition.purpose ?? "")).map((condition) => <RuleEditor key={condition.id} position={position} condition={condition} onSaved={refresh} tickSize={tickSize} />)}{newRule && <RuleEditor position={position} onSaved={refresh} onCancel={() => setNewRule(false)} tickSize={tickSize} />}{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
+        <div className="rule-stack"><AnimatePresence>{position.close_conditions?.filter((condition) => !["break_even", "trailing"].includes(condition.purpose ?? "")).map((condition) => <RuleEditor key={condition.id} position={position} condition={condition} onSaved={refresh} tickSize={tickSize} />)}{newRule && <RuleEditor key="new-rule" position={position} onSaved={refresh} onCancel={() => setNewRule(false)} tickSize={tickSize} />}</AnimatePresence>{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
       </section>
 
       <section className="panel danger-zone action-zone">
         <div><h2>減倉／平倉</h2><p>這些操作只針對目前邏輯單位。真實模式會先撤除並確認此單位的保護單，再送出 reduce-only 委託；本地數量只依 OKX 確認成交更新。</p></div>
         <div className="reduce-control"><label className="field"><span>部分減倉幣量（{positionQuote.data?.display_currency ?? "基礎幣"}）</span><input type="number" min="0" max={positionQuote.data?.display_quantity} step="any" value={reduceQuantity} onChange={(event) => setReduceQuantity(event.target.value)} />{reduceQuote.data && <small>OKX API：{reduceQuote.data.api_quantity_contracts} 口 · 約 {reduceQuote.data.estimated_notional_usdt} USDT</small>}{reduceQuote.error && <small className="negative">無法依 lot size 安全換算</small>}</label><button type="button" className="btn btn-danger" disabled={Boolean(busyAction) || position.status !== "open" || !reduceQuote.data} onClick={reduce}><TrendingDown size={16} /> {busyAction === "reduce" ? "等待確認…" : "確認部分減倉"}</button><button type="button" className="btn btn-danger" disabled={Boolean(busyAction) || position.status !== "open"} onClick={close}><XCircle size={16} /> {busyAction === "close" ? "等待確認…" : "確認全部平倉"}</button></div>
       </section>
-      {error && <div className="error-state"><AlertTriangle size={17} /> {error}</div>}
+      <AnimatePresence>
+        {error && <motion.div key="detail-action-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={17} /> {error}</motion.div>}
+      </AnimatePresence>
 
-      <section className="panel"><div className="panel-heading"><div><h2>確認成交與稽核證據</h2><p>委託送出不等於成交；以下 allocation 才會改變邏輯數量。</p></div></div><div className="evidence-grid">{position.allocations?.map((allocation, index) => { const item = object(allocation); return <article key={String(item.id ?? index)}><span className="badge info">{String(item.action ?? "fill")}</span><strong>{number(Number(item.quantity))} @ {formatPrice(Number(item.price), pricePrecision)}</strong><small className="mono">{String(item.exchange_order_id ?? "")}</small></article>; })}{!position.allocations?.length && <div className="empty-state">尚無可顯示的確認成交 allocation。</div>}</div></section>
+      <details className="panel audit-details"><summary className="audit-summary"><h2>確認成交與稽核證據</h2><span className="badge info">{position.allocations?.length ?? 0} 筆</span></summary><p>委託送出不等於成交；以下 allocation 才會改變邏輯數量。</p><div className="evidence-grid">{position.allocations?.map((allocation, index) => { const item = object(allocation); return <article key={String(item.id ?? index)}><span className="badge info">{String(item.action ?? "fill")}</span><strong>{number(Number(item.quantity))} @ {formatPrice(Number(item.price), pricePrecision)}</strong><small className="mono">{String(item.exchange_order_id ?? "")}</small></article>; })}{!position.allocations?.length && <div className="empty-state">尚無可顯示的確認成交 allocation。</div>}</div></details>
     </div>
   );
 }
@@ -672,17 +685,21 @@ export default function PositionsPage() {
     }
   };
   return (
+    <MotionConfig reducedMotion="user">
     <div className="page-stack">
       <header className="page-header"><div><h1>部位管理</h1><p>逐一管理 Maybech 邏輯部位單位，並與 OKX 合併後的淨部位分開檢視。</p></div></header>
       <RuntimeModeBanner />
       <ManualOpenForm catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} onCreated={created} />
-      {catalog.error && preflight.data?.execution_mode !== "simulation" && <div className="error-state">OKX 商品快取無法使用，手動建立已停用；畫面不會提供硬編碼商品。</div>}
-      {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> 商品快取已過期，數量換算與手動建立已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{preflight.data?.execution_mode === "simulation" ? "建立 Simulation 商品資料" : "立即更新商品資料"}</button></div>}
-      {catalog.error && preflight.data?.execution_mode === "simulation" && <div className="error-state"><AlertTriangle size={17} />Simulation 商品資料尚未建立。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>建立 Simulation 商品資料</button></div>}
-      {catalogActionError && <div className="error-state"><AlertTriangle size={17} />{catalogActionError}</div>}
-      {error && <div className="error-state">邏輯部位 API 無法使用。畫面不會使用假資料，所有交易操作已停用。</div>}
-      {isLoading && <div className="loading-state">正在讀取邏輯部位…</div>}
-      {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <PositionDetail key={selected.id} position={selected} refresh={mutate} instrumentMetadata={catalog.data?.items.find((item) => item.inst_id === selected.inst_id)} /> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}
+      <AnimatePresence>
+        {catalog.error && preflight.data?.execution_mode !== "simulation" && <motion.div key="catalog-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>OKX 商品快取無法使用，手動建立已停用；畫面不會提供硬編碼商品。</motion.div>}
+        {catalog.data?.stale && <motion.div key="catalog-stale" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={17} /> 商品快取已過期，數量換算與手動建立已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{preflight.data?.execution_mode === "simulation" ? "建立 Simulation 商品資料" : "立即更新商品資料"}</button></motion.div>}
+        {catalog.error && preflight.data?.execution_mode === "simulation" && <motion.div key="catalog-error-sim" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={17} />Simulation 商品資料尚未建立。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>建立 Simulation 商品資料</button></motion.div>}
+        {catalogActionError && <motion.div key="catalog-action-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={17} />{catalogActionError}</motion.div>}
+        {error && <motion.div key="positions-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>邏輯部位 API 無法使用。畫面不會使用假資料，所有交易操作已停用。</motion.div>}
+        {isLoading && <motion.div key="positions-loading" className="loading-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>正在讀取邏輯部位…</motion.div>}
+      </AnimatePresence>
+      {!error && data && <div className="position-workspace"><PositionList positions={managedPositions} selectedId={selected?.id} onSelect={setSelectedId} />{selected ? <motion.div key={selected.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .18, ease: "easeOut" }}><PositionDetail position={selected} refresh={mutate} instrumentMetadata={catalog.data?.items.find((item) => item.inst_id === selected.inst_id)} /></motion.div> : <div className="panel empty-state">目前沒有需要管理的有效邏輯部位。已平倉與失敗單位不會顯示在操作清單中。</div>}</div>}
     </div>
+    </MotionConfig>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import useSWR from "swr";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { AlertTriangle, Check, ChevronRight, CirclePlus, Power, Save, Trash2 } from "lucide-react";
 
 import ExpressionEditor, { type SignalExpression } from "@/components/ExpressionEditor";
@@ -270,6 +271,7 @@ function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
   onCreate: () => void;
 }) {
   return (
+    <MotionConfig reducedMotion="user">
     <aside className="strategy-list panel">
       <div className="panel-heading">
         <div><h2>策略</h2><p>{strategies.length} 個已儲存策略</p></div>
@@ -278,6 +280,7 @@ function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
       <div className="strategy-list-items">
         {strategies.map((strategy) => (
           <button type="button" className={`strategy-list-item ${selectedId === strategy.id ? "selected" : ""}`} key={strategy.id} onClick={() => onSelect(strategy.id)}>
+            {selectedId === strategy.id && <motion.span layoutId="strategy-list-active-rail" className="list-active-rail" transition={{ type: "spring", stiffness: 500, damping: 35 }} />}
             <span className={`status-dot ${strategy.enabled ? "on" : "off"}`} />
             <span><strong>{strategy.name}</strong><small>{strategy.target_instruments?.join(" · ") || "尚未指定商品"}</small></span>
             <ChevronRight size={17} />
@@ -286,6 +289,7 @@ function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
         {!strategies.length && <div className="empty-state">還沒有策略。建立第一個進場計畫。</div>}
       </div>
     </aside>
+    </MotionConfig>
   );
 }
 
@@ -320,7 +324,7 @@ function ChildSignal({ strategyId, strategyUpdatedAt, strategyEnabled, signal, o
     catch (caught) { setError(errorMessage(caught)); setBusy(false); }
   };
   return (
-    <div className="sub-editor">
+    <motion.div className="sub-editor" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>
       <div className="sub-editor-head">
         <label className="field"><span>用途</span><select value={purpose} onChange={(event) => { setPurpose(event.target.value); setDirty(true); }}><option value="entry">進場條件</option><option value="filter">進場過濾</option><option value="exit">複製至部位的出場條件</option></select></label>
         <span className={dirty ? "dirty-note" : "saved-note"}>{dirty ? "尚未儲存" : "已儲存"}</span>
@@ -331,7 +335,7 @@ function ChildSignal({ strategyId, strategyUpdatedAt, strategyEnabled, signal, o
         {signal && <button type="button" className="btn btn-danger" disabled={busy} onClick={remove}><Trash2 size={15} /> 刪除</button>}
         <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={save}><Save size={15} /> {busy ? "儲存中…" : "儲存訊號"}</button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -421,29 +425,36 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       <div className="form-grid">
         <label className="field"><span>策略名稱</span><input value={draft.name} onChange={(event) => set("name", event.target.value)} /></label>
         <label className="field"><span>方向</span><select value={draft.side} onChange={(event) => set("side", event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
-        <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} eligibleInstruments={allowedInstruments} />{allowedInstruments ? <small>顯示所有可交易 SWAP；選項會標示是否位於帳戶 allowlist（目前允許 {allowedInstruments.length} 個）。</small> : <div className="inline-warning">帳戶風險 allowlist 尚未建立；策略可先儲存為停用，但實盤不能通過 preflight。</div>}{outsideAllowlist.length > 0 && <div className="error-state">目前策略超出帳戶 allowlist：{outsideAllowlist.join("、")}。請移除商品或先至「風險上限」調整邊界。</div>}</div>
+        <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} eligibleInstruments={allowedInstruments} />{allowedInstruments ? <small>顯示所有可交易 SWAP；選項會標示是否位於帳戶 allowlist（目前允許 {allowedInstruments.length} 個）。</small> : <div className="inline-warning">帳戶風險 allowlist 尚未建立；策略可先儲存為停用，但實盤不能通過 preflight。</div>}<AnimatePresence>{outsideAllowlist.length > 0 && <motion.div key="outside-allowlist" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>目前策略超出帳戶 allowlist：{outsideAllowlist.join("、")}。請移除商品或先至「風險上限」調整邊界。</motion.div>}</AnimatePresence></div>
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
         <label className="field"><span>訊號成立後執行延遲</span><span className="input-with-suffix"><input type="number" min="0" max="86400" step="1" value={draft.executionDelaySeconds} onChange={(event) => set("executionDelaySeconds", event.target.value)} /><small>秒</small></span><small>{Number(draft.executionDelaySeconds) > 0 ? "到期後會重新驗證訊號與風險；失效即取消。" : "0 秒＝停用延遲，沿用立即執行。"}</small></label>
         <div className="field full"><span>每個商品的操作者幣量</span><div className="contract-size-grid">{instruments.map((instrument) => <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><label><small>換算參考價格（USDT）</small><input type="number" min="0" step="any" value={draft.referencePrices[instrument] ?? ""} onChange={(event) => set("referencePrices", { ...draft.referencePrices, [instrument]: event.target.value })} /></label><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={draft.referencePrices[instrument] ?? ""} side={draft.side} /></div>)}</div></div>
         <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" /></div>
       </div>
 
-      {strategy?.runtime?.pending_executions?.length ? <div className="pending-execution-list">{strategy.runtime.pending_executions.map((pending) => <article key={String(pending.correlation_id)}><span className="badge warning">等待重新驗證</span><strong>{String(pending.inst_id)}</strong><small>預定：{new Date(String(pending.due_at)).toLocaleString("zh-TW")}</small><small className="mono">{String(pending.correlation_id)}</small></article>)}</div> : null}
+      <AnimatePresence>
+        {strategy?.runtime?.pending_executions?.length ? <motion.div key="pending-executions" className="pending-execution-list" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>{strategy.runtime.pending_executions.map((pending) => <article key={String(pending.correlation_id)}><span className="badge warning">等待重新驗證</span><strong>{String(pending.inst_id)}</strong><small>預定：{new Date(String(pending.due_at)).toLocaleString("zh-TW")}</small><small className="mono">{String(pending.correlation_id)}</small></article>)}</motion.div> : null}
+      </AnimatePresence>
 
       <div className="section-divider"><div><h3>預設部位規則</h3><p>每次進場都會複製一份至新的 Maybech 邏輯部位；停損、停利與保本使用後端可物化的型別化參數。</p></div><button type="button" className="btn btn-outline" onClick={() => set("closeRules", [...draft.closeRules, defaultCloseRule("break_even", draft.side)])}><CirclePlus size={15} /> 新增保本規則</button></div>
       <div className="rule-stack">
         {draft.closeRules.map((rule, index) => (
-          <div className="sub-editor" key={index}>
+          // key={index} is unstable across removals (draft rules have no backend id yet);
+          // wrapping this in AnimatePresence would let it defer/misattribute exit animations
+          // across shifted indices, so this only gets a mount-in fade (no exit animation).
+          <motion.div className="sub-editor" key={index} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .2, ease: "easeOut" }}>
             <div className="sub-editor-head">
               <label className="field"><span>規則類型</span><select value={rule.purpose} onChange={(event) => updateRule(index, defaultCloseRule(event.target.value, draft.side))}><option value="stop_loss">停損</option><option value="take_profit">停利／分段停利</option><option value="break_even">自動保本</option><option value="trailing">移動停損／移動停利</option><option value="manual_review">人工檢查</option><option value="exit">一般出場</option></select></label>
               <label className="check-field"><input type="checkbox" checked={rule.enabled} onChange={(event) => updateRule(index, { ...rule, enabled: event.target.checked })} /> 啟用</label>
               <button type="button" className="icon-button danger-ghost" aria-label="移除規則" onClick={() => set("closeRules", draft.closeRules.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} /></button>
             </div>
             <TypedCloseRuleEditor rule={rule} side={draft.side} onChange={(next) => updateRule(index, next)} />
-          </div>
+          </motion.div>
         ))}
       </div>
-      {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
+      <AnimatePresence>
+        {error && <motion.div key="strategy-editor-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={16} /> {error}</motion.div>}
+      </AnimatePresence>
       <div className="form-actions">
         <span className={dirty ? "dirty-note" : "saved-note"}>{dirty ? "有尚未儲存的變更" : <><Check size={15} /> 已儲存</>}</span>
         {strategy && <button type="button" className={strategy.enabled ? "btn btn-outline" : "btn btn-danger"} disabled={busy || dirty || (!strategy.enabled && outsideAllowlist.length > 0)} onClick={toggle}><Power size={15} /> {strategy.enabled ? "停用策略" : "啟用策略"}</button>}
@@ -453,8 +464,10 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       {strategy && <>
         <div className="section-divider"><div><h3>附加訊號</h3><p>Entry／Filter 會與主要訊號以 AND 組合；Exit 會複製至新部位。</p></div><button type="button" className="btn btn-outline" onClick={() => setNewSignal(true)}><CirclePlus size={15} /> 新增訊號</button></div>
         <div className="rule-stack">
-          {strategy.signal_expressions?.map((signal) => <ChildSignal key={signal.id} strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} signal={signal} onSaved={() => onSaved(strategy.id)} />)}
-          {newSignal && <ChildSignal strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} onSaved={async () => { setNewSignal(false); return onSaved(strategy.id); }} />}
+          <AnimatePresence>
+            {strategy.signal_expressions?.map((signal) => <ChildSignal key={signal.id} strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} signal={signal} onSaved={() => onSaved(strategy.id)} />)}
+            {newSignal && <ChildSignal key="new-signal" strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} onSaved={async () => { setNewSignal(false); return onSaved(strategy.id); }} />}
+          </AnimatePresence>
           {!strategy.signal_expressions?.length && !newSignal && <div className="empty-state">沒有附加訊號；主要進場訊號仍會獨立運作。</div>}
         </div>
         <div className="danger-zone strategy-delete"><div><strong>永久刪除策略</strong><p>只有已停用且沒有任何邏輯部位或舊交易歷史的策略才能刪除。</p></div><button type="button" className="btn btn-danger" disabled={busy || strategy.enabled} onClick={remove}><Trash2 size={15} /> 刪除策略</button></div>
@@ -465,7 +478,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
 
 function Decisions({ strategyId }: { strategyId: string }) {
   const { data, error } = useSWR(["strategy-decisions", strategyId], () => listPersistedStrategyDecisions(strategyId, { limit: 20 }), { refreshInterval: 5000 });
-  return <section className="panel"><div className="panel-heading"><div><h2>最近決策與證據</h2><p>重新啟動後仍保留的 SQLite 稽核紀錄</p></div></div>{error ? <div className="error-state">無法讀取策略決策。</div> : !data ? <div className="loading-state">讀取中…</div> : data.length ? <div className="decision-grid">{data.map((decision, index) => <article key={decision.id ?? index} className="decision-card"><div className="status-row"><span className={`badge ${decision.allowed ? "success" : "danger"}`}>{decision.allowed ? "允許" : "封鎖"}</span><span className="badge info">{decision.execution_status ?? "未執行"}</span></div><strong>{decision.pair ?? "未知商品"}</strong><p>{decision.reason || "沒有提供原因"}</p><small>{decision.time ? new Date(decision.time).toLocaleString("zh-TW") : "時間未知"}</small></article>)}</div> : <div className="empty-state">尚無策略決策紀錄。</div>}</section>;
+  return <details className="panel audit-details"><summary className="audit-summary"><h2>最近決策與證據</h2><span className="badge info">{data?.length ?? 0} 筆</span></summary><p className="muted">重新啟動後仍保留的 SQLite 稽核紀錄</p>{error ? <div className="error-state">無法讀取策略決策。</div> : !data ? <div className="loading-state">讀取中…</div> : data.length ? <div className="decision-grid">{data.map((decision, index) => <article key={decision.id ?? index} className="decision-card"><div className="status-row"><span className={`badge ${decision.allowed ? "success" : "danger"}`}>{decision.allowed ? "允許" : "封鎖"}</span><span className="badge info">{decision.execution_status ?? "未執行"}</span></div><strong>{decision.pair ?? "未知商品"}</strong><p>{decision.reason || "沒有提供原因"}</p><small>{decision.time ? new Date(decision.time).toLocaleString("zh-TW") : "時間未知"}</small></article>)}</div> : <div className="empty-state">尚無策略決策紀錄。</div>}</details>;
 }
 
 export default function StrategiesPage() {
@@ -493,15 +506,19 @@ export default function StrategiesPage() {
   };
   const catalogAction = preflight.data?.execution_mode === "simulation" ? "建立 Simulation 商品資料" : "立即更新商品資料";
   return (
+    <MotionConfig reducedMotion="user">
     <div className="page-stack">
       <header className="page-header"><div><h1>策略管理</h1><p>建立進場計畫、組合市場訊號，並定義每個新部位收到的初始風險規則。</p></div><button type="button" className="btn btn-primary" onClick={() => setCreating(true)}><CirclePlus size={17} /> 建立策略</button></header>
       <RuntimeModeBanner />
-      {catalog.error && <div className="error-state"><AlertTriangle size={17} /> 商品快取尚未建立，無法選擇交易商品。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{catalogAction}</button></div>}
-      {catalog.data?.stale && <div className="error-state"><AlertTriangle size={17} /> 商品快取已過期（最近更新：{new Date(catalog.data.refreshed_at).toLocaleString("zh-TW")}）。換算與新選擇已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{catalogAction}</button></div>}
-      {catalogActionError && <div className="error-state"><AlertTriangle size={17} />{catalogActionError}</div>}
-      {error && <div className="error-state">策略 API 無法使用。畫面不會用假資料替代，所有操作已停用。</div>}
-      {isLoading && <div className="loading-state">正在讀取策略…</div>}
-      {!error && strategies && <div className="strategy-workspace"><StrategyList strategies={strategies} selectedId={creating ? null : selected?.id ?? null} onSelect={(id) => { setSelectedId(id); setCreating(false); }} onCreate={() => setCreating(true)} /><div className="strategy-main">{creating ? <StrategyEditor key="new" onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} /> : selected ? <><StrategyEditor key={`${selected.id}-${selected.updated_at}`} strategy={selected} onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} /><Decisions strategyId={selected.id} /></> : <div className="panel empty-state">建立第一個策略，開始定義進場訊號與預設部位規則。</div>}</div></div>}
+      <AnimatePresence>
+        {catalog.error && <motion.div key="catalog-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={17} /> 商品快取尚未建立，無法選擇交易商品。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{catalogAction}</button></motion.div>}
+        {catalog.data?.stale && <motion.div key="catalog-stale" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={17} /> 商品快取已過期（最近更新：{new Date(catalog.data.refreshed_at).toLocaleString("zh-TW")}）。換算與新選擇已封鎖。<button type="button" className="btn btn-outline" onClick={refreshCatalog}>{catalogAction}</button></motion.div>}
+        {catalogActionError && <motion.div key="catalog-action-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={17} />{catalogActionError}</motion.div>}
+        {error && <motion.div key="strategies-error" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>策略 API 無法使用。畫面不會用假資料替代，所有操作已停用。</motion.div>}
+        {isLoading && <motion.div key="strategies-loading" className="loading-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>正在讀取策略…</motion.div>}
+      </AnimatePresence>
+      {!error && strategies && <div className="strategy-workspace"><StrategyList strategies={strategies} selectedId={creating ? null : selected?.id ?? null} onSelect={(id) => { setSelectedId(id); setCreating(false); }} onCreate={() => setCreating(true)} /><div className="strategy-main">{creating ? <motion.div key="new" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .18, ease: "easeOut" }}><StrategyEditor onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} /></motion.div> : selected ? <motion.div key={`${selected.id}-${selected.updated_at}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .18, ease: "easeOut" }}><StrategyEditor strategy={selected} onSaved={refresh} catalog={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} allowedInstruments={risk.data?.allowed_instruments} /><Decisions strategyId={selected.id} /></motion.div> : <div className="panel empty-state">建立第一個策略，開始定義進場訊號與預設部位規則。</div>}</div></div>}
     </div>
+    </MotionConfig>
   );
 }
