@@ -44,7 +44,43 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-None at the moment.
+1. Manual-open capital clarity (operator-control blocker: operator cannot
+   currently tell whether a shown number is notional or margin). Show
+   configured per-instrument leverage (new read-only `GET
+   /instruments/{inst_id}/leverage` wrapping `OKXClient.get_leverage`,
+   `mgn_mode=cross` to match `AccountRiskGuard._leverage`; 409 in Simulation
+   like other exchange-bound endpoints) and derive/display `保證金
+   (margin) = 名目 (notional) / leverage` as a visually distinct figure from
+   notional in the manual-open panel. Acceptance: panel shows leverage and
+   margin for Demo/Live Armed; margin is never confused with notional in the
+   layout; Simulation clearly shows no leverage/margin data instead of a
+   fabricated number.
+2. Position-creation UX build phase (operator explicitly activated). Order:
+   a. USDT-denominated sizing toggle in manual-open (client-side
+      `quantity = usdt / entry_price`, no backend change) as an alternative
+      to base-coin quantity input.
+   b. Chart-beside-form in manual-open: reuse `PositionKlineChart` via a
+      client-built `LogicalPositionChartResponse`-shaped adapter (candles
+      from existing `/market/candles` + draft entry/stop/take-profit
+      overlays from live form state) — no backend change.
+   c. Wire the existing chart-anchored risk-sizing engine
+      (`InstrumentSizer.quote_risk`, `POST /instruments/{id}/risk-quote`,
+      already used in `analysis/page.tsx`) into manual-open so size can be
+      derived from allowed-loss + a chart-picked stop, instead of manual-open
+      and Analysis maintaining two disconnected sizing flows.
+   d. Account free-margin visibility + non-blocking warning when estimated
+      stop-loss $ loss exceeds visible free margin (cross-margin account —
+      no per-position margin top-up; see note above on why isolated-style
+      top-up doesn't apply here unless corrected).
+   e. `motion` package (successor to framer-motion) for panel/number/confirm
+      state transitions in manual-open and position cards — scoped there
+      first, not a full-app pass.
+   f. Broader Position Management / Strategy Management visual pass
+      (ui-ux-pro-max skill guidance) once (a)-(e) are stable, preserving all
+      existing close-condition functionality (signal exit, stop/take-profit,
+      break-even, trailing) — no functional regressions, clarity/layout only.
+   Acceptance per sub-item above; this phase stays active until (a)-(e) are
+   complete and verified. (f) may be split into its own follow-up phase.
 
 The completed position-rule and market-analysis phase is audited in
 `docs/position-rule-phase-audit.md`.
