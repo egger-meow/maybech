@@ -7,7 +7,7 @@ import { AlertTriangle, CandlestickChart, CirclePlus, RotateCcw, Save, ShieldAle
 
 import ExpressionEditor, { type SignalExpression } from "@/components/ExpressionEditor";
 import InstrumentSelector from "@/components/InstrumentSelector";
-import PositionKlineChart from "@/components/PositionKlineChart";
+import KlineChart from "@/components/KlineChart";
 import RuntimeModeBanner from "@/components/RuntimeModeBanner";
 import { formatPrice } from "@/lib/price-format";
 import {
@@ -152,8 +152,8 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   );
   // No position exists yet, so there is no /positions/logical/{id}/chart to call —
   // this builds the same LogicalPositionChartResponse shape client-side from raw
-  // candles plus whatever the operator has typed so far, so PositionKlineChart
-  // (built for an existing position) can preview a draft one unmodified.
+  // candles plus whatever the operator has typed so far, so KlineChart (built for
+  // an existing position) can preview a draft one unmodified.
   const draftChart: LogicalPositionChartResponse | null = useMemo(() => {
     if (!candles.data) return null;
     const rows = candles.data.candles ?? [];
@@ -238,7 +238,7 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
             ? <div className="error-state">K 線 API 無法使用，畫面不會推測目前價格。</div>
             : !draftChart
               ? <div className="loading-state">讀取 K 線資料…</div>
-              : <PositionKlineChart chart={draftChart} pricePrecision={pricePrecision} />}
+              : <KlineChart chart={draftChart} pricePrecision={pricePrecision} ariaLabel={`${instrument} 部位草稿 K 線與規則價位`} />}
       </section>
       <section className="panel manual-open-panel">
       <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以本機重播價格預填；你仍可修改。Simulation 僅建立本機模擬紀錄，不會連接交易所；Demo 會對 OKX Demo 帳戶送出真實訂單。Live Armed 僅在已武裝且進場已啟用時可送出正式帳戶真實訂單；Live Safe 一律封鎖手動建立。</p></div><span className={`badge ${allowed ? (isSimulation ? "success" : "warning") : "danger"}`}>{badgeLabel}</span></div>
@@ -621,7 +621,7 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
 
       <section className="panel">
         <div className="panel-heading"><div><h2><CandlestickChart size={20} /> 部位價格脈絡</h2><p>進場、目前價、停損、停利與已確認成交均來自真實 API 資料。</p></div>{chart.data && <span className={`badge ${stale(chart.data.fetched_at) ? "danger" : "success"}`}>{stale(chart.data.fetched_at) ? "資料過期" : "資料新鮮"}</span>}</div>
-        {chart.error ? <div className="error-state">K 線 API 無法使用，畫面不會推測目前價格。</div> : !chart.data ? <div className="loading-state">讀取 K 線與價位標記…</div> : <PositionKlineChart chart={chart.data} pricePrecision={pricePrecision} />}
+        {chart.error ? <div className="error-state">K 線 API 無法使用，畫面不會推測目前價格。</div> : !chart.data ? <div className="loading-state">讀取 K 線與價位標記…</div> : <KlineChart chart={chart.data} pricePrecision={pricePrecision} ariaLabel={`${chart.data.inst_id} 部位 K 線與規則價位`} />}
       </section>
 
       <section className="panel">

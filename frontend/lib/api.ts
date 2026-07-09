@@ -77,6 +77,7 @@ export type {
   EntryControlResponse,
   AuditEventResponse,
   BTCRegimeResponse as BtcRegime,
+  CandleResponse,
   ConfirmedPositionFillCreate,
   ConfirmedPositionFillResponse,
   ExecutionFillIngestionStatusResponse,

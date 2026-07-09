@@ -13,7 +13,27 @@ import {
 } from "klinecharts";
 
 import { formatPrice } from "@/lib/price-format";
-import type { LogicalPositionChartResponse } from "@/lib/api";
+import type { CandleResponse } from "@/lib/api";
+
+// Deliberately decoupled from the backend's LogicalPositionChartResponse:
+// this chart also renders research-only overlays (e.g. support/resistance)
+// that have no position behind them, so its overlay "kind" is an open
+// string, not the backend's position-protection-scoped literal union.
+export type KlineChartOverlay = {
+  kind: string;
+  price: number;
+  timestamp?: string | null;
+  label: string;
+  allocation_id?: string | null;
+};
+
+export type KlineChartData = {
+  inst_id: string;
+  bar: string;
+  candles?: CandleResponse[];
+  fetched_at: string;
+  overlays?: KlineChartOverlay[];
+};
 
 const THEME_CHANGE_EVENT = "maybech-theme-change";
 
@@ -25,6 +45,9 @@ const OVERLAY_COLORS: Record<string, string> = {
   break_even: "#f59e0b",
   trailing: "#06b6d4",
   execution: "#94a3b8",
+  support: "#10b981",
+  resistance: "#ef4444",
+  selected_level: "#3b82f6",
 };
 
 const LEVEL_LINE_OVERLAY = "position-level-line";
@@ -167,7 +190,7 @@ function applyTheme(chart: Chart) {
   });
 }
 
-function toKLineData(candles: LogicalPositionChartResponse["candles"]): KLineData[] {
+function toKLineData(candles: KlineChartData["candles"]): KLineData[] {
   return (candles ?? []).map((candle) => ({
     timestamp: new Date(candle.timestamp).getTime(),
     open: candle.open,
@@ -216,12 +239,16 @@ function bindYAxisWheelZoom(chart: Chart): () => void {
   return () => yAxisDom.removeEventListener("wheel", handleWheel);
 }
 
-export default function PositionKlineChart({
+export default function KlineChart({
   chart,
   pricePrecision,
+  showLegend = true,
+  ariaLabel,
 }: {
-  chart: LogicalPositionChartResponse;
+  chart: KlineChartData;
   pricePrecision?: number | null;
+  showLegend?: boolean;
+  ariaLabel?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<Chart | null>(null);
@@ -318,19 +345,21 @@ export default function PositionKlineChart({
         )}
       </div>
       <div className="kline-chart-shell">
-        <div ref={containerRef} className="kline-chart-canvas" role="img" aria-label={`${chart.inst_id} 部位 K 線與規則價位`} />
+        <div ref={containerRef} className="kline-chart-canvas" role="img" aria-label={ariaLabel ?? `${chart.inst_id} K 線圖`} />
         {!hasCandles && <div className="empty-state kline-empty-overlay">目前沒有可繪製的 K 線資料。</div>}
       </div>
-      <div className="chart-legend">
-        {(chart.overlays ?? [])
-          .filter((overlay) => overlay.kind !== "current")
-          .map((overlay, index) => (
-            <span key={`${overlay.kind}-${index}`}>
-              <i style={{ background: OVERLAY_COLORS[overlay.kind] ?? "#94a3b8" }} />
-              {overlay.label}: {formatPrice(overlay.price, pricePrecision)}
-            </span>
-          ))}
-      </div>
+      {showLegend && (
+        <div className="chart-legend">
+          {(chart.overlays ?? [])
+            .filter((overlay) => overlay.kind !== "current")
+            .map((overlay, index) => (
+              <span key={`${overlay.kind}-${index}`}>
+                <i style={{ background: OVERLAY_COLORS[overlay.kind] ?? "#94a3b8" }} />
+                {overlay.label}: {formatPrice(overlay.price, pricePrecision)}
+              </span>
+            ))}
+        </div>
+      )}
       <p className="kline-hint">捲動圖表縮放時間軸；捲動右側價格軸縮放價格；雙擊價格軸重設。</p>
     </div>
   );
