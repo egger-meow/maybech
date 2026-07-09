@@ -44,16 +44,13 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-1. Position-creation UX build phase (operator explicitly activated). Order:
-   a. `motion` package (successor to framer-motion) for panel/number/confirm
-      state transitions in manual-open and position cards — scoped there
-      first, not a full-app pass.
-   b. Broader Position Management / Strategy Management visual pass
-      (ui-ux-pro-max skill guidance) once (a) is stable, preserving all
-      existing close-condition functionality (signal exit, stop/take-profit,
-      break-even, trailing) — no functional regressions, clarity/layout only.
-   Acceptance per sub-item above; this phase stays active until (a) is
-   complete and verified. (b) may be split into its own follow-up phase.
+1. Broader Position Management / Strategy Management visual pass (operator
+   explicitly activated; `motion` package already installed and proven in
+   manual-open — extend the same restrained, meaning-tied pattern to
+   position cards and elsewhere as part of this pass). Use ui-ux-pro-max
+   skill guidance. Acceptance: all existing close-condition functionality
+   (signal exit, stop/take-profit, break-even, trailing) still works
+   unchanged; only clarity/layout/motion, no functional regressions.
 
 The completed position-rule and market-analysis phase is audited in
 `docs/position-rule-phase-audit.md`.
