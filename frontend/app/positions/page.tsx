@@ -31,6 +31,7 @@ import {
   reduceLogicalPosition,
   quoteInstrumentSize,
   quoteInstrumentContracts,
+  quoteInstrumentRisk,
   refreshInstruments,
   updateLogicalPositionCloseCondition,
   validateSignal,
@@ -87,9 +88,10 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   const preflight = useSWR("runtime-preflight", getLivePreflight);
   const [instrument, setInstrument] = useState("");
   const [side, setSide] = useState<"long" | "short">("long");
-  const [sizeMode, setSizeMode] = useState<"coin" | "usdt">("coin");
+  const [sizeMode, setSizeMode] = useState<"coin" | "usdt" | "risk">("coin");
   const [quantity, setQuantity] = useState("");
   const [usdtAmount, setUsdtAmount] = useState("");
+  const [allowedLossUsdt, setAllowedLossUsdt] = useState("100");
   const [entryPrice, setEntryPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
@@ -100,17 +102,35 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
     ? (usdtAmount && entryPriceNumber > 0 ? String(Number(usdtAmount) / entryPriceNumber) : "")
     : quantity;
   const quote = useSWR(
-    instrument && effectiveQuantity && entryPrice ? ["manual-size-quote", instrument, effectiveQuantity, entryPrice, side] : null,
+    sizeMode !== "risk" && instrument && effectiveQuantity && entryPrice ? ["manual-size-quote", instrument, effectiveQuantity, entryPrice, side] : null,
     () => quoteInstrumentSize(instrument, { display_quantity: effectiveQuantity, entry_price: entryPrice, side, rule_price: stopLoss || null }),
   );
+  // Reuses the same chart-anchored risk-sizing engine already live on the
+  // Analysis page (InstrumentSizer.quote_risk / POST /instruments/{id}/risk-quote)
+  // instead of a second, parallel sizing calculation: pick a stop, derive the
+  // max size an allowed-loss budget affords at that stop distance.
+  const riskQuote = useSWR(
+    sizeMode === "risk" && instrument && entryPrice && stopLoss && allowedLossUsdt
+      ? ["manual-risk-quote", instrument, entryPrice, stopLoss, allowedLossUsdt, side]
+      : null,
+    () => quoteInstrumentRisk(instrument, {
+      mode: "chart_anchored",
+      entry_price: entryPrice,
+      side,
+      allowed_loss_usdt: allowedLossUsdt,
+      stop_price: stopLoss,
+    }),
+  );
+  const resolvedQuote = sizeMode === "risk" ? riskQuote.data : quote.data;
+  const resolvedQuoteError = sizeMode === "risk" ? riskQuote.error : quote.error;
   const exchangeConnected = preflight.data?.execution_mode === "demo" || preflight.data?.execution_mode === "live_armed" || preflight.data?.execution_mode === "live_safe";
   const leverage = useSWR(
     instrument && exchangeConnected ? ["instrument-leverage", instrument] : null,
     () => getInstrumentLeverage(instrument, { mgnMode: "cross" }),
   );
   const leverageValue = leverage.data ? Number(leverage.data.leverage) : null;
-  const marginUsdt = quote.data && leverageValue ? Number(quote.data.estimated_notional_usdt) / leverageValue : null;
-  const estimatedLossUsdt = quote.data?.estimated_pnl_usdt != null ? Math.abs(Number(quote.data.estimated_pnl_usdt)) : null;
+  const marginUsdt = resolvedQuote && leverageValue ? Number(resolvedQuote.estimated_notional_usdt) / leverageValue : null;
+  const estimatedLossUsdt = resolvedQuote?.estimated_pnl_usdt != null ? Math.abs(Number(resolvedQuote.estimated_pnl_usdt)) : null;
   const marginShortfall = marginUsdt != null && estimatedLossUsdt != null && estimatedLossUsdt > marginUsdt;
   const accountSnapshot = useSWR(exchangeConnected ? "account-snapshot" : null, getAccountSnapshot, { refreshInterval: 15_000 });
   const accountSummary = object(accountSnapshot.data?.summary);
@@ -161,15 +181,19 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   const isLiveArmed = preflight.data?.execution_mode === "live_armed";
   const liveArmedReady = isLiveArmed && Boolean(preflight.data?.armed) && Boolean(preflight.data?.entries_enabled);
   const allowed = isSimulation || isDemo || liveArmedReady;
+  // Risk mode's size was calculated against quote_risk's tick-aligned stop_price,
+  // not necessarily the exact value typed — submitting the raw typed stop instead
+  // would silently let the position's actual risk drift from the chosen budget.
+  const submitStopLoss = sizeMode === "risk" && riskQuote.data ? riskQuote.data.stop_price : stopLoss;
   const submit = async () => {
-    if (!quote.data) { setError("商品數量尚未通過 OKX 單位換算，不能建立部位。"); return; }
-    if (!stopLoss) { setError("必須設定保護性停損底線。"); return; }
-    const sizeLine = `顯示幣量：${quote.data.display_quantity} ${quote.data.display_currency}`;
+    if (!resolvedQuote) { setError("商品數量尚未通過 OKX 單位換算，不能建立部位。"); return; }
+    if (!submitStopLoss) { setError("必須設定保護性停損底線。"); return; }
+    const sizeLine = `顯示幣量：${resolvedQuote.display_quantity} ${resolvedQuote.display_currency}`;
     const confirmMessage = liveArmedReady
-      ? `⚠️ 送出 ${instrument} ${side === "long" ? "做多" : "做空"} Live Armed 真實訂單？此動作會對正式帳戶下真實單，動用真實資金。\n\n${sizeLine}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT\n保護停損：${stopLoss}`
+      ? `⚠️ 送出 ${instrument} ${side === "long" ? "做多" : "做空"} Live Armed 真實訂單？此動作會對正式帳戶下真實單，動用真實資金。\n\n${sizeLine}\nOKX API：${resolvedQuote.api_quantity_contracts} 口\n估算名目：${resolvedQuote.estimated_notional_usdt} USDT\n保護停損：${submitStopLoss}`
       : isDemo
-      ? `送出 ${instrument} ${side === "long" ? "做多" : "做空"} Demo 真實訂單？此動作會連接 OKX Demo 帳戶下單。\n\n${sizeLine}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`
-      : `建立 ${instrument} ${side === "long" ? "做多" : "做空"} Simulation 邏輯單位？\n\n${sizeLine}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`;
+      ? `送出 ${instrument} ${side === "long" ? "做多" : "做空"} Demo 真實訂單？此動作會連接 OKX Demo 帳戶下單。\n\n${sizeLine}\nOKX API：${resolvedQuote.api_quantity_contracts} 口\n估算名目：${resolvedQuote.estimated_notional_usdt} USDT`
+      : `建立 ${instrument} ${side === "long" ? "做多" : "做空"} Simulation 邏輯單位？\n\n${sizeLine}\nOKX API：${resolvedQuote.api_quantity_contracts} 口\n估算名目：${resolvedQuote.estimated_notional_usdt} USDT`;
     if (!confirm(confirmMessage)) return;
     if (liveArmedReady && !confirm(`再次確認：這是 Live Armed 正式帳戶的真實訂單，無法模擬撤回。是否繼續送出？`)) return;
     setBusy(true); setError("");
@@ -178,9 +202,9 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
         confirm: true,
         inst_id: instrument,
         side,
-        display_quantity: effectiveQuantity,
+        display_quantity: resolvedQuote.display_quantity,
         entry_price: entryPrice,
-        stop_loss_price: stopLoss,
+        stop_loss_price: submitStopLoss,
         take_profit_price: takeProfit || null,
       });
       await onCreated(created.id);
@@ -224,37 +248,51 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
           <div className="segmented">
             <button type="button" className={sizeMode === "coin" ? "selected" : ""} onClick={() => setSizeMode("coin")}>依幣量</button>
             <button type="button" className={sizeMode === "usdt" ? "selected" : ""} onClick={() => setSizeMode("usdt")}>依 USDT 名目</button>
+            <button type="button" className={sizeMode === "risk" ? "selected" : ""} onClick={() => setSizeMode("risk")}>依風險預算</button>
           </div>
         </div>
-        {sizeMode === "coin" ? (
+        {sizeMode === "coin" && (
           <label className="field">
             <span>操作者幣量（{instrument.split("-")[0] || "基礎幣"}）</span>
             <input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
             {quantity && entryPriceNumber > 0 && <small className="conversion-hint">≈ {number(Number(quantity) * entryPriceNumber, 2)} USDT 名目</small>}
           </label>
-        ) : (
+        )}
+        {sizeMode === "usdt" && (
           <label className="field">
             <span>部位名目金額（USDT）</span>
             <input type="number" min="0" step="any" value={usdtAmount} onChange={(event) => setUsdtAmount(event.target.value)} />
             {usdtAmount && entryPriceNumber > 0 && <small className="conversion-hint">≈ {number(Number(usdtAmount) / entryPriceNumber, 6)} {instrument.split("-")[0] || "基礎幣"}</small>}
           </label>
         )}
+        {sizeMode === "risk" && (
+          <label className="field">
+            <span>可接受損失（USDT）</span>
+            <input type="number" min="0" step="any" value={allowedLossUsdt} onChange={(event) => setAllowedLossUsdt(event.target.value)} />
+            <small className="conversion-hint">依下方保護停損價的距離，反推風險預算內的最大部位（與 分析 頁相同引擎）。</small>
+          </label>
+        )}
         <label className="field"><span>進場限價（預填目前價）</span><input type="number" min="0" step="any" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} /></label>
         <label className="field"><span>保護停損價（必填）</span><input type="number" min="0" step="any" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /></label>
         <label className="field"><span>停利價（選填）</span><input type="number" min="0" step="any" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} /></label>
       </div>
-      {quote.data && <div className="manual-open-quote">
+      {sizeMode === "risk" && riskQuote.data && <div className="risk-sizing-result">
+        <div><small>停損距離</small><strong>{number(Number(riskQuote.data.stop_distance_pct) * 100, 2)}%</strong></div>
+        <div><small>風險預算內最大名目</small><strong>{riskQuote.data.estimated_notional_usdt} USDT</strong></div>
+        <div><small>未使用風險</small><strong>{riskQuote.data.unused_risk_usdt} USDT</strong></div>
+      </div>}
+      {resolvedQuote && <div className="manual-open-quote">
         <span className="margin-tile"><small>保證金 Margin（實際佔用）</small><strong>{marginUsdt != null ? `${number(marginUsdt, 2)} USDT` : "無槓桿資料"}</strong></span>
-        <span><small>名目金額 Notional（總曝險，非實際佔用）</small><strong>{quote.data.estimated_notional_usdt} USDT</strong></span>
-        <span><small>顯示幣量</small><strong>{quote.data.display_quantity} {quote.data.display_currency}</strong></span>
-        <span><small>OKX API 數量</small><strong>{quote.data.api_quantity_contracts} 口</strong></span>
-        <span><small>停損估算損失</small><strong className={Number(quote.data.estimated_pnl_usdt) < 0 ? "negative" : ""}>{quote.data.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${quote.data.estimated_pnl_usdt} USDT`}</strong></span>
+        <span><small>名目金額 Notional（總曝險，非實際佔用）</small><strong>{resolvedQuote.estimated_notional_usdt} USDT</strong></span>
+        <span><small>顯示幣量</small><strong>{resolvedQuote.display_quantity} {resolvedQuote.display_currency}</strong></span>
+        <span><small>OKX API 數量</small><strong>{resolvedQuote.api_quantity_contracts} 口</strong></span>
+        <span><small>停損估算損失</small><strong className={Number(resolvedQuote.estimated_pnl_usdt) < 0 ? "negative" : ""}>{resolvedQuote.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${resolvedQuote.estimated_pnl_usdt} USDT`}</strong></span>
       </div>}
       {marginShortfall && <div className="inline-warning"><AlertTriangle size={15} /> 停損估算損失（{number(estimatedLossUsdt, 2)} USDT）超過本倉保證金（{number(marginUsdt, 2)} USDT），代表此倉位停損距離相對倉位本身槓桿偏寬。</div>}
       {accountMarginShortfall && <div className="error-state"><AlertTriangle size={16} /> 停損估算損失（{number(estimatedLossUsdt, 2)} USDT）超過目前帳戶可用保證金（{number(freeMarginUsdt, 2)} USD）。帳戶為 cross 保證金模式，觸發此停損可能危及其他持倉；請縮小部位、收緊停損，或先增加帳戶可用保證金再送出。</div>}
-      {quote.error && <div className="error-state">目前數量無法安全換算成 OKX 合約口數。</div>}
+      {resolvedQuoteError && <div className="error-state">{sizeMode === "risk" ? "目前風險預算與停損距離無法安全換算成合法 lot size 部位。" : "目前數量無法安全換算成 OKX 合約口數。"}</div>}
       {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
-      <div className="form-actions"><button type="button" className={`btn ${liveArmedReady ? "btn-danger" : "btn-primary"}`} disabled={busy || !allowed || !quote.data || !stopLoss} onClick={submit}>{busy ? (liveArmedReady || isDemo ? "送出中…" : "建立中…") : liveArmedReady ? "⚠️ 確認送出 Live Armed 真實訂單" : isDemo ? "確認送出 Demo 真實訂單" : "確認建立 Simulation 單位"}</button></div>
+      <div className="form-actions"><button type="button" className={`btn ${liveArmedReady ? "btn-danger" : "btn-primary"}`} disabled={busy || !allowed || !resolvedQuote || !submitStopLoss} onClick={submit}>{busy ? (liveArmedReady || isDemo ? "送出中…" : "建立中…") : liveArmedReady ? "⚠️ 確認送出 Live Armed 真實訂單" : isDemo ? "確認送出 Demo 真實訂單" : "確認建立 Simulation 單位"}</button></div>
       </section>
     </div>
   );
