@@ -19,6 +19,7 @@ import {
   createLogicalPositionCloseCondition,
   deleteLogicalPositionCloseCondition,
   getLogicalPositionChart,
+  getInstrumentLeverage,
   getLivePreflight,
   getRiskLimits,
   getMarketCandles,
@@ -93,6 +94,15 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
     instrument && quantity && entryPrice ? ["manual-size-quote", instrument, quantity, entryPrice, side] : null,
     () => quoteInstrumentSize(instrument, { display_quantity: quantity, entry_price: entryPrice, side, rule_price: stopLoss || null }),
   );
+  const exchangeConnected = preflight.data?.execution_mode === "demo" || preflight.data?.execution_mode === "live_armed" || preflight.data?.execution_mode === "live_safe";
+  const leverage = useSWR(
+    instrument && exchangeConnected ? ["instrument-leverage", instrument] : null,
+    () => getInstrumentLeverage(instrument, { mgnMode: "cross" }),
+  );
+  const leverageValue = leverage.data ? Number(leverage.data.leverage) : null;
+  const marginUsdt = quote.data && leverageValue ? Number(quote.data.estimated_notional_usdt) / leverageValue : null;
+  const estimatedLossUsdt = quote.data?.estimated_pnl_usdt != null ? Math.abs(Number(quote.data.estimated_pnl_usdt)) : null;
+  const marginShortfall = marginUsdt != null && estimatedLossUsdt != null && estimatedLossUsdt > marginUsdt;
   const selectInstrument = async (next: string[]) => {
     const selected = next[0] ?? "";
     setInstrument(selected);
@@ -152,14 +162,26 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
     <section className="panel manual-open-panel">
       <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以本機重播價格預填；你仍可修改。Simulation 僅建立本機模擬紀錄，不會連接交易所；Demo 會對 OKX Demo 帳戶送出真實訂單。Live Armed 僅在已武裝且進場已啟用時可送出正式帳戶真實訂單；Live Safe 一律封鎖手動建立。</p></div><span className={`badge ${allowed ? (isSimulation ? "success" : "warning") : "danger"}`}>{badgeLabel}</span></div>
       <div className="form-grid">
-        <div className="field full"><span>OKX 交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} value={instrument ? [instrument] : []} onChange={selectInstrument} eligibleInstruments={allowedInstruments} /></div>
+        <div className="field full">
+          <span>OKX 交易商品</span>
+          <InstrumentSelector instruments={catalog} stale={catalogStale} value={instrument ? [instrument] : []} onChange={selectInstrument} eligibleInstruments={allowedInstruments} />
+          {instrument && exchangeConnected && <small className="leverage-hint">{leverage.isLoading ? "槓桿讀取中…" : leverageValue ? `OKX 已設定槓桿 ${number(leverageValue, 0)}x（cross，唯讀，本系統不會更改）` : "無法讀取 OKX 槓桿設定"}</small>}
+          {instrument && !exchangeConnected && <small className="leverage-hint">Simulation 無交易所連線，不提供槓桿／保證金資料</small>}
+        </div>
         <label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
         <label className="field"><span>操作者幣量（{instrument.split("-")[0] || "基礎幣"}）</span><input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>
         <label className="field"><span>進場限價（預填目前價）</span><input type="number" min="0" step="any" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} /></label>
         <label className="field"><span>保護停損價（必填）</span><input type="number" min="0" step="any" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /></label>
         <label className="field"><span>停利價（選填）</span><input type="number" min="0" step="any" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} /></label>
       </div>
-      {quote.data && <div className="manual-open-quote"><span><small>顯示幣量</small><strong>{quote.data.display_quantity} {quote.data.display_currency}</strong></span><span><small>OKX API 數量</small><strong>{quote.data.api_quantity_contracts} 口</strong></span><span><small>估算名目</small><strong>{quote.data.estimated_notional_usdt} USDT</strong></span><span><small>停損估算</small><strong className={Number(quote.data.estimated_pnl_usdt) < 0 ? "negative" : ""}>{quote.data.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${quote.data.estimated_pnl_usdt} USDT`}</strong></span></div>}
+      {quote.data && <div className="manual-open-quote">
+        <span className="margin-tile"><small>保證金 Margin（實際佔用）</small><strong>{marginUsdt != null ? `${number(marginUsdt, 2)} USDT` : "無槓桿資料"}</strong></span>
+        <span><small>名目金額 Notional（總曝險，非實際佔用）</small><strong>{quote.data.estimated_notional_usdt} USDT</strong></span>
+        <span><small>顯示幣量</small><strong>{quote.data.display_quantity} {quote.data.display_currency}</strong></span>
+        <span><small>OKX API 數量</small><strong>{quote.data.api_quantity_contracts} 口</strong></span>
+        <span><small>停損估算損失</small><strong className={Number(quote.data.estimated_pnl_usdt) < 0 ? "negative" : ""}>{quote.data.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${quote.data.estimated_pnl_usdt} USDT`}</strong></span>
+      </div>}
+      {marginShortfall && <div className="inline-warning"><AlertTriangle size={15} /> 停損估算損失（{number(estimatedLossUsdt, 2)} USDT）超過本倉保證金（{number(marginUsdt, 2)} USDT）。帳戶為 cross 保證金模式，保證金由全帳戶共用而非單倉位獨立追加；請確認帳戶可用保證金足夠，或縮小部位／收緊停損。</div>}
       {quote.error && <div className="error-state">目前數量無法安全換算成 OKX 合約口數。</div>}
       {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
       <div className="form-actions"><button type="button" className={`btn ${liveArmedReady ? "btn-danger" : "btn-primary"}`} disabled={busy || !allowed || !quote.data || !stopLoss} onClick={submit}>{busy ? (liveArmedReady || isDemo ? "送出中…" : "建立中…") : liveArmedReady ? "⚠️ 確認送出 Live Armed 真實訂單" : isDemo ? "確認送出 Demo 真實訂單" : "確認建立 Simulation 單位"}</button></div>

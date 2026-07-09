@@ -13,6 +13,7 @@ import type {
   ExecutionFillIngestionStatusResponse,
   InstrumentMetadataListResponse,
   InstrumentContractQuoteRequest,
+  InstrumentLeverageResponse,
   InstrumentSizeQuoteRequest,
   InstrumentSizeQuoteResponse,
   InstrumentRiskQuoteRequest,
@@ -82,6 +83,7 @@ export type {
   InstrumentMetadataListResponse,
   InstrumentMetadataResponse,
   InstrumentContractQuoteRequest,
+  InstrumentLeverageResponse,
   InstrumentSizeQuoteRequest,
   InstrumentSizeQuoteResponse,
   InstrumentRiskQuoteRequest,
@@ -288,6 +290,18 @@ export const refreshInstruments = (): Promise<InstrumentMetadataListResponse> =>
 
 export const bootstrapSimulationInstruments = (): Promise<InstrumentMetadataListResponse> =>
   postData<InstrumentMetadataListResponse>("/instruments/simulation-bootstrap");
+
+export const getInstrumentLeverage = (
+  instId: string,
+  options: { mgnMode?: "cross" | "isolated" } = {},
+): Promise<InstrumentLeverageResponse> => {
+  const params = new URLSearchParams();
+  if (options.mgnMode) params.set("mgn_mode", options.mgnMode);
+  const query = params.toString();
+  return fetcher<InstrumentLeverageResponse>(
+    `/instruments/${encodeURIComponent(instId)}/leverage${query ? `?${query}` : ""}`,
+  );
+};
 
 export const quoteInstrumentSize = (
   instId: string,
