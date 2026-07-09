@@ -45,20 +45,15 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 ## Current Priorities
 
 1. Position-creation UX build phase (operator explicitly activated). Order:
-   a. Wire the existing chart-anchored risk-sizing engine
-      (`InstrumentSizer.quote_risk`, `POST /instruments/{id}/risk-quote`,
-      already used in `analysis/page.tsx`) into manual-open so size can be
-      derived from allowed-loss + a chart-picked stop, instead of manual-open
-      and Analysis maintaining two disconnected sizing flows.
-   b. `motion` package (successor to framer-motion) for panel/number/confirm
+   a. `motion` package (successor to framer-motion) for panel/number/confirm
       state transitions in manual-open and position cards — scoped there
       first, not a full-app pass.
-   c. Broader Position Management / Strategy Management visual pass
-      (ui-ux-pro-max skill guidance) once (a)-(b) are stable, preserving all
+   b. Broader Position Management / Strategy Management visual pass
+      (ui-ux-pro-max skill guidance) once (a) is stable, preserving all
       existing close-condition functionality (signal exit, stop/take-profit,
       break-even, trailing) — no functional regressions, clarity/layout only.
-   Acceptance per sub-item above; this phase stays active until (a)-(b) are
-   complete and verified. (c) may be split into its own follow-up phase.
+   Acceptance per sub-item above; this phase stays active until (a) is
+   complete and verified. (b) may be split into its own follow-up phase.
 
 The completed position-rule and market-analysis phase is audited in
 `docs/position-rule-phase-audit.md`.
