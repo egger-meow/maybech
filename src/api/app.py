@@ -2273,8 +2273,9 @@ def create_app(
             )
         return sorted(responses, key=lambda item: item.key)[:limit]
 
-    def _manual_open_demo_position(
+    def _manual_open_order_position(
         *,
+        execution_mode: str,
         payload: ManualPositionOpenRequest,
         metadata,
         quote,
@@ -2285,13 +2286,18 @@ def create_app(
         position_store: LogicalPositionStore,
         audit_store: AuditEventStore,
     ) -> LogicalPositionUnitResponse:
-        """Submit a real OKX demo-account order through the shared entry path."""
+        """Submit a real OKX order (Demo or Live Armed) through the shared entry path.
+
+        Credentials/endpoint are resolved from process env at OKXClient()
+        construction (DEMO_OKX_* vs OKX_*), set once at runtime startup based on
+        mode — this function never chooses which account it talks to.
+        """
         if not execution_ingestion_ready(runner.runtime):
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Manual demo entry blocked until REST execution catch-up is "
-                    "current and the private order stream is connected"
+                    f"Manual {execution_mode} entry blocked until REST execution "
+                    "catch-up is current and the private order stream is connected"
                 ),
             )
 
@@ -2370,7 +2376,7 @@ def create_app(
                 )
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Manual demo entry blocked by account risk check: {exc}",
+                    detail=f"Manual {execution_mode} entry blocked by account risk check: {exc}",
                 ) from exc
 
             entry_submitter = EntrySubmitter(
@@ -2396,6 +2402,7 @@ def create_app(
             payload={
                 "position_id": position.id,
                 "source": "manual",
+                "execution_mode": execution_mode,
                 "instrument": metadata.inst_id,
                 "side": payload.side,
                 "size_quote": quote.to_dict(),
@@ -2427,11 +2434,17 @@ def create_app(
                 detail="Runtime execution mode is unavailable; manual open is blocked",
             )
         execution_mode = preflight.get("execution_mode")
-        if execution_mode not in {"simulation", "demo", "dry_run"}:
+        live_armed_order_capable = (
+            execution_mode == "live_armed"
+            and bool(preflight.get("armed"))
+            and entry_order_placement_enabled()
+        )
+        if execution_mode not in {"simulation", "demo", "dry_run"} and not live_armed_order_capable:
             detail = (
-                "Manual live open requires an armed runtime and enabled entry gate"
-                if not preflight.get("armed") or not entry_order_placement_enabled()
-                else "Manual open is blocked in Live Safe / Live Armed; use Simulation or Demo"
+                "Manual live open requires an armed Live Armed runtime with order "
+                "placement enabled"
+                if execution_mode == "live_armed"
+                else "Manual open is blocked in Live Safe; use Simulation, Demo, or an armed Live Armed runtime"
             )
             raise HTTPException(status_code=409, detail=detail)
 
@@ -2485,8 +2498,9 @@ def create_app(
         position_store = LogicalPositionStore(trade_store.db_path)
         audit_store = AuditEventStore(trade_store.db_path)
 
-        if execution_mode == "demo":
-            return _manual_open_demo_position(
+        if execution_mode in {"demo", "live_armed"}:
+            return _manual_open_order_position(
+                execution_mode=execution_mode,
                 payload=payload,
                 metadata=metadata,
                 quote=quote,

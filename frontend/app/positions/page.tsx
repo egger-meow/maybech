@@ -111,14 +111,19 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   };
   const isSimulation = preflight.data?.execution_mode === "simulation";
   const isDemo = preflight.data?.execution_mode === "demo";
-  const allowed = isSimulation || isDemo;
+  const isLiveArmed = preflight.data?.execution_mode === "live_armed";
+  const liveArmedReady = isLiveArmed && Boolean(preflight.data?.armed) && Boolean(preflight.data?.entries_enabled);
+  const allowed = isSimulation || isDemo || liveArmedReady;
   const submit = async () => {
     if (!quote.data) { setError("商品數量尚未通過 OKX 單位換算，不能建立部位。"); return; }
     if (!stopLoss) { setError("必須設定保護性停損底線。"); return; }
-    const confirmMessage = isDemo
+    const confirmMessage = liveArmedReady
+      ? `⚠️ 送出 ${instrument} ${side === "long" ? "做多" : "做空"} Live Armed 真實訂單？此動作會對正式帳戶下真實單，動用真實資金。\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT\n保護停損：${stopLoss}`
+      : isDemo
       ? `送出 ${instrument} ${side === "long" ? "做多" : "做空"} Demo 真實訂單？此動作會連接 OKX Demo 帳戶下單。\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`
       : `建立 ${instrument} ${side === "long" ? "做多" : "做空"} Simulation 邏輯單位？\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`;
     if (!confirm(confirmMessage)) return;
+    if (liveArmedReady && !confirm(`再次確認：這是 Live Armed 正式帳戶的真實訂單，無法模擬撤回。是否繼續送出？`)) return;
     setBusy(true); setError("");
     try {
       const created = await manualOpenPosition({
@@ -138,10 +143,14 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
     ? "Simulation 可用"
     : isDemo
       ? "Demo 可用（真實下單）"
-      : `目前模式 ${preflight.data?.execution_mode ?? "未知"}，已封鎖`;
+      : liveArmedReady
+        ? "Live Armed 可用（正式帳戶真實下單）"
+        : isLiveArmed
+          ? "Live Armed 尚未武裝或未啟用進場，已封鎖"
+          : `目前模式 ${preflight.data?.execution_mode ?? "未知"}，已封鎖`;
   return (
     <section className="panel manual-open-panel">
-      <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以本機重播價格預填；你仍可修改。Simulation 僅建立本機模擬紀錄，不會連接交易所；Demo 會對 OKX Demo 帳戶送出真實訂單。Live Safe / Live Armed 一律封鎖手動建立。</p></div><span className={`badge ${allowed ? (isDemo ? "warning" : "success") : "danger"}`}>{badgeLabel}</span></div>
+      <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以本機重播價格預填；你仍可修改。Simulation 僅建立本機模擬紀錄，不會連接交易所；Demo 會對 OKX Demo 帳戶送出真實訂單。Live Armed 僅在已武裝且進場已啟用時可送出正式帳戶真實訂單；Live Safe 一律封鎖手動建立。</p></div><span className={`badge ${allowed ? (isSimulation ? "success" : "warning") : "danger"}`}>{badgeLabel}</span></div>
       <div className="form-grid">
         <div className="field full"><span>OKX 交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} value={instrument ? [instrument] : []} onChange={selectInstrument} eligibleInstruments={allowedInstruments} /></div>
         <label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
@@ -153,7 +162,7 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
       {quote.data && <div className="manual-open-quote"><span><small>顯示幣量</small><strong>{quote.data.display_quantity} {quote.data.display_currency}</strong></span><span><small>OKX API 數量</small><strong>{quote.data.api_quantity_contracts} 口</strong></span><span><small>估算名目</small><strong>{quote.data.estimated_notional_usdt} USDT</strong></span><span><small>停損估算</small><strong className={Number(quote.data.estimated_pnl_usdt) < 0 ? "negative" : ""}>{quote.data.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${quote.data.estimated_pnl_usdt} USDT`}</strong></span></div>}
       {quote.error && <div className="error-state">目前數量無法安全換算成 OKX 合約口數。</div>}
       {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
-      <div className="form-actions"><button type="button" className="btn btn-primary" disabled={busy || !allowed || !quote.data || !stopLoss} onClick={submit}>{busy ? (isDemo ? "送出中…" : "建立中…") : isDemo ? "確認送出 Demo 真實訂單" : "確認建立 Simulation 單位"}</button></div>
+      <div className="form-actions"><button type="button" className={`btn ${liveArmedReady ? "btn-danger" : "btn-primary"}`} disabled={busy || !allowed || !quote.data || !stopLoss} onClick={submit}>{busy ? (liveArmedReady || isDemo ? "送出中…" : "建立中…") : liveArmedReady ? "⚠️ 確認送出 Live Armed 真實訂單" : isDemo ? "確認送出 Demo 真實訂單" : "確認建立 Simulation 單位"}</button></div>
     </section>
   );
 }
