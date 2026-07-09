@@ -1099,6 +1099,33 @@
         "title": "InstrumentContractQuoteRequest",
         "type": "object"
       },
+      "InstrumentLeverageResponse": {
+        "properties": {
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "leverage": {
+            "title": "Leverage",
+            "type": "string"
+          },
+          "mgn_mode": {
+            "enum": [
+              "cross",
+              "isolated"
+            ],
+            "title": "Mgn Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inst_id",
+          "mgn_mode",
+          "leverage"
+        ],
+        "title": "InstrumentLeverageResponse",
+        "type": "object"
+      },
       "InstrumentMetadataListResponse": {
         "properties": {
           "items": {
@@ -6341,6 +6368,60 @@
           }
         },
         "summary": "Quote Instrument Contracts"
+      }
+    },
+    "/instruments/{inst_id}/leverage": {
+      "get": {
+        "description": "Read-only: the leverage already configured on OKX for this instrument.\n\nThis never sets leverage \u2014 Maybech does not manage it. It only reads\nwhat an operator already configured on OKX so the manual-open panel\ncan show margin, not just notional. `net_mode` (enforced at live\npreflight) means exactly one leverage value per instrument/mgn_mode,\nso this mirrors the same max-across-rows behavior as the identical\ncheck `AccountRiskGuard._leverage` runs during entry approval.",
+        "operationId": "get_instrument_leverage_instruments__inst_id__leverage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inst_id",
+            "required": true,
+            "schema": {
+              "title": "Inst Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mgn_mode",
+            "required": false,
+            "schema": {
+              "default": "cross",
+              "enum": [
+                "cross",
+                "isolated"
+              ],
+              "title": "Mgn Mode",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentLeverageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Instrument Leverage"
       }
     },
     "/instruments/{inst_id}/risk-quote": {

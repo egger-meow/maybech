@@ -200,6 +200,12 @@ export type InstrumentContractQuoteRequest = {
   "rule_price"?: string | null;
 };
 
+export type InstrumentLeverageResponse = {
+  "inst_id": string;
+  "mgn_mode": "cross" | "isolated";
+  "leverage": string;
+};
+
 export type InstrumentMetadataListResponse = {
   "items": InstrumentMetadataResponse[];
   "rejected_items"?: InstrumentMetadataRejectionResponse[];
@@ -1004,6 +1010,7 @@ export type ApiSchemas = {
   "HTTPValidationError": HTTPValidationError;
   "HealthResponse": HealthResponse;
   "InstrumentContractQuoteRequest": InstrumentContractQuoteRequest;
+  "InstrumentLeverageResponse": InstrumentLeverageResponse;
   "InstrumentMetadataListResponse": InstrumentMetadataListResponse;
   "InstrumentMetadataRejectionResponse": InstrumentMetadataRejectionResponse;
   "InstrumentMetadataResponse": InstrumentMetadataResponse;

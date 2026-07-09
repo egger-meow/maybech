@@ -194,6 +194,12 @@ class InstrumentSizeQuoteResponse(BaseModel):
     estimated_pnl_usdt: str | None = None
 
 
+class InstrumentLeverageResponse(BaseModel):
+    inst_id: str
+    mgn_mode: Literal["cross", "isolated"]
+    leverage: str
+
+
 class InstrumentRiskQuoteRequest(BaseModel):
     mode: Literal["fixed_loss", "chart_anchored"]
     entry_price: str = Field(min_length=1, max_length=64)

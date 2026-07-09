@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from src.api.app import create_app
+from src.daemon.events import RuntimeState
 from src.daemon.service import DaemonRunner
 from src.daemon.account_service import AccountSnapshotService
 from src.trading.logical_position_store import LogicalPositionStore
@@ -274,6 +275,53 @@ def test_instrument_api_exposes_rejected_rows_without_hiding_valid_catalog(
     assert [item["inst_id"] for item in response.json()["items"]] == ["BTC-USDT-SWAP"]
     assert response.json()["rejected_items"][0]["inst_id"] == "TESTING-USDT-SWAP"
     assert "minSz" in response.json()["rejected_items"][0]["error"]
+
+
+def test_instrument_leverage_returns_max_configured_lever(monkeypatch):
+    class FakeOKXClient:
+        def get_leverage(self, *, inst_id, mgn_mode):
+            assert inst_id == "ETH-USDT-SWAP"
+            assert mgn_mode == "cross"
+            return [
+                {"instId": "ETH-USDT-SWAP", "mgnMode": "cross", "posSide": "net", "lever": "10"},
+                {"instId": "BTC-USDT-SWAP", "mgnMode": "cross", "posSide": "net", "lever": "20"},
+            ]
+
+    monkeypatch.setattr("src.api.app.OKXClient", FakeOKXClient)
+    response = TestClient(create_app(DaemonRunner(), api_token="")).get(
+        "/instruments/ETH-USDT-SWAP/leverage"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "inst_id": "ETH-USDT-SWAP",
+        "mgn_mode": "cross",
+        "leverage": "10",
+    }
+
+
+def test_instrument_leverage_404s_when_okx_has_no_matching_row(monkeypatch):
+    class FakeOKXClient:
+        def get_leverage(self, *, inst_id, mgn_mode):
+            return []
+
+    monkeypatch.setattr("src.api.app.OKXClient", FakeOKXClient)
+    response = TestClient(create_app(DaemonRunner(), api_token="")).get(
+        "/instruments/ETH-USDT-SWAP/leverage"
+    )
+
+    assert response.status_code == 404
+
+
+def test_instrument_leverage_blocked_in_simulation():
+    runtime = RuntimeState()
+    runtime.set_value("runtime.live_preflight", {"execution_mode": "simulation", "armed": False})
+    response = TestClient(create_app(DaemonRunner(runtime), api_token="")).get(
+        "/instruments/ETH-USDT-SWAP/leverage"
+    )
+
+    assert response.status_code == 409
+    assert "Simulation" in response.json()["detail"]
 
 
 def test_instrument_sizer_maps_base_quantity_to_contracts_and_pnl(tmp_path):

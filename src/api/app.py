@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from asyncio import QueueEmpty
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 import secrets
 import sqlite3
@@ -80,6 +80,7 @@ from src.api.schemas import (
     InstrumentMetadataListResponse,
     InstrumentMetadataResponse,
     InstrumentContractQuoteRequest,
+    InstrumentLeverageResponse,
     InstrumentSizeQuoteRequest,
     InstrumentSizeQuoteResponse,
     InstrumentRiskQuoteRequest,
@@ -1231,6 +1232,55 @@ def create_app(
             items=[InstrumentMetadataResponse(**record.to_dict()) for record in records],
             rejected_items=[],
             **store.cache_status(inst_type="SWAP"),
+        )
+
+    @app.get(
+        "/instruments/{inst_id}/leverage",
+        response_model=InstrumentLeverageResponse,
+    )
+    def get_instrument_leverage(
+        inst_id: str,
+        mgn_mode: Literal["cross", "isolated"] = "cross",
+    ) -> InstrumentLeverageResponse:
+        """Read-only: the leverage already configured on OKX for this instrument.
+
+        This never sets leverage — Maybech does not manage it. It only reads
+        what an operator already configured on OKX so the manual-open panel
+        can show margin, not just notional. `net_mode` (enforced at live
+        preflight) means exactly one leverage value per instrument/mgn_mode,
+        so this mirrors the same max-across-rows behavior as the identical
+        check `AccountRiskGuard._leverage` runs during entry approval.
+        """
+        client = exchange_client()
+        try:
+            rows = client.get_leverage(inst_id=inst_id, mgn_mode=mgn_mode)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"OKX leverage lookup failed: {exc}",
+            ) from exc
+        matching = [
+            row
+            for row in rows
+            if str(row.get("instId") or "") == inst_id
+            and str(row.get("mgnMode") or "") == mgn_mode
+        ]
+        if not matching:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No {mgn_mode} leverage configured for {inst_id} on OKX",
+            )
+        try:
+            leverage = max(Decimal(str(row.get("lever"))) for row in matching)
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"OKX returned an invalid leverage value for {inst_id}: {exc}",
+            ) from exc
+        return InstrumentLeverageResponse(
+            inst_id=inst_id,
+            mgn_mode=mgn_mode,
+            leverage=format(leverage.normalize(), "f"),
         )
 
     @app.post(
