@@ -500,6 +500,28 @@ export type MarketCandlesResponse = {
   "fetched_at": string;
 };
 
+export type MarketOverviewResponse = {
+  "inst_type": string;
+  "items"?: MarketOverviewTickerResponse[];
+  "unavailable_reason"?: string | null;
+  "fetched_at": string;
+};
+
+export type MarketOverviewTickerResponse = {
+  "inst_id": string;
+  "last_price": string;
+  "open_24h": string;
+  "high_24h": string;
+  "low_24h": string;
+  "change_24h_pct"?: string | null;
+  "vol_24h_contracts": string;
+  "vol_24h_quote_ccy": string;
+  "funding_rate"?: string | null;
+  "next_funding_time"?: string | null;
+  "price_precision"?: number | null;
+  "ts": string;
+};
+
 export type MutationStatusResponse = {
   "status": "deleted" | "ok";
   "id": string;
@@ -1036,6 +1058,8 @@ export type ApiSchemas = {
   "MarketAnalysisFreshnessResponse": MarketAnalysisFreshnessResponse;
   "MarketAnalysisQualityResponse": MarketAnalysisQualityResponse;
   "MarketCandlesResponse": MarketCandlesResponse;
+  "MarketOverviewResponse": MarketOverviewResponse;
+  "MarketOverviewTickerResponse": MarketOverviewTickerResponse;
   "MutationStatusResponse": MutationStatusResponse;
   "NotificationChannelHealthResponse": NotificationChannelHealthResponse;
   "NotificationHealthResponse": NotificationHealthResponse;

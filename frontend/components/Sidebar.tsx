@@ -26,12 +26,15 @@ export default function Sidebar() {
         <p>交易管理工作台</p>
       </div>
       <nav className="sidebar-nav" aria-label="主要導覽">
-        {links.map(({ href, label, icon: Icon }) => (
-          <Link key={href} href={href} className={pathname === href ? "nav-link active" : "nav-link"}>
-            <Icon size={20} />
-            {label}
-          </Link>
-        ))}
+        {links.map(({ href, label, icon: Icon }) => {
+          const active = pathname === href || (href !== "/" && pathname?.startsWith(`${href}/`));
+          return (
+            <Link key={href} href={href} className={active ? "nav-link active" : "nav-link"}>
+              <Icon size={20} />
+              {label}
+            </Link>
+          );
+        })}
       </nav>
       <div className="theme-slot"><ThemeToggle /></div>
     </aside>

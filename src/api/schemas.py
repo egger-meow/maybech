@@ -579,6 +579,28 @@ class MarketCandlesResponse(BaseModel):
     fetched_at: str
 
 
+class MarketOverviewTickerResponse(BaseModel):
+    inst_id: str
+    last_price: str
+    open_24h: str
+    high_24h: str
+    low_24h: str
+    change_24h_pct: str | None = None
+    vol_24h_contracts: str
+    vol_24h_quote_ccy: str
+    funding_rate: str | None = None
+    next_funding_time: str | None = None
+    price_precision: int | None = None
+    ts: str
+
+
+class MarketOverviewResponse(BaseModel):
+    inst_type: str
+    items: list[MarketOverviewTickerResponse] = Field(default_factory=list)
+    unavailable_reason: str | None = None
+    fetched_at: str
+
+
 class MarketAnalysisFreshnessResponse(BaseModel):
     evaluated_at: str
     latest_candle_at: str | None = None

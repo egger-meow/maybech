@@ -2860,6 +2860,134 @@
         "title": "MarketCandlesResponse",
         "type": "object"
       },
+      "MarketOverviewResponse": {
+        "properties": {
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "inst_type": {
+            "title": "Inst Type",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MarketOverviewTickerResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "inst_type",
+          "fetched_at"
+        ],
+        "title": "MarketOverviewResponse",
+        "type": "object"
+      },
+      "MarketOverviewTickerResponse": {
+        "properties": {
+          "change_24h_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change 24H Pct"
+          },
+          "funding_rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Funding Rate"
+          },
+          "high_24h": {
+            "title": "High 24H",
+            "type": "string"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "last_price": {
+            "title": "Last Price",
+            "type": "string"
+          },
+          "low_24h": {
+            "title": "Low 24H",
+            "type": "string"
+          },
+          "next_funding_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Funding Time"
+          },
+          "open_24h": {
+            "title": "Open 24H",
+            "type": "string"
+          },
+          "price_precision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Precision"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          },
+          "vol_24h_contracts": {
+            "title": "Vol 24H Contracts",
+            "type": "string"
+          },
+          "vol_24h_quote_ccy": {
+            "title": "Vol 24H Quote Ccy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inst_id",
+          "last_price",
+          "open_24h",
+          "high_24h",
+          "low_24h",
+          "vol_24h_contracts",
+          "vol_24h_quote_ccy",
+          "ts"
+        ],
+        "title": "MarketOverviewTickerResponse",
+        "type": "object"
+      },
       "MutationStatusResponse": {
         "properties": {
           "id": {
@@ -6668,6 +6796,46 @@
           }
         },
         "summary": "Get Market Candles"
+      }
+    },
+    "/market/overview": {
+      "get": {
+        "operationId": "get_market_overview_market_overview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "inst_type",
+            "required": false,
+            "schema": {
+              "default": "SWAP",
+              "title": "Inst Type",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Market Overview"
       }
     },
     "/notifications/health": {

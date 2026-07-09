@@ -105,6 +105,8 @@ from src.api.schemas import (
     LogicalPositionAllocationResponse,
     MutationStatusResponse,
     MarketCandlesResponse,
+    MarketOverviewResponse,
+    MarketOverviewTickerResponse,
     SupportResistanceAnalysisResponse,
     PositionGroupResponse,
     PositionChartOverlayResponse,
@@ -141,6 +143,15 @@ from src.api.schemas import (
     TradeRuleAttach,
     TradeRuleResponse,
 )
+
+
+def _decimal_or_none(value: object) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        return None
 
 
 def _serialize_event(event: RuntimeEvent) -> dict:
@@ -1463,6 +1474,63 @@ def create_app(
             candles=_fetch_candle_rows(inst_id, bar=bar, limit=limit, client=market_client()),
             fetched_at=datetime.now(timezone.utc).isoformat(),
         )
+
+    @app.get("/market/overview", response_model=MarketOverviewResponse)
+    def get_market_overview(inst_type: str = Query(default="SWAP")) -> dict:
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        if runtime_mode() == "simulation":
+            return MarketOverviewResponse(
+                inst_type=inst_type,
+                unavailable_reason="Simulation mode has no live market feed; switch to demo or live to see ticker data.",
+                fetched_at=fetched_at,
+            ).model_dump()
+        cached = InstrumentMetadataStore().list(inst_type=inst_type)
+        if not cached:
+            return MarketOverviewResponse(
+                inst_type=inst_type,
+                unavailable_reason="Instrument metadata cache is empty; refresh the instrument catalog first.",
+                fetched_at=fetched_at,
+            ).model_dump()
+        client = exchange_client()
+        tickers_by_inst = {
+            str(row.get("instId")): row for row in client.get_tickers(inst_type=inst_type)
+        }
+        rows: list[MarketOverviewTickerResponse] = []
+        for metadata in cached:
+            ticker = tickers_by_inst.get(metadata.inst_id)
+            if ticker is None:
+                continue
+            last = _decimal_or_none(ticker.get("last"))
+            open_24h = _decimal_or_none(ticker.get("open24h"))
+            change_pct = (
+                str(((last - open_24h) / open_24h * Decimal(100)).quantize(Decimal("0.01")))
+                if last is not None and open_24h
+                else None
+            )
+            rows.append(
+                MarketOverviewTickerResponse(
+                    inst_id=metadata.inst_id,
+                    last_price=str(ticker.get("last") or ""),
+                    open_24h=str(ticker.get("open24h") or ""),
+                    high_24h=str(ticker.get("high24h") or ""),
+                    low_24h=str(ticker.get("low24h") or ""),
+                    change_24h_pct=change_pct,
+                    vol_24h_contracts=str(ticker.get("vol24h") or ""),
+                    vol_24h_quote_ccy=str(ticker.get("volCcy24h") or ""),
+                    price_precision=metadata.price_precision,
+                    ts=str(ticker.get("ts") or ""),
+                )
+            )
+        rows.sort(key=lambda row: _decimal_or_none(row.vol_24h_quote_ccy) or Decimal(0), reverse=True)
+        for row in rows[:20]:
+            try:
+                funding = client.get_funding_rate(row.inst_id)
+            except RuntimeError:
+                continue
+            if funding:
+                row.funding_rate = str(funding[0].get("fundingRate") or "") or None
+                row.next_funding_time = str(funding[0].get("nextFundingTime") or "") or None
+        return MarketOverviewResponse(inst_type=inst_type, items=rows, fetched_at=fetched_at).model_dump()
 
     @app.get(
         "/market/analysis/support-resistance",

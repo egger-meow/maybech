@@ -235,6 +235,16 @@ class OKXClient:
         resp = self.market_api.get_ticker(instId=inst_id)
         return _extract(resp, label="get_ticker")
 
+    def get_tickers(self, inst_type: str = "SWAP") -> list[dict]:
+        """Fetch latest price snapshots for every instrument of a type in one call."""
+        resp = self.market_api.get_tickers(instType=inst_type)
+        return _extract(resp, label="get_tickers")
+
+    def get_funding_rate(self, inst_id: str) -> list[dict]:
+        """Fetch the current funding rate for a perpetual swap."""
+        resp = self.public_api.get_funding_rate(instId=inst_id)
+        return _extract(resp, label="get_funding_rate")
+
     # -- Order History (read-only) -------------------------------------------
 
     def get_order_history(

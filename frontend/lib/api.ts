@@ -38,6 +38,7 @@ import type {
   NotificationTestRequest,
   NotificationTestResponse,
   MarketCandlesResponse,
+  MarketOverviewResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
@@ -110,6 +111,7 @@ export type {
   NotificationTestRequest,
   NotificationTestResponse,
   MarketCandlesResponse,
+  MarketOverviewResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
@@ -362,6 +364,15 @@ export const getMarketCandles = (
   if (options.bar) params.set("bar", options.bar);
   if (options.limit) params.set("limit", String(options.limit));
   return fetcher<MarketCandlesResponse>(`/market/candles?${params.toString()}`);
+};
+
+export const getMarketOverview = (
+  options: { instType?: string } = {},
+): Promise<MarketOverviewResponse> => {
+  const params = new URLSearchParams();
+  if (options.instType) params.set("inst_type", options.instType);
+  const query = params.toString();
+  return fetcher<MarketOverviewResponse>(`/market/overview${query ? `?${query}` : ""}`);
 };
 
 export const getSupportResistanceAnalysis = (
