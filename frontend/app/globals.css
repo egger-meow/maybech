@@ -234,6 +234,11 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .segmented { display: inline-flex; border: 1px solid var(--border-color); border-radius: 999px; padding: 2px; background: var(--bg-secondary); }
 .segmented button { border: 0; border-radius: 999px; padding: .35rem .65rem; background: transparent; color: var(--text-muted); font-weight: 900; cursor: pointer; }
 .segmented button.selected { background: var(--accent-primary); color: white; }
+.size-mode-toggle { display: inline-flex; border: 1px solid var(--border-color); border-radius: 999px; padding: 2px; background: var(--bg-secondary); }
+.size-mode-toggle button { position: relative; border: 0; border-radius: 999px; padding: .35rem .65rem; background: transparent; color: var(--text-muted); font-weight: 900; cursor: pointer; }
+.size-mode-toggle button.selected { color: white; }
+.size-mode-toggle button > span { position: relative; z-index: 1; }
+.size-mode-pill { position: absolute; inset: 0; z-index: 0; border-radius: 999px; background: var(--accent-primary); }
 .expression-children { display: grid; gap: .6rem; }
 .expression-child { position: relative; }
 .operator-chip { display: block; width: max-content; margin: -.2rem auto .35rem; color: var(--accent-primary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 999px; padding: .15rem .55rem; font-size: .7rem; font-weight: 900; }

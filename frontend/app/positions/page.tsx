@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { AlertTriangle, CandlestickChart, CirclePlus, RotateCcw, Save, ShieldAlert, ShieldCheck, Trash2, TrendingDown, XCircle } from "lucide-react";
 
 import ExpressionEditor, { type SignalExpression } from "@/components/ExpressionEditor";
@@ -43,6 +44,12 @@ import {
 } from "@/lib/api";
 
 const activeStatuses = new Set(["pending_open", "open", "reducing", "closing"]);
+
+const SIZE_MODE_OPTIONS: { value: "coin" | "usdt" | "risk"; label: string }[] = [
+  { value: "coin", label: "依幣量" },
+  { value: "usdt", label: "依 USDT 名目" },
+  { value: "risk", label: "依風險預算" },
+];
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -221,6 +228,7 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
           ? "Live Armed 尚未武裝或未啟用進場，已封鎖"
           : `目前模式 ${preflight.data?.execution_mode ?? "未知"}，已封鎖`;
   return (
+    <MotionConfig reducedMotion="user">
     <div className="manual-open-layout">
       <section className="panel manual-open-chart-panel">
         <div className="panel-heading"><div><h2><CandlestickChart size={19} /> 價格走勢與規則預覽</h2><p>下方輸入的進場、停損、停利會即時畫在圖上，尚未送出前可先確認位置是否合理。</p></div></div>
@@ -245,10 +253,13 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
         <label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
         <div className="field">
           <span>部位大小輸入方式</span>
-          <div className="segmented">
-            <button type="button" className={sizeMode === "coin" ? "selected" : ""} onClick={() => setSizeMode("coin")}>依幣量</button>
-            <button type="button" className={sizeMode === "usdt" ? "selected" : ""} onClick={() => setSizeMode("usdt")}>依 USDT 名目</button>
-            <button type="button" className={sizeMode === "risk" ? "selected" : ""} onClick={() => setSizeMode("risk")}>依風險預算</button>
+          <div className="size-mode-toggle">
+            {SIZE_MODE_OPTIONS.map(({ value, label }) => (
+              <button key={value} type="button" className={sizeMode === value ? "selected" : ""} onClick={() => setSizeMode(value)}>
+                {sizeMode === value && <motion.span layoutId="size-mode-pill" className="size-mode-pill" transition={{ type: "spring", stiffness: 500, damping: 35 }} />}
+                <span>{label}</span>
+              </button>
+            ))}
           </div>
         </div>
         {sizeMode === "coin" && (
@@ -281,20 +292,27 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
         <div><small>風險預算內最大名目</small><strong>{riskQuote.data.estimated_notional_usdt} USDT</strong></div>
         <div><small>未使用風險</small><strong>{riskQuote.data.unused_risk_usdt} USDT</strong></div>
       </div>}
-      {resolvedQuote && <div className="manual-open-quote">
-        <span className="margin-tile"><small>保證金 Margin（實際佔用）</small><strong>{marginUsdt != null ? `${number(marginUsdt, 2)} USDT` : "無槓桿資料"}</strong></span>
-        <span><small>名目金額 Notional（總曝險，非實際佔用）</small><strong>{resolvedQuote.estimated_notional_usdt} USDT</strong></span>
-        <span><small>顯示幣量</small><strong>{resolvedQuote.display_quantity} {resolvedQuote.display_currency}</strong></span>
-        <span><small>OKX API 數量</small><strong>{resolvedQuote.api_quantity_contracts} 口</strong></span>
-        <span><small>停損估算損失</small><strong className={Number(resolvedQuote.estimated_pnl_usdt) < 0 ? "negative" : ""}>{resolvedQuote.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${resolvedQuote.estimated_pnl_usdt} USDT`}</strong></span>
-      </div>}
-      {marginShortfall && <div className="inline-warning"><AlertTriangle size={15} /> 停損估算損失（{number(estimatedLossUsdt, 2)} USDT）超過本倉保證金（{number(marginUsdt, 2)} USDT），代表此倉位停損距離相對倉位本身槓桿偏寬。</div>}
-      {accountMarginShortfall && <div className="error-state"><AlertTriangle size={16} /> 停損估算損失（{number(estimatedLossUsdt, 2)} USDT）超過目前帳戶可用保證金（{number(freeMarginUsdt, 2)} USD）。帳戶為 cross 保證金模式，觸發此停損可能危及其他持倉；請縮小部位、收緊停損，或先增加帳戶可用保證金再送出。</div>}
+      <AnimatePresence>
+        {resolvedQuote && <motion.div key="manual-open-quote" className="manual-open-quote" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+          <span className="margin-tile"><small>保證金 Margin（實際佔用）</small><strong>{marginUsdt != null ? `${number(marginUsdt, 2)} USDT` : "無槓桿資料"}</strong></span>
+          <span><small>名目金額 Notional（總曝險，非實際佔用）</small><strong>{resolvedQuote.estimated_notional_usdt} USDT</strong></span>
+          <span><small>顯示幣量</small><strong>{resolvedQuote.display_quantity} {resolvedQuote.display_currency}</strong></span>
+          <span><small>OKX API 數量</small><strong>{resolvedQuote.api_quantity_contracts} 口</strong></span>
+          <span><small>停損估算損失</small><strong className={Number(resolvedQuote.estimated_pnl_usdt) < 0 ? "negative" : ""}>{resolvedQuote.estimated_pnl_usdt == null ? "輸入停損後顯示" : `${resolvedQuote.estimated_pnl_usdt} USDT`}</strong></span>
+        </motion.div>}
+      </AnimatePresence>
+      <AnimatePresence>
+        {marginShortfall && <motion.div key="margin-shortfall" className="inline-warning" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.2, ease: "easeOut" }}><AlertTriangle size={15} /> 停損估算損失（{number(estimatedLossUsdt, 2)} USDT）超過本倉保證金（{number(marginUsdt, 2)} USDT），代表此倉位停損距離相對倉位本身槓桿偏寬。</motion.div>}
+      </AnimatePresence>
+      <AnimatePresence>
+        {accountMarginShortfall && <motion.div key="account-margin-shortfall" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.2, ease: "easeOut" }}><AlertTriangle size={16} /> 停損估算損失（{number(estimatedLossUsdt, 2)} USDT）超過目前帳戶可用保證金（{number(freeMarginUsdt, 2)} USD）。帳戶為 cross 保證金模式，觸發此停損可能危及其他持倉；請縮小部位、收緊停損，或先增加帳戶可用保證金再送出。</motion.div>}
+      </AnimatePresence>
       {resolvedQuoteError && <div className="error-state">{sizeMode === "risk" ? "目前風險預算與停損距離無法安全換算成合法 lot size 部位。" : "目前數量無法安全換算成 OKX 合約口數。"}</div>}
       {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
       <div className="form-actions"><button type="button" className={`btn ${liveArmedReady ? "btn-danger" : "btn-primary"}`} disabled={busy || !allowed || !resolvedQuote || !submitStopLoss} onClick={submit}>{busy ? (liveArmedReady || isDemo ? "送出中…" : "建立中…") : liveArmedReady ? "⚠️ 確認送出 Live Armed 真實訂單" : isDemo ? "確認送出 Demo 真實訂單" : "確認建立 Simulation 單位"}</button></div>
       </section>
     </div>
+    </MotionConfig>
   );
 }
 
