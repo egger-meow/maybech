@@ -44,13 +44,13 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-1. Broader Position Management / Strategy Management visual pass (operator
-   explicitly activated; `motion` package already installed and proven in
-   manual-open — extend the same restrained, meaning-tied pattern to
-   position cards and elsewhere as part of this pass). Use ui-ux-pro-max
-   skill guidance. Acceptance: all existing close-condition functionality
-   (signal exit, stop/take-profit, break-even, trailing) still works
-   unchanged; only clarity/layout/motion, no functional regressions.
+Empty. The Position Management / Strategy Management visual pass (motion,
+list-selection rail, collapsible break-even/trailing/audit panels) is
+complete and verified: `npm run verify` (contract/lint/typecheck/build)
+passed, and manual browser testing confirmed close-condition add/remove still
+works correctly on both pages — including a real regression caught and fixed
+during that testing (AnimatePresence mismatching rule content on removal for
+the strategy draft's index-keyed rule list).
 
 The completed position-rule and market-analysis phase is audited in
 `docs/position-rule-phase-audit.md`.
