@@ -84,15 +84,21 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   const preflight = useSWR("runtime-preflight", getLivePreflight);
   const [instrument, setInstrument] = useState("");
   const [side, setSide] = useState<"long" | "short">("long");
+  const [sizeMode, setSizeMode] = useState<"coin" | "usdt">("coin");
   const [quantity, setQuantity] = useState("");
+  const [usdtAmount, setUsdtAmount] = useState("");
   const [entryPrice, setEntryPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const entryPriceNumber = Number(entryPrice);
+  const effectiveQuantity = sizeMode === "usdt"
+    ? (usdtAmount && entryPriceNumber > 0 ? String(Number(usdtAmount) / entryPriceNumber) : "")
+    : quantity;
   const quote = useSWR(
-    instrument && quantity && entryPrice ? ["manual-size-quote", instrument, quantity, entryPrice, side] : null,
-    () => quoteInstrumentSize(instrument, { display_quantity: quantity, entry_price: entryPrice, side, rule_price: stopLoss || null }),
+    instrument && effectiveQuantity && entryPrice ? ["manual-size-quote", instrument, effectiveQuantity, entryPrice, side] : null,
+    () => quoteInstrumentSize(instrument, { display_quantity: effectiveQuantity, entry_price: entryPrice, side, rule_price: stopLoss || null }),
   );
   const exchangeConnected = preflight.data?.execution_mode === "demo" || preflight.data?.execution_mode === "live_armed" || preflight.data?.execution_mode === "live_safe";
   const leverage = useSWR(
@@ -127,11 +133,12 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   const submit = async () => {
     if (!quote.data) { setError("商品數量尚未通過 OKX 單位換算，不能建立部位。"); return; }
     if (!stopLoss) { setError("必須設定保護性停損底線。"); return; }
+    const sizeLine = `顯示幣量：${quote.data.display_quantity} ${quote.data.display_currency}`;
     const confirmMessage = liveArmedReady
-      ? `⚠️ 送出 ${instrument} ${side === "long" ? "做多" : "做空"} Live Armed 真實訂單？此動作會對正式帳戶下真實單，動用真實資金。\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT\n保護停損：${stopLoss}`
+      ? `⚠️ 送出 ${instrument} ${side === "long" ? "做多" : "做空"} Live Armed 真實訂單？此動作會對正式帳戶下真實單，動用真實資金。\n\n${sizeLine}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT\n保護停損：${stopLoss}`
       : isDemo
-      ? `送出 ${instrument} ${side === "long" ? "做多" : "做空"} Demo 真實訂單？此動作會連接 OKX Demo 帳戶下單。\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`
-      : `建立 ${instrument} ${side === "long" ? "做多" : "做空"} Simulation 邏輯單位？\n\n顯示幣量：${quantity}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`;
+      ? `送出 ${instrument} ${side === "long" ? "做多" : "做空"} Demo 真實訂單？此動作會連接 OKX Demo 帳戶下單。\n\n${sizeLine}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`
+      : `建立 ${instrument} ${side === "long" ? "做多" : "做空"} Simulation 邏輯單位？\n\n${sizeLine}\nOKX API：${quote.data.api_quantity_contracts} 口\n估算名目：${quote.data.estimated_notional_usdt} USDT`;
     if (!confirm(confirmMessage)) return;
     if (liveArmedReady && !confirm(`再次確認：這是 Live Armed 正式帳戶的真實訂單，無法模擬撤回。是否繼續送出？`)) return;
     setBusy(true); setError("");
@@ -140,13 +147,13 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
         confirm: true,
         inst_id: instrument,
         side,
-        display_quantity: quantity,
+        display_quantity: effectiveQuantity,
         entry_price: entryPrice,
         stop_loss_price: stopLoss,
         take_profit_price: takeProfit || null,
       });
       await onCreated(created.id);
-      setQuantity(""); setStopLoss(""); setTakeProfit("");
+      setQuantity(""); setUsdtAmount(""); setStopLoss(""); setTakeProfit("");
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   };
   const badgeLabel = isSimulation
@@ -169,7 +176,26 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
           {instrument && !exchangeConnected && <small className="leverage-hint">Simulation 無交易所連線，不提供槓桿／保證金資料</small>}
         </div>
         <label className="field"><span>方向</span><select value={side} onChange={(event) => setSide(event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
-        <label className="field"><span>操作者幣量（{instrument.split("-")[0] || "基礎幣"}）</span><input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>
+        <div className="field">
+          <span>部位大小輸入方式</span>
+          <div className="segmented">
+            <button type="button" className={sizeMode === "coin" ? "selected" : ""} onClick={() => setSizeMode("coin")}>依幣量</button>
+            <button type="button" className={sizeMode === "usdt" ? "selected" : ""} onClick={() => setSizeMode("usdt")}>依 USDT 名目</button>
+          </div>
+        </div>
+        {sizeMode === "coin" ? (
+          <label className="field">
+            <span>操作者幣量（{instrument.split("-")[0] || "基礎幣"}）</span>
+            <input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+            {quantity && entryPriceNumber > 0 && <small className="conversion-hint">≈ {number(Number(quantity) * entryPriceNumber, 2)} USDT 名目</small>}
+          </label>
+        ) : (
+          <label className="field">
+            <span>部位名目金額（USDT）</span>
+            <input type="number" min="0" step="any" value={usdtAmount} onChange={(event) => setUsdtAmount(event.target.value)} />
+            {usdtAmount && entryPriceNumber > 0 && <small className="conversion-hint">≈ {number(Number(usdtAmount) / entryPriceNumber, 6)} {instrument.split("-")[0] || "基礎幣"}</small>}
+          </label>
+        )}
         <label className="field"><span>進場限價（預填目前價）</span><input type="number" min="0" step="any" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} /></label>
         <label className="field"><span>保護停損價（必填）</span><input type="number" min="0" step="any" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /></label>
         <label className="field"><span>停利價（選填）</span><input type="number" min="0" step="any" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} /></label>

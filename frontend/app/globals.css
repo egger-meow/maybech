@@ -377,6 +377,7 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .manual-open-quote .margin-tile { background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-primary)); border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, var(--border-color)); }
 .manual-open-quote .margin-tile strong { color: var(--accent-primary); font-size: 1.05em; }
 .leverage-hint { display: block; margin-top: .35rem; color: var(--text-muted); font-size: .76rem; }
+.conversion-hint { display: block; margin-top: .3rem; color: var(--text-muted); font-size: .76rem; }
 .position-list { position: sticky; top: 1rem; }
 .position-list-items { display: grid; gap: .65rem; max-height: calc(100vh - 170px); overflow-y: auto; }
 .position-list-item { display: grid; grid-template-columns: 5px minmax(0, 1fr) auto; gap: .7rem; align-items: center; width: 100%; padding: .8rem; text-align: left; color: var(--text-primary); border: 1px solid transparent; border-radius: var(--radius-md); background: var(--bg-primary); cursor: pointer; }
