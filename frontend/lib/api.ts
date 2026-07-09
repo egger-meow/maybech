@@ -103,6 +103,7 @@ export type {
   LogicalPositionReduceResponse,
   LogicalPositionAllocationResponse,
   LogicalPositionChartResponse,
+  PositionChartOverlayResponse,
   MutationStatusResponse,
   NotificationHealthResponse,
   NotificationTestRequest,

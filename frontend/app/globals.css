@@ -369,6 +369,12 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .size-quote.blocked { background: color-mix(in srgb, var(--accent-danger) 12%, var(--bg-secondary)); color: var(--accent-danger); }
 .error-state { display: flex; align-items: center; gap: .5rem; }
 .position-workspace { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.manual-open-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(360px, 1fr); gap: 1rem; align-items: start; }
+.manual-open-chart-panel { position: sticky; top: 1rem; }
+@media (max-width: 1200px) {
+  .manual-open-layout { grid-template-columns: 1fr; }
+  .manual-open-chart-panel { position: static; }
+}
 .manual-open-panel { border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--border-color)); }
 .manual-open-quote { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .65rem; margin-top: 1rem; }
 .manual-open-quote > span { display: grid; gap: .3rem; min-width: 0; padding: .75rem; border-radius: var(--radius-md); background: var(--bg-primary); }

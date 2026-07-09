@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { AlertTriangle, CandlestickChart, CirclePlus, RotateCcw, Save, ShieldAlert, ShieldCheck, Trash2, TrendingDown, XCircle } from "lucide-react";
 
@@ -34,8 +34,10 @@ import {
   updateLogicalPositionCloseCondition,
   validateSignal,
   type LogicalPositionCloseCondition,
+  type LogicalPositionChartResponse,
   type LogicalPositionUnit,
   type InstrumentMetadataResponse,
+  type PositionChartOverlayResponse,
 } from "@/lib/api";
 
 const activeStatuses = new Set(["pending_open", "open", "reducing", "closing"]);
@@ -109,6 +111,30 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   const marginUsdt = quote.data && leverageValue ? Number(quote.data.estimated_notional_usdt) / leverageValue : null;
   const estimatedLossUsdt = quote.data?.estimated_pnl_usdt != null ? Math.abs(Number(quote.data.estimated_pnl_usdt)) : null;
   const marginShortfall = marginUsdt != null && estimatedLossUsdt != null && estimatedLossUsdt > marginUsdt;
+  const instrumentMetadata = catalog.find((item) => item.inst_id === instrument);
+  const pricePrecision = instrumentMetadata?.price_precision;
+  const candles = useSWR(
+    instrument ? ["manual-open-candles", instrument] : null,
+    () => getMarketCandles(instrument, { bar: "5m", limit: 200 }),
+    { refreshInterval: 15_000 },
+  );
+  // No position exists yet, so there is no /positions/logical/{id}/chart to call —
+  // this builds the same LogicalPositionChartResponse shape client-side from raw
+  // candles plus whatever the operator has typed so far, so PositionKlineChart
+  // (built for an existing position) can preview a draft one unmodified.
+  const draftChart: LogicalPositionChartResponse | null = useMemo(() => {
+    if (!candles.data) return null;
+    const rows = candles.data.candles ?? [];
+    const latest = rows[rows.length - 1];
+    const overlays: PositionChartOverlayResponse[] = [];
+    if (latest) overlays.push({ kind: "current", price: latest.close, timestamp: latest.timestamp, label: "現價" });
+    if (entryPriceNumber > 0) overlays.push({ kind: "entry", price: entryPriceNumber, label: "進場" });
+    const stopNumber = Number(stopLoss);
+    if (stopNumber > 0) overlays.push({ kind: "stop_loss", price: stopNumber, label: "停損" });
+    const takeProfitNumber = Number(takeProfit);
+    if (takeProfitNumber > 0) overlays.push({ kind: "take_profit", price: takeProfitNumber, label: "停利" });
+    return { ...candles.data, position_id: "draft", overlays };
+  }, [candles.data, entryPriceNumber, stopLoss, takeProfit]);
   const selectInstrument = async (next: string[]) => {
     const selected = next[0] ?? "";
     setInstrument(selected);
@@ -166,7 +192,18 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
           ? "Live Armed 尚未武裝或未啟用進場，已封鎖"
           : `目前模式 ${preflight.data?.execution_mode ?? "未知"}，已封鎖`;
   return (
-    <section className="panel manual-open-panel">
+    <div className="manual-open-layout">
+      <section className="panel manual-open-chart-panel">
+        <div className="panel-heading"><div><h2><CandlestickChart size={19} /> 價格走勢與規則預覽</h2><p>下方輸入的進場、停損、停利會即時畫在圖上，尚未送出前可先確認位置是否合理。</p></div></div>
+        {!instrument
+          ? <div className="empty-state">先選擇 OKX 交易商品以顯示圖表。</div>
+          : candles.error
+            ? <div className="error-state">K 線 API 無法使用，畫面不會推測目前價格。</div>
+            : !draftChart
+              ? <div className="loading-state">讀取 K 線資料…</div>
+              : <PositionKlineChart chart={draftChart} pricePrecision={pricePrecision} />}
+      </section>
+      <section className="panel manual-open-panel">
       <div className="panel-heading"><div><h2><CirclePlus size={19} /> 手動建立邏輯部位</h2><p>以本機重播價格預填；你仍可修改。Simulation 僅建立本機模擬紀錄，不會連接交易所；Demo 會對 OKX Demo 帳戶送出真實訂單。Live Armed 僅在已武裝且進場已啟用時可送出正式帳戶真實訂單；Live Safe 一律封鎖手動建立。</p></div><span className={`badge ${allowed ? (isSimulation ? "success" : "warning") : "danger"}`}>{badgeLabel}</span></div>
       <div className="form-grid">
         <div className="field full">
@@ -211,7 +248,8 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
       {quote.error && <div className="error-state">目前數量無法安全換算成 OKX 合約口數。</div>}
       {error && <div className="error-state"><AlertTriangle size={16} /> {error}</div>}
       <div className="form-actions"><button type="button" className={`btn ${liveArmedReady ? "btn-danger" : "btn-primary"}`} disabled={busy || !allowed || !quote.data || !stopLoss} onClick={submit}>{busy ? (liveArmedReady || isDemo ? "送出中…" : "建立中…") : liveArmedReady ? "⚠️ 確認送出 Live Armed 真實訂單" : isDemo ? "確認送出 Demo 真實訂單" : "確認建立 Simulation 單位"}</button></div>
-    </section>
+      </section>
+    </div>
   );
 }
 
