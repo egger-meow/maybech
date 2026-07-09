@@ -137,6 +137,7 @@ function AnalysisResearchContent() {
       kind: level.price === selectedStop ? "selected_level" : level.kind,
       price: level.price,
       label: `${level.kind === "support" ? "支撐" : "壓力"} ${format(level.score * 100, 0)}%`,
+      evidenceScore: level.score,
     }));
     if (analysis.data?.latest_price != null) {
       overlays.push({ kind: "current", price: analysis.data.latest_price, label: "目前價" });
@@ -166,7 +167,7 @@ function AnalysisResearchContent() {
       <section className="analysis-metrics"><article className="panel"><Database size={20} /><small>可用 / 輸入 K 線</small><strong>{analysis.data.quality.usable_candles} / {analysis.data.quality.input_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>研究層級</small><strong>{sortedLevels.length}</strong></article><article className="panel"><ShieldAlert size={20} /><small>缺漏 / 重複</small><strong>{analysis.data.quality.missing_candles} / {analysis.data.quality.duplicate_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>ATR 波動</small><strong>{formatPrice(analysis.data.volatility_atr, analysis.data.price_precision)}</strong></article></section>
       <div className="analysis-chart-layout">
         <section className="panel analysis-chart-panel">
-          <div className="panel-heading"><div><h2><BarChart3 size={20} /> K 線與研究層級</h2><p>支撐（綠）／壓力（紅）依證據分數標示；選取的層級以藍色標出；風險試算的進場與停損會即時疊圖顯示。</p></div></div>
+          <div className="panel-heading"><div><h2><BarChart3 size={20} /> K 線與研究層級</h2><p>支撐（綠）／壓力（紅）依證據分數標示；圓圈大小反映證據分數；選取的層級以藍色標出；風險試算的進場與停損會即時疊圖顯示。</p></div></div>
           {candles.error ? <div className="error-state">K 線圖不可用。</div> : !candles.data ? <div className="loading-state">正在繪製 K 線…</div> : <KlineChart chart={klineChart} pricePrecision={analysis.data.price_precision} showLegend={false} ariaLabel={`${instrument} 支撐壓力研究 K 線`} />}
         </section>
         <section className="panel analysis-levels-panel">

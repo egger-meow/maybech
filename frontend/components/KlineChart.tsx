@@ -25,6 +25,9 @@ export type KlineChartOverlay = {
   timestamp?: string | null;
   label: string;
   allocation_id?: string | null;
+  // 0-1 evidence strength for research levels (support/resistance); drawn as a
+  // circle marker sized by conviction so stronger levels read as more solid.
+  evidenceScore?: number | null;
 };
 
 export type KlineChartData = {
@@ -58,7 +61,7 @@ const EVENT_MARKER_OVERLAY = "position-event-marker";
 const CANDLE_PANE_ID = "candle_pane";
 const VOLUME_PANE_ID = "position-volume-pane";
 
-type OverlayExtendData = { color?: string; text?: string };
+type OverlayExtendData = { color?: string; text?: string; evidenceScore?: number | null };
 
 // registerOverlay mutates a module-level registry inside klinecharts itself, so this
 // only needs to happen once per page load, not once per chart instance.
@@ -77,31 +80,44 @@ function registerPositionOverlays() {
     createPointFigures: ({ overlay, coordinates, bounding }): OverlayFigure[] => {
       const point = coordinates[0];
       if (!point) return [];
-      const { color = "#64748b", text = "" } = (overlay.extendData ?? {}) as OverlayExtendData;
-      return [
+      const { color = "#64748b", text = "", evidenceScore } = (overlay.extendData ?? {}) as OverlayExtendData;
+      const figures: OverlayFigure[] = [
         {
           type: "line",
           attrs: { coordinates: [{ x: 0, y: point.y }, { x: bounding.width, y: point.y }] },
           styles: { style: "dashed", dashedValue: [6, 4], size: 1.5, color },
           ignoreEvent: true,
         },
-        {
-          type: "text",
-          attrs: { x: bounding.width - 4, y: point.y, text, align: "right", baseline: "bottom" },
-          styles: {
-            color: "#fff",
-            backgroundColor: color,
-            size: 11,
-            weight: "600",
-            paddingLeft: 4,
-            paddingRight: 4,
-            paddingTop: 2,
-            paddingBottom: 2,
-            borderRadius: 3,
-          },
-          ignoreEvent: true,
-        },
       ];
+      // Evidence-weighted marker near the chart's left edge: radius scales with
+      // conviction (score) so a glance at circle size ranks levels without
+      // cluttering the price line/label on the right.
+      if (evidenceScore != null && Number.isFinite(evidenceScore)) {
+        const radius = 3 + Math.max(0, Math.min(1, evidenceScore)) * 7;
+        figures.push({
+          type: "circle",
+          attrs: { x: 18, y: point.y, r: radius },
+          styles: { style: "stroke_fill", color: `${color}33`, borderColor: color, borderSize: 1.5 },
+          ignoreEvent: true,
+        });
+      }
+      figures.push({
+        type: "text",
+        attrs: { x: bounding.width - 4, y: point.y, text, align: "right", baseline: "bottom" },
+        styles: {
+          color: "#fff",
+          backgroundColor: color,
+          size: 11,
+          weight: "600",
+          paddingLeft: 4,
+          paddingRight: 4,
+          paddingTop: 2,
+          paddingBottom: 2,
+          borderRadius: 3,
+        },
+        ignoreEvent: true,
+      });
+      return figures;
     },
   });
 
@@ -315,7 +331,11 @@ export default function KlineChart({
         name: LEVEL_LINE_OVERLAY,
         id: `level-${overlay.kind}-${index}`,
         points: [{ value: overlay.price }],
-        extendData: { color, text: `${overlay.label} ${formatPrice(overlay.price, pricePrecision)}` } satisfies OverlayExtendData,
+        extendData: {
+          color,
+          text: `${overlay.label} ${formatPrice(overlay.price, pricePrecision)}`,
+          evidenceScore: overlay.evidenceScore,
+        } satisfies OverlayExtendData,
         lock: true,
       });
     });
