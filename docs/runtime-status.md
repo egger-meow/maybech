@@ -127,10 +127,14 @@ Frontends must use `active`; there is no `state` field.
   current position intent, matching OKX net-position snapshot data when present,
   conservative reconciliation state, and related audit events when event
   payloads reference the trade/position id.
-- `POST /positions/manual-open` creates a simulated `source=manual` unit in
-  Simulation after cached-instrument sizing and stop-direction validation. It
-  records a confirmed simulated allocation and durable audit event. Demo/real
-  calls are rejected before persistence in this build.
+- `POST /positions/manual-open` creates a `source=manual` unit after
+  cached-instrument sizing and stop-direction validation (`stop_loss_price` is
+  required for every mode). Simulation fabricates a confirmed local allocation
+  and durable audit event. Demo, and an armed/entries-enabled Live Armed
+  runtime, submit a real order through the shared entry-submission path (risk
+  approval, execution-ingestion-readiness gate, protection verification,
+  emergency-close-on-failure) instead. Live Safe calls, and unarmed or
+  entries-disabled Live Armed calls, are rejected before persistence.
 - `GET /positions/logical/{position_id}/chart` returns recent candles plus
   entry, current, stop, target, break-even, trailing candidate, and confirmed
   reduce/close execution overlays.
