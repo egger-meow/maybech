@@ -22,7 +22,13 @@ from src.config.settings import settings
 from src.data.candles import CandleManager
 from src.data.simulation_market import SimulationMarketClient
 from src.data.simulation_instruments import SIMULATION_SWAP_INSTRUMENTS
-from src.market.macro_overview import fetch_fear_greed, fetch_funding_overview, fetch_mvrv_zscore, fetch_prices
+from src.market.macro_overview import (
+    fetch_fear_greed,
+    fetch_funding_overview,
+    fetch_global_market,
+    fetch_mvrv_zscore,
+    fetch_prices,
+)
 from src.market.support_resistance import SupportResistanceService
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
@@ -1572,18 +1578,43 @@ def create_app(
         return MarketOverviewResponse(inst_type=inst_type, items=rows, fetched_at=fetched_at).model_dump()
 
     def _mvrv_response_dict(mvrv: dict) -> dict:
-        return {**mvrv, "value": None if mvrv.get("value") is None else str(mvrv["value"])}
+        return {
+            **mvrv,
+            "value": None if mvrv.get("value") is None else str(mvrv["value"]),
+            "history": [
+                {"date": point["date"], "value": str(point["value"])}
+                for point in mvrv.get("history", [])
+            ],
+        }
+
+    def _global_market_response_dict(global_market: dict) -> dict:
+        return {
+            key: (None if value is None else str(value))
+            if key
+            in {
+                "total_market_cap_usd",
+                "total_volume_usd",
+                "market_cap_change_24h_pct",
+                "volume_change_24h_pct",
+                "btc_dominance_pct",
+                "eth_dominance_pct",
+            }
+            else value
+            for key, value in global_market.items()
+        }
 
     @app.get("/market/macro-overview", response_model=MarketMacroOverviewResponse)
     def get_market_macro_overview() -> dict:
         fetched_at = datetime.now(timezone.utc).isoformat()
         fear_greed = fetch_fear_greed()
         mvrv = _mvrv_response_dict(fetch_mvrv_zscore())
+        global_market = _global_market_response_dict(fetch_global_market())
         if runtime_mode() == "simulation":
             return MarketMacroOverviewResponse(
                 fetched_at=fetched_at,
                 fear_greed=fear_greed,
                 mvrv=mvrv,
+                global_market=global_market,
                 funding={
                     "unavailable_reason": (
                         "Simulation mode has no live market feed; switch to demo or live "
@@ -1606,6 +1637,7 @@ def create_app(
             ],
             fear_greed=fear_greed,
             mvrv=mvrv,
+            global_market=global_market,
             funding={
                 "entries": [
                     {

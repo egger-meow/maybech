@@ -621,10 +621,29 @@ class FearGreedResponse(BaseModel):
     unavailable_reason: str | None = None
 
 
+class MvrvZScorePointResponse(BaseModel):
+    value: str
+    date: str
+
+
 class MvrvZScoreResponse(BaseModel):
     value: str | None = None
     classification: str | None = None
     as_of: str | None = None
+    history: list[MvrvZScorePointResponse] = Field(default_factory=list)
+    unavailable_reason: str | None = None
+
+
+class GlobalMarketOverviewResponse(BaseModel):
+    total_market_cap_usd: str | None = None
+    total_volume_usd: str | None = None
+    market_cap_change_24h_pct: str | None = None
+    volume_change_24h_pct: str | None = None
+    btc_dominance_pct: str | None = None
+    eth_dominance_pct: str | None = None
+    active_cryptocurrencies: int | None = None
+    markets: int | None = None
+    updated_at: str | None = None
     unavailable_reason: str | None = None
 
 
@@ -645,6 +664,7 @@ class MarketMacroOverviewResponse(BaseModel):
     prices: list[MacroPricePointResponse] = Field(default_factory=list)
     fear_greed: FearGreedResponse
     mvrv: MvrvZScoreResponse
+    global_market: GlobalMarketOverviewResponse
     funding: FundingOverviewResponse
 
 

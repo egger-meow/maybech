@@ -208,6 +208,19 @@ export type FundingOverviewResponse = {
   "unavailable_reason"?: string | null;
 };
 
+export type GlobalMarketOverviewResponse = {
+  "total_market_cap_usd"?: string | null;
+  "total_volume_usd"?: string | null;
+  "market_cap_change_24h_pct"?: string | null;
+  "volume_change_24h_pct"?: string | null;
+  "btc_dominance_pct"?: string | null;
+  "eth_dominance_pct"?: string | null;
+  "active_cryptocurrencies"?: number | null;
+  "markets"?: number | null;
+  "updated_at"?: string | null;
+  "unavailable_reason"?: string | null;
+};
+
 export type HTTPValidationError = {
   "detail"?: ValidationError[];
 };
@@ -535,6 +548,7 @@ export type MarketMacroOverviewResponse = {
   "prices"?: MacroPricePointResponse[];
   "fear_greed": FearGreedResponse;
   "mvrv": MvrvZScoreResponse;
+  "global_market": GlobalMarketOverviewResponse;
   "funding": FundingOverviewResponse;
 };
 
@@ -565,10 +579,16 @@ export type MutationStatusResponse = {
   "id": string;
 };
 
+export type MvrvZScorePointResponse = {
+  "value": string;
+  "date": string;
+};
+
 export type MvrvZScoreResponse = {
   "value"?: string | null;
   "classification"?: string | null;
   "as_of"?: string | null;
+  "history"?: MvrvZScorePointResponse[];
   "unavailable_reason"?: string | null;
 };
 
@@ -1078,6 +1098,7 @@ export type ApiSchemas = {
   "FearGreedResponse": FearGreedResponse;
   "FundingOverviewEntryResponse": FundingOverviewEntryResponse;
   "FundingOverviewResponse": FundingOverviewResponse;
+  "GlobalMarketOverviewResponse": GlobalMarketOverviewResponse;
   "HTTPValidationError": HTTPValidationError;
   "HealthResponse": HealthResponse;
   "InstrumentContractQuoteRequest": InstrumentContractQuoteRequest;
@@ -1112,6 +1133,7 @@ export type ApiSchemas = {
   "MarketOverviewResponse": MarketOverviewResponse;
   "MarketOverviewTickerResponse": MarketOverviewTickerResponse;
   "MutationStatusResponse": MutationStatusResponse;
+  "MvrvZScorePointResponse": MvrvZScorePointResponse;
   "MvrvZScoreResponse": MvrvZScoreResponse;
   "NotificationChannelHealthResponse": NotificationChannelHealthResponse;
   "NotificationHealthResponse": NotificationHealthResponse;

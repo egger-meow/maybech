@@ -1151,6 +1151,122 @@
         "title": "FundingOverviewResponse",
         "type": "object"
       },
+      "GlobalMarketOverviewResponse": {
+        "properties": {
+          "active_cryptocurrencies": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Cryptocurrencies"
+          },
+          "btc_dominance_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Btc Dominance Pct"
+          },
+          "eth_dominance_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eth Dominance Pct"
+          },
+          "market_cap_change_24h_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap Change 24H Pct"
+          },
+          "markets": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markets"
+          },
+          "total_market_cap_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Market Cap Usd"
+          },
+          "total_volume_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Volume Usd"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "volume_change_24h_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume Change 24H Pct"
+          }
+        },
+        "title": "GlobalMarketOverviewResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3034,6 +3150,9 @@
           "funding": {
             "$ref": "#/components/schemas/FundingOverviewResponse"
           },
+          "global_market": {
+            "$ref": "#/components/schemas/GlobalMarketOverviewResponse"
+          },
           "mvrv": {
             "$ref": "#/components/schemas/MvrvZScoreResponse"
           },
@@ -3049,6 +3168,7 @@
           "fetched_at",
           "fear_greed",
           "mvrv",
+          "global_market",
           "funding"
         ],
         "title": "MarketMacroOverviewResponse",
@@ -3204,6 +3324,24 @@
         "title": "MutationStatusResponse",
         "type": "object"
       },
+      "MvrvZScorePointResponse": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "date"
+        ],
+        "title": "MvrvZScorePointResponse",
+        "type": "object"
+      },
       "MvrvZScoreResponse": {
         "properties": {
           "as_of": {
@@ -3227,6 +3365,13 @@
               }
             ],
             "title": "Classification"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/MvrvZScorePointResponse"
+            },
+            "title": "History",
+            "type": "array"
           },
           "unavailable_reason": {
             "anyOf": [

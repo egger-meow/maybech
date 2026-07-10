@@ -76,13 +76,21 @@ def test_fetch_mvrv_zscore_success(monkeypatch):
     monkeypatch.setattr(
         macro_overview.requests,
         "get",
-        lambda *a, **k: _FakeResponse({"d": "2026-07-09", "mvrvZscore": 0.32}),
+        lambda *a, **k: _FakeResponse(
+            {
+                "value": [
+                    {"d": "2026-07-08", "mvrvZscore": 0.35},
+                    {"d": "2026-07-09", "mvrvZscore": 0.32},
+                ]
+            }
+        ),
     )
 
     result = macro_overview.fetch_mvrv_zscore()
 
     assert result["value"] == 0.32
     assert result["as_of"] == "2026-07-09"
+    assert [point["value"] for point in result["history"]] == [0.35, 0.32]
     assert result["classification"] == "neutral"
 
 
@@ -92,8 +100,59 @@ def test_fetch_mvrv_zscore_reports_unavailable_on_rate_limit(monkeypatch):
     result = macro_overview.fetch_mvrv_zscore()
 
     assert result["value"] is None
+    assert result["history"] == []
     assert result["classification"] is None
     assert "unavailable_reason" in result
+
+
+def test_fetch_mvrv_zscore_filters_nan_history(monkeypatch):
+    monkeypatch.setattr(
+        macro_overview.requests,
+        "get",
+        lambda *a, **k: _FakeResponse(
+            {
+                "value": [
+                    {"d": "2026-07-07", "mvrvZscore": "NaN"},
+                    {"d": "2026-07-08", "mvrvZscore": 0.35},
+                    {"d": "2026-07-09", "mvrvZscore": 0.32},
+                ]
+            }
+        ),
+    )
+
+    result = macro_overview.fetch_mvrv_zscore(history_days=1)
+
+    assert result["history"] == [{"date": "2026-07-09", "value": 0.32}]
+
+
+def test_fetch_global_market_success(monkeypatch):
+    monkeypatch.setattr(
+        macro_overview.requests,
+        "get",
+        lambda *a, **k: _FakeResponse(
+            {
+                "data": {
+                    "active_cryptocurrencies": 12000,
+                    "markets": 800,
+                    "total_market_cap": {"usd": 2_000_000_000_000},
+                    "total_volume": {"usd": 80_000_000_000},
+                    "market_cap_percentage": {"btc": 56.2, "eth": 9.4},
+                    "market_cap_change_percentage_24h_usd": 1.25,
+                    "volume_change_percentage_24h_usd": -3.5,
+                    "updated_at": 1783703892,
+                }
+            }
+        ),
+    )
+
+    result = macro_overview.fetch_global_market()
+
+    assert result["total_market_cap_usd"] == 2_000_000_000_000.0
+    assert result["total_volume_usd"] == 80_000_000_000.0
+    assert result["btc_dominance_pct"] == 56.2
+    assert result["active_cryptocurrencies"] == 12000
+    assert result["markets"] == 800
+    assert result["updated_at"].startswith("2026-07-10T")
 
 
 class _FakeOKXClient:

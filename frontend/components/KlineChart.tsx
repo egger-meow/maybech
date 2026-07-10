@@ -310,6 +310,24 @@ function toKLineData(candles: KlineChartData["candles"]): KLineData[] {
   }));
 }
 
+function inferBarIntervalMs(candles: KLineData[]): number | null {
+  const diffs = candles
+    .slice(1)
+    .map((candle, index) => candle.timestamp - candles[index].timestamp)
+    .filter((diff) => diff > 0)
+    .sort((a, b) => a - b);
+  return diffs.length > 0 ? diffs[Math.floor(diffs.length / 2)] : null;
+}
+
+function resolveProjectionDataIndex(timestamp: number, candles: KLineData[], intervalMs: number | null): number | null {
+  const exactIndex = candles.findIndex((candle) => candle.timestamp === timestamp);
+  if (exactIndex >= 0) return exactIndex;
+  const lastIndex = candles.length - 1;
+  const last = candles[lastIndex];
+  if (!last || intervalMs == null || timestamp <= last.timestamp) return null;
+  return lastIndex + Math.round((timestamp - last.timestamp) / intervalMs);
+}
+
 // klinecharts only exposes drag-based price-axis zoom natively (mousedown+mousemove
 // on the y-axis widget rescales its range; dblclick resets to auto-fit). There is no
 // public API for wheel-based zoom on that axis. We bridge the gap by translating a
@@ -398,7 +416,9 @@ export default function KlineChart({
     const instance = chartRef.current;
     if (!instance || !ready) return;
     instance.setPriceVolumePrecision(pricePrecision ?? 2, 4);
+    const reflectionCandles = chart.reflectionCandles ?? [];
     const candles = toKLineData(chart.candles);
+    const barIntervalMs = inferBarIntervalMs(candles);
     instance.applyNewData(candles);
 
     instance.removeOverlay();
@@ -434,25 +454,29 @@ export default function KlineChart({
       });
     });
 
-    const reflectionCandles = chart.reflectionCandles ?? [];
     if (reflectionCandles.length > 0) {
+      let maxReflectionDataIndex = candles.length - 1;
       reflectionCandles.forEach((candle, index) => {
         const timestamp = new Date(candle.timestamp).getTime();
+        const dataIndex = resolveProjectionDataIndex(timestamp, candles, barIntervalMs);
+        if (dataIndex == null) return;
+        maxReflectionDataIndex = Math.max(maxReflectionDataIndex, dataIndex);
         instance.createOverlay({
           name: REFLECTION_CANDLE_OVERLAY,
           id: `reflection-${index}`,
           points: [
-            { timestamp, value: candle.open },
-            { timestamp, value: candle.high },
-            { timestamp, value: candle.low },
-            { timestamp, value: candle.close },
+            { dataIndex, value: candle.open },
+            { dataIndex, value: candle.high },
+            { dataIndex, value: candle.low },
+            { dataIndex, value: candle.close },
           ],
           lock: true,
         });
       });
       // Reserve blank canvas to the right so the reflected path (which extends past the
       // last real candle) isn't clipped off-screen.
-      instance.setOffsetRightDistance(reflectionCandles.length * instance.getBarSpace() + 40);
+      const futureBarCount = Math.max(0, maxReflectionDataIndex - Math.max(0, candles.length - 1));
+      instance.setOffsetRightDistance(futureBarCount * instance.getBarSpace() + 40);
     }
     if (chart.reflectionCenterTimestamp) {
       instance.createOverlay({

@@ -2699,7 +2699,26 @@ def test_market_macro_overview_simulation_mode_skips_okx_but_keeps_external_indi
     )
     monkeypatch.setattr(
         "src.api.app.fetch_mvrv_zscore",
-        lambda: {"value": 0.32, "as_of": "2026-07-09", "classification": "neutral"},
+        lambda: {
+            "value": 0.32,
+            "as_of": "2026-07-09",
+            "classification": "neutral",
+            "history": [{"date": "2026-07-09", "value": 0.32}],
+        },
+    )
+    monkeypatch.setattr(
+        "src.api.app.fetch_global_market",
+        lambda: {
+            "total_market_cap_usd": 2_000_000_000_000,
+            "total_volume_usd": 80_000_000_000,
+            "market_cap_change_24h_pct": 1.25,
+            "volume_change_24h_pct": -3.5,
+            "btc_dominance_pct": 56.2,
+            "eth_dominance_pct": 9.4,
+            "active_cryptocurrencies": 12000,
+            "markets": 800,
+            "updated_at": "2026-07-10T12:00:00+00:00",
+        },
     )
     runner = DaemonRunner()
     runner.runtime.set_value("runtime.live_preflight", {"execution_mode": "dry_run"})
@@ -2712,5 +2731,8 @@ def test_market_macro_overview_simulation_mode_skips_okx_but_keeps_external_indi
     assert body["fear_greed"]["latest"]["value"] == 55
     assert body["mvrv"]["value"] == "0.32"
     assert body["mvrv"]["classification"] == "neutral"
+    assert body["mvrv"]["history"] == [{"date": "2026-07-09", "value": "0.32"}]
+    assert body["global_market"]["total_market_cap_usd"] == "2000000000000"
+    assert body["global_market"]["btc_dominance_pct"] == "56.2"
     assert body["prices"] == []
     assert "Simulation mode" in body["funding"]["unavailable_reason"]

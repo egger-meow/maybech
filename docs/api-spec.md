@@ -50,11 +50,11 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /market/candles`
 - `GET /market/overview`: all-instrument ticker table (last price, 24h change,
   volume, funding), unavailable in simulation mode.
-- `GET /market/macro-overview`: whole-market "vibe" dashboard data — Fear &
-  Greed Index and MVRV Z-Score (always attempted, external sources
-  independent of OKX connectivity), plus BTC/ETH price and an
-  open-interest-weighted funding rate (OKX-derived, unavailable in
-  simulation mode like `/market/overview`).
+- `GET /market/macro-overview`: whole-market "vibe" dashboard data: Fear &
+  Greed Index history, MVRV Z-Score history, and CoinGecko global market
+  totals/dominance (always attempted, external sources independent of OKX
+  connectivity), plus BTC/ETH price and an open-interest-weighted funding rate
+  (OKX-derived, unavailable in simulation mode like `/market/overview`).
 - `GET /market/analysis/support-resistance`
 - `GET /strategy/decisions`
 - `GET /strategies/{strategy_id}/decisions`

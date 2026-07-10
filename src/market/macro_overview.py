@@ -21,10 +21,12 @@ import requests
 logger = logging.getLogger(__name__)
 
 _FEAR_GREED_URL = "https://api.alternative.me/fng/"
-_MVRV_ZSCORE_URL = "https://bitcoin-data.com/v1/mvrv-zscore/last"
+_MVRV_ZSCORE_URL = "https://bitcoin-data.com/v1/mvrv-zscore"
+_COINGECKO_GLOBAL_URL = "https://api.coingecko.com/api/v3/global"
 
 FEAR_GREED_TTL_SECONDS = 300.0
 MVRV_TTL_SECONDS = 3600.0
+GLOBAL_MARKET_TTL_SECONDS = 300.0
 
 FUNDING_SYMBOLS: tuple[str, ...] = ("BTC-USDT-SWAP", "ETH-USDT-SWAP")
 
@@ -95,21 +97,110 @@ def classify_mvrv(value: float | None) -> str | None:
     return "overheated"
 
 
-def fetch_mvrv_zscore() -> dict:
-    """Fetch the latest BTC MVRV Z-Score from bitcoin-data.com (BGeometrics)."""
+def _coerce_float(raw: Any) -> float | None:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if value != value:  # NaN
+        return None
+    return value
+
+
+def _mvrv_history_from_payload(payload: Any, history_days: int) -> list[dict]:
+    raw_items = payload.get("value") if isinstance(payload, dict) and isinstance(payload.get("value"), list) else None
+    if raw_items is None and isinstance(payload, list):
+        raw_items = payload
+    if raw_items is None:
+        return []
+
+    history: list[dict] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        value = _coerce_float(item.get("mvrvZscore"))
+        date = str(item.get("d") or "")
+        if value is None or not date:
+            continue
+        history.append({"value": value, "date": date})
+    return history[-history_days:] if history_days > 0 else history
+
+
+def fetch_mvrv_zscore(history_days: int = 180) -> dict:
+    """Fetch BTC MVRV Z-Score history from bitcoin-data.com (BGeometrics)."""
 
     def _fetch() -> dict:
         resp = requests.get(_MVRV_ZSCORE_URL, timeout=5)
         resp.raise_for_status()
         payload = resp.json()
-        return {"value": float(payload["mvrvZscore"]), "as_of": str(payload.get("d") or "")}
+        history = _mvrv_history_from_payload(payload, history_days)
+        if history:
+            latest = history[-1]
+            return {"value": latest["value"], "as_of": latest["date"], "history": history}
+        if not isinstance(payload, dict):
+            raise ValueError("unexpected MVRV payload")
+        value = _coerce_float(payload.get("mvrvZscore"))
+        if value is None:
+            raise ValueError("missing MVRV Z-Score")
+        return {"value": value, "as_of": str(payload.get("d") or ""), "history": []}
 
     try:
         result = _cached("mvrv_zscore", MVRV_TTL_SECONDS, _fetch)
         return {**result, "classification": classify_mvrv(result.get("value"))}
     except Exception as exc:  # noqa: BLE001 - external API, degrade gracefully
         logger.warning("MVRV Z-Score unavailable: %s", exc)
-        return {"value": None, "as_of": None, "classification": None, "unavailable_reason": f"MVRV Z-Score unavailable: {exc}"}
+        return {
+            "value": None,
+            "as_of": None,
+            "classification": None,
+            "history": [],
+            "unavailable_reason": f"MVRV Z-Score unavailable: {exc}",
+        }
+
+
+def fetch_global_market() -> dict:
+    """Fetch free global crypto market totals and dominance from CoinGecko."""
+
+    def _fetch() -> dict:
+        resp = requests.get(_COINGECKO_GLOBAL_URL, timeout=5)
+        resp.raise_for_status()
+        data = (resp.json() or {}).get("data") or {}
+        market_cap = data.get("total_market_cap") or {}
+        volume = data.get("total_volume") or {}
+        dominance = data.get("market_cap_percentage") or {}
+        updated_at = data.get("updated_at")
+        return {
+            "total_market_cap_usd": _coerce_float(market_cap.get("usd")),
+            "total_volume_usd": _coerce_float(volume.get("usd")),
+            "market_cap_change_24h_pct": _coerce_float(data.get("market_cap_change_percentage_24h_usd")),
+            "volume_change_24h_pct": _coerce_float(data.get("volume_change_percentage_24h_usd")),
+            "btc_dominance_pct": _coerce_float(dominance.get("btc")),
+            "eth_dominance_pct": _coerce_float(dominance.get("eth")),
+            "active_cryptocurrencies": int(data.get("active_cryptocurrencies") or 0),
+            "markets": int(data.get("markets") or 0),
+            "updated_at": (
+                datetime.fromtimestamp(int(updated_at), tz=timezone.utc).isoformat()
+                if updated_at is not None
+                else None
+            ),
+        }
+
+    try:
+        return _cached("global_market", GLOBAL_MARKET_TTL_SECONDS, _fetch)
+    except Exception as exc:  # noqa: BLE001 - external API, degrade gracefully
+        logger.warning("Global market overview unavailable: %s", exc)
+        return {
+            "total_market_cap_usd": None,
+            "total_volume_usd": None,
+            "market_cap_change_24h_pct": None,
+            "volume_change_24h_pct": None,
+            "btc_dominance_pct": None,
+            "eth_dominance_pct": None,
+            "active_cryptocurrencies": None,
+            "markets": None,
+            "updated_at": None,
+            "unavailable_reason": f"Global market overview unavailable: {exc}",
+        }
 
 
 def fetch_prices(client: Any, symbols: tuple[str, ...] = FUNDING_SYMBOLS) -> list[dict]:
