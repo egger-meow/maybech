@@ -327,8 +327,7 @@ https://drop-down-promenade-carried.ngrok-free.dev/notifications/line/webhook
 Run the frontend in its own terminal so dashboard logs stay separate:
 
 ```powershell
-cd frontend
-npm run dev
+.\start_frontend.ps1
 ```
 
 To start only the backend without opening the ngrok tunnel:

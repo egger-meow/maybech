@@ -1,4 +1,5 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const DEFAULT_API_TOKEN = process.env.NEXT_PUBLIC_MAYBECH_API_TOKEN?.trim() ?? "";
 
 import type {
   AccountSnapshotResponse,
@@ -162,11 +163,13 @@ export class ApiError extends Error {
 
 const apiUrl = (path: string): string => `${API_BASE}${path}`;
 
-let apiToken = "";
+let apiToken = DEFAULT_API_TOKEN;
 
 export const configureApiToken = (token: string): void => {
   apiToken = token.trim();
 };
+
+export const hasConfiguredApiToken = (): boolean => Boolean(apiToken);
 
 const notifyAuthenticationRequired = (status: number): void => {
   if (status === 401 && typeof window !== "undefined") {

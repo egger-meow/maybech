@@ -19,6 +19,21 @@ $env:NEXT_PUBLIC_API_URL="http://127.0.0.1:8000"
 npm run dev
 ```
 
+From the repository root, `.\start_frontend.ps1` performs the same startup and
+can pass the local `.env` `MAYBECH_API_TOKEN` into `NEXT_PUBLIC_MAYBECH_API_TOKEN`
+for a local-only dashboard session.
+
+If the backend has `MAYBECH_API_TOKEN` configured, the dashboard prompts for it
+before protected pages mount. For local-only development you may also set:
+
+```powershell
+$env:NEXT_PUBLIC_MAYBECH_API_TOKEN="<same value as MAYBECH_API_TOKEN>"
+npm run dev
+```
+
+That value is exposed to the browser bundle, so do not use it for a dashboard
+served to anyone else.
+
 ## Backend Dependency
 
 Start the API from the repository root before using live data:

@@ -8,6 +8,7 @@ import {
   configureApiToken,
   getLivePreflight,
   getRuntimeCapabilities,
+  hasConfiguredApiToken,
 } from "@/lib/api";
 
 export default function AuthenticationGate({ children }: { children: ReactNode }) {
@@ -16,7 +17,7 @@ export default function AuthenticationGate({ children }: { children: ReactNode }
   });
   const tokenInput = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticated, setAuthenticated] = useState(() => hasConfiguredApiToken());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -24,21 +25,26 @@ export default function AuthenticationGate({ children }: { children: ReactNode }
     const requireAuthentication = () => {
       configureApiToken("");
       setAuthenticated(false);
-      setError("驗證已失效，請重新輸入本機操作權杖。");
+      setError("The API token was rejected. Enter MAYBECH_API_TOKEN again.");
     };
     window.addEventListener("maybech:authentication-required", requireAuthentication);
-    return () => window.removeEventListener(
-      "maybech:authentication-required",
-      requireAuthentication,
-    );
+    return () => {
+      window.removeEventListener("maybech:authentication-required", requireAuthentication);
+    };
   }, []);
 
   if (capabilities.error) {
-    return <div className="panel error-state">無法讀取公開執行能力；請確認 API 已啟動且網址正確。</div>;
+    return (
+      <div className="panel error-state">
+        Unable to reach the Maybech API. Check that the backend is running.
+      </div>
+    );
   }
+
   if (!capabilities.data) {
-    return <div className="loading-state">正在確認儀表板驗證需求…</div>;
+    return <div className="loading-state">Checking API access...</div>;
   }
+
   if (!capabilities.data.authentication_required) {
     return children;
   }
@@ -46,16 +52,19 @@ export default function AuthenticationGate({ children }: { children: ReactNode }
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (submitting.current) return;
+
     const token = tokenInput.current?.value.trim() ?? "";
     if (!token) {
-      setError("請輸入 MAYBECH_API_TOKEN。");
+      setError("Enter MAYBECH_API_TOKEN.");
       return;
     }
+
     submitting.current = true;
     setBusy(true);
     setError("");
     configureApiToken(token);
     if (tokenInput.current) tokenInput.current.value = "";
+
     try {
       await getLivePreflight();
       setAuthenticated(true);
@@ -64,8 +73,8 @@ export default function AuthenticationGate({ children }: { children: ReactNode }
       setAuthenticated(false);
       setError(
         caught instanceof ApiError && caught.status === 401
-          ? "操作權杖不正確。"
-          : "驗證 API 無法使用，尚未開放受保護頁面。",
+          ? "Invalid MAYBECH_API_TOKEN."
+          : "Unable to verify the API token. Check the backend logs.",
       );
     } finally {
       submitting.current = false;
@@ -76,15 +85,26 @@ export default function AuthenticationGate({ children }: { children: ReactNode }
   if (!authenticated) {
     return (
       <section className="panel" aria-labelledby="authentication-title">
-        <h1 id="authentication-title">需要本機操作驗證</h1>
-        <p>權杖只保留在目前分頁記憶體，重新整理後必須再次輸入；不會寫入 localStorage、網址或日誌。</p>
+        <h1 id="authentication-title">API Authentication Required</h1>
+        <p>
+          Enter the backend MAYBECH_API_TOKEN. The token is kept in browser memory
+          for this tab and is sent as a bearer token to protected API routes.
+        </p>
         <form onSubmit={submit} className="form-grid">
           <label className="field">
             <span>MAYBECH_API_TOKEN</span>
-            <input ref={tokenInput} type="password" autoComplete="off" spellCheck={false} disabled={busy} />
+            <input
+              ref={tokenInput}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={busy}
+            />
           </label>
           <div className="form-actions">
-            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "驗證中…" : "驗證並開啟儀表板"}</button>
+            <button className="btn btn-primary" type="submit" disabled={busy}>
+              {busy ? "Checking..." : "Unlock Dashboard"}
+            </button>
           </div>
         </form>
         {error && <div className="error-state">{error}</div>}
@@ -95,11 +115,17 @@ export default function AuthenticationGate({ children }: { children: ReactNode }
   return (
     <>
       <div className="form-actions">
-        <button type="button" className="btn btn-outline" onClick={() => {
-          configureApiToken("");
-          setAuthenticated(false);
-          setError("");
-        }}>登出本機操作權杖</button>
+        <button
+          type="button"
+          className="btn btn-outline"
+          onClick={() => {
+            configureApiToken("");
+            setAuthenticated(false);
+            setError("");
+          }}
+        >
+          Lock Dashboard
+        </button>
       </div>
       {children}
     </>

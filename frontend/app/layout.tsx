@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import AuthenticationGate from "@/components/AuthenticationGate";
 import Sidebar from "@/components/Sidebar";
 import "./globals.css";
 
@@ -34,7 +35,9 @@ export default function RootLayout({
       <body>
         <div className="app-shell">
           <Sidebar />
-          <main className="app-main">{children}</main>
+          <main className="app-main">
+            <AuthenticationGate>{children}</AuthenticationGate>
+          </main>
         </div>
       </body>
     </html>
