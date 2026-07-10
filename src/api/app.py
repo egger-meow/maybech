@@ -7,6 +7,7 @@ from asyncio import QueueEmpty
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import json
+import logging
 import secrets
 import sqlite3
 from typing import Literal, Optional
@@ -15,6 +16,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from linebot.v3.webhook import InvalidSignatureError, WebhookParser
 
 from src.config.settings import settings
 from src.data.candles import CandleManager
@@ -26,6 +28,7 @@ from src.daemon.service import DaemonRunner
 from src.exchange.client import OKXClient, entry_order_placement_enabled
 from src.notifications.email_alert import EmailNotifier
 from src.notifications.line_bot import LineBotNotifier
+from src.api.line_webhook import LineWebhookHandler
 
 from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
 from src.trading.audit_event_store import AuditEventRecord, AuditEventStore
@@ -810,6 +813,9 @@ def _position_chart_overlays(
     return overlays
 
 
+logger = logging.getLogger(__name__)
+
+
 def create_app(
     runner: DaemonRunner,
     *,
@@ -904,7 +910,8 @@ def create_app(
         if (
             selected_api_token
             and request.method != "OPTIONS"
-            and request.url.path not in {"/health", "/runtime/capabilities"}
+            and request.url.path
+            not in {"/health", "/runtime/capabilities", "/notifications/line/webhook"}
         ):
             authorization = request.headers.get("Authorization", "")
             scheme, _, credential = authorization.partition(" ")
@@ -1056,6 +1063,35 @@ def create_app(
             attempted_at=attempted_at,
             error=error or None,
         )
+
+    _line_webhook_handler = LineWebhookHandler(
+        app=app,
+        api_token=selected_api_token or "",
+        authorized_user_id=settings.LINE_USER_ID,
+        line=LineBotNotifier(),
+    )
+
+    @app.post("/notifications/line/webhook", include_in_schema=False)
+    async def line_bot_webhook(request: Request) -> JSONResponse:
+        if not (
+            settings.LINE_CHANNEL_SECRET
+            and settings.LINE_CHANNEL_ACCESS_TOKEN
+            and settings.LINE_USER_ID
+        ):
+            return JSONResponse(status_code=503, content={"detail": "LINE bot not configured"})
+        body = await request.body()
+        signature = request.headers.get("X-Line-Signature", "")
+        parser = WebhookParser(settings.LINE_CHANNEL_SECRET)
+        try:
+            events = parser.parse(body.decode("utf-8"), signature)
+        except InvalidSignatureError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid signature"})
+        for event in events:
+            try:
+                await _line_webhook_handler.handle_event(event)
+            except Exception:
+                logger.exception("Failed to process LINE webhook event")
+        return JSONResponse(status_code=200, content={"ok": True})
 
     @app.get("/runtime/preflight", response_model=LivePreflightResponse)
     def get_live_preflight() -> LivePreflightResponse:

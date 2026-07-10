@@ -255,3 +255,44 @@ Do not expose the API directly with public port forwarding. The API can control
 real trading actions. For remote access, prefer a private tunnel such as VPN or
 Tailscale. A reverse proxy must add TLS and an IP allowlist in addition to the
 built-in bearer token.
+
+## LINE Command Bot (Optional)
+
+`POST /notifications/line/webhook` accepts inbound LINE Messaging API events and
+executes a small fixed command grammar (`status`, `strategies`, `enable <id>`,
+`disable <id>`) by calling the same FastAPI app's own routes in-process — every
+existing safety gate (bearer auth on the routes it calls, the replica read-only
+guard, strategy validation, optimistic-concurrency checks) applies identically
+to a chat-triggered action as to one made through the dashboard. This is
+disabled unless `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`, and
+`LINE_USER_ID` are all configured.
+
+Every inbound sender is checked against `LINE_USER_ID` before any command
+parses — a LINE Official Account can be added and messaged by anyone who finds
+it, so this check, not the LINE console, is what keeps the bot single-operator.
+Unrecognized senders get a generic "unauthorized" reply (rate-limited) and are
+logged as `line_bot.unauthorized_attempt` audit events; never treat their
+absence from replies as proof no one is probing the bot. Only run this webhook
+against the combined execution leader — a replica instance rejects the route
+outright (non-GET mutation) since it has no live account state to act on
+anyway.
+
+The route itself must stay unauthenticated by `MAYBECH_API_TOKEN` (LINE cannot
+send that header); `X-Line-Signature` verification against `LINE_CHANNEL_SECRET`
+is what authenticates the request instead. Because of that, exposing this one
+route publicly is different from exposing the API generally (see "Remote
+Access Safety" above) — restrict whatever tunnel you use to this single path,
+do not forward the whole API:
+
+```bash
+# Cloudflare Tunnel, restricted to only the webhook path
+cloudflared tunnel --url http://127.0.0.1:8000 \
+  --http-host-header 127.0.0.1
+```
+
+In the LINE Developers console, set the webhook URL to
+`https://<your-tunnel-domain>/notifications/line/webhook` and disable
+auto-reply/greeting messages. Prefer a named Cloudflare Tunnel with an Access
+policy or ingress rule scoped to `/notifications/line/webhook` over the
+quick/anonymous `--url` tunnel once this moves past initial testing, so the
+rest of the API is never reachable through the same public hostname.

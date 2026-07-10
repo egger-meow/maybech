@@ -84,11 +84,3 @@ broken operator control, unexpected state, or hidden safety threats.
 - Notification delivery intentionally remains basic: configured LINE/Gmail
   sends, bounded retry, backlog, and last health are sufficient unless
   notification reliability becomes an explicit priority.
-- Inbound LINE bot (read-only status + strategy enable/disable via chat
-  commands) has an approved design but is not built: new `POST
-  /notifications/line/webhook` route with `X-Line-Signature` verification,
-  deny-by-default sender check against `LINE_USER_ID`, a fixed command
-  grammar (no kill-switch/position-close from chat), and Cloudflare Tunnel
-  for public exposure. Do not build until explicitly activated — it adds a
-  new unauthenticated-by-`MAYBECH_API_TOKEN` HTTP surface and a chat-triggered
-  path into live trading control, which needs its own reviewed scoping.

@@ -35,7 +35,14 @@ No webhook server is needed for push-only notifications.
 import logging
 import re
 import time
-from linebot.v3.messaging import MessagingApi, ApiClient, Configuration, PushMessageRequest, TextMessage
+from linebot.v3.messaging import (
+    MessagingApi,
+    ApiClient,
+    Configuration,
+    PushMessageRequest,
+    ReplyMessageRequest,
+    TextMessage,
+)
 
 from src.config.settings import settings
 
@@ -95,5 +102,26 @@ class LineBotNotifier:
         except Exception as e:
             # Avoid logging the sensitive tokens/ID which might be in the exception repr
             logger.error(f"Failed to send LINE message: {e}")
+            self.last_error = type(e).__name__
+            return False
+
+    def reply(self, reply_token: str, message: str) -> bool:
+        """Reply to an inbound message using its reply token (valid ~1 minute).
+
+        Unlike send(), this is not subject to the push cooldown — replies are
+        synchronous 1:1 responses to a specific inbound event, not repeated alerts.
+        """
+        if not self.enabled:
+            return False
+        try:
+            request = ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text=message)],
+            )
+            self._api.reply_message(request)
+            self.last_error = ""
+            return True
+        except Exception as e:
+            logger.error(f"Failed to reply to LINE message: {e}")
             self.last_error = type(e).__name__
             return False
