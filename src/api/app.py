@@ -30,6 +30,7 @@ from src.exchange.client import OKXClient, entry_order_placement_enabled
 from src.notifications.email_alert import EmailNotifier
 from src.notifications.line_bot import LineBotNotifier
 from src.api.line_webhook import LineWebhookHandler
+from src.version import __version__
 
 from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
 from src.trading.audit_event_store import AuditEventRecord, AuditEventStore
@@ -894,7 +895,7 @@ def create_app(
                 },
             )
 
-    app = FastAPI(title="Maybech Runtime API", version="0.1.0")
+    app = FastAPI(title="Maybech Runtime API", version=__version__)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.MAYBECH_CORS_ORIGINS,

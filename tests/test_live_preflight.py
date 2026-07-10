@@ -29,6 +29,8 @@ class FakePreflightClient:
         instruments=None,
         pending_algos=None,
         positions=None,
+        fills_history=None,
+        orders=None,
         flag="1",
     ):
         self.flag = flag
@@ -39,6 +41,8 @@ class FakePreflightClient:
         self.instrument_calls = []
         self.pending_algos = pending_algos or []
         self.positions = positions or []
+        self.fills_history = fills_history or []
+        self.orders = orders or {}
 
     def get_account_config(self):
         return [
@@ -64,6 +68,15 @@ class FakePreflightClient:
     def get_positions(self, *, inst_type):
         assert inst_type == "SWAP"
         return self.positions
+
+    def get_fills_history(self, *, inst_type, limit="100", after=""):
+        assert inst_type == "SWAP"
+        return [] if after else self.fills_history
+
+    def get_order(self, inst_id, order_id="", client_order_id=""):
+        key = order_id or client_order_id
+        order = self.orders.get(key)
+        return [] if order is None else [order]
 
 
 def _set_live_environment(monkeypatch):
@@ -285,6 +298,105 @@ def test_live_preflight_rejects_active_unit_without_owned_protection(
             strategy_store=strategy_store,
             position_store=position_store,
         )
+
+
+def test_live_preflight_recovers_triggered_owned_stop_before_reconciliation(
+    monkeypatch,
+    tmp_path,
+):
+    _set_live_environment(monkeypatch)
+    db_path = str(tmp_path / "trades.db")
+    strategy_store = StrategyStore(db_path)
+    _valid_risk(db_path)
+    position_store = LogicalPositionStore(db_path)
+    position_store.save(
+        LogicalPositionRecord(
+            id="stopped-unit",
+            source="manual",
+            inst_id="BTC-USDT-SWAP",
+            side="short",
+            status="open",
+            opened_quantity=0.1,
+            remaining_quantity=0.1,
+            entry_price=64034.1,
+        )
+    )
+    position_store.save_protection(
+        LogicalPositionProtection(
+            position_id="stopped-unit",
+            kind="attached_stop",
+            algo_id="algo-a",
+            algo_client_order_id="algo-client-a",
+            quantity=0.1,
+            stop_loss=64186,
+        )
+    )
+    position_store.create_close_condition(
+        id="stopped-unit-stop",
+        position_id="stopped-unit",
+        purpose="stop_loss",
+        expression={
+            "type": "price_above",
+            "symbol": "BTC-USDT-SWAP",
+            "value": 64186,
+        },
+    )
+    client = FakePreflightClient(
+        instruments={"ETH-USDT-SWAP": _instrument("ETH-USDT-SWAP")},
+        positions=[],
+        pending_algos=[],
+        fills_history=[
+            {
+                "billId": "bill-close",
+                "tradeId": "fill-close",
+                "ordId": "order-close",
+                "clOrdId": "child-close",
+                "instId": "BTC-USDT-SWAP",
+                "side": "buy",
+                "posSide": "net",
+                "fillSz": "0.1",
+                "fillPx": "64188.7",
+                "fee": "-0.03209435",
+                "feeCcy": "USDT",
+                "ts": "1783671400128",
+                "execType": "T",
+            }
+        ],
+        orders={
+            "order-close": {
+                "ordId": "order-close",
+                "clOrdId": "child-close",
+                "instId": "BTC-USDT-SWAP",
+                "side": "buy",
+                "posSide": "net",
+                "ordType": "market",
+                "state": "filled",
+                "reduceOnly": "true",
+                "sz": "0.1",
+                "accFillSz": "0.1",
+                "avgPx": "64188.7",
+                "algoClOrdId": "algo-client-a",
+            }
+        },
+    )
+
+    report = run_live_preflight(
+        client=client,
+        strategy_store=strategy_store,
+        position_store=position_store,
+        risk_store=AccountRiskStore(db_path),
+        include_strategy=False,
+    )
+
+    assert report.passed is True
+    recovered = position_store.get("stopped-unit")
+    assert recovered is not None
+    assert recovered.status == "closed"
+    assert recovered.remaining_quantity == 0
+    protection = position_store.get_protection("stopped-unit")
+    assert protection is not None
+    assert protection.status == "exhausted"
+    assert protection.trigger_order_id == "order-close"
 
 
 def test_live_preflight_rejects_strategy_target_outside_account_allowlist(

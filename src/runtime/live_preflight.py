@@ -9,9 +9,12 @@ from typing import Any
 
 from src.config.settings import load_okx_connection_settings
 from src.exchange.client import OKXClient
+from src.exchange.fills import normalize_okx_fill
 from src.runtime.lease import account_scope as build_account_scope
 from src.runtime.mode import RuntimeMode, parse_runtime_mode
+from src.trading.audit_event_store import AuditEventStore
 from src.trading.account_risk import AccountRiskStore
+from src.trading.execution_allocation import ExecutionAllocationService
 from src.trading.instrument_constraints import InstrumentConstraints
 from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.position_protection import (
@@ -21,6 +24,7 @@ from src.trading.position_protection import (
 from src.trading.position_reconciliation import PositionReconciler
 from src.trading.strategy_runtime import order_size, validate_strategy_for_execution
 from src.trading.strategy_store import StrategyStore
+from src.trading.trade_store import TradeStore
 
 
 class LivePreflightError(RuntimeError):
@@ -177,6 +181,12 @@ def run_live_preflight(
         instruments.update(risk_limits.allowed_instruments)
 
     active_positions = position_store.list_active()
+    if mode.submits_orders and active_positions:
+        _recover_triggered_protection_fills(
+            client=client,
+            position_store=position_store,
+        )
+        active_positions = position_store.list_active()
     for position in active_positions:
         if not position.inst_id:
             errors.append(f"active logical position {position.id} has no instrument")
@@ -326,3 +336,110 @@ def _validate_local_environment(mode: RuntimeMode) -> list[str]:
             f"MAYBECH_ARM_ORDERS must be exactly '1' for {mode.value} startup"
         )
     return errors
+
+
+def _recover_triggered_protection_fills(
+    *,
+    client: OKXClient,
+    position_store: LogicalPositionStore,
+    page_limit: int = 3,
+) -> None:
+    """Apply recent OKX fills caused by Maybech-owned protective stops.
+
+    Startup preflight must fail closed when SQLite and OKX disagree, but a
+    triggered exchange stop can create a legitimate disagreement while the
+    runtime is offline: SQLite still says open/protected, OKX is flat, and the
+    pending algo is gone. This bounded catch-up only accepts fills whose
+    authenticated order lookup proves the order came from a persisted protection
+    algo client id; ordinary manual or unknown fills remain unmatched and the
+    later reconciliation check still fails.
+    """
+    active_protections = {
+        protection.algo_client_order_id: protection
+        for position in position_store.list_active()
+        for protection in [position_store.get_protection(position.id)]
+        if protection is not None
+        and protection.status in {"active", "triggered"}
+        and protection.algo_client_order_id
+    }
+    if not active_protections:
+        return
+
+    allocator = ExecutionAllocationService(
+        trade_store=TradeStore(position_store.db_path),
+        position_store=position_store,
+        audit_store=AuditEventStore(position_store.db_path),
+    )
+    after = ""
+    for _ in range(page_limit):
+        fills = client.get_fills_history(inst_type="SWAP", limit="100", after=after)
+        if not fills:
+            return
+        for raw_fill in fills:
+            order_id = str(raw_fill.get("ordId") or "")
+            inst_id = str(raw_fill.get("instId") or "")
+            if not order_id or not inst_id:
+                continue
+            if position_store.get_by_exchange_order_id(order_id) is not None:
+                continue
+            try:
+                orders = client.get_order(inst_id, order_id=order_id)
+            except Exception:
+                continue
+            if len(orders) != 1:
+                continue
+            order = orders[0]
+            algo_client_id = str(order.get("algoClOrdId") or "")
+            protection = active_protections.get(algo_client_id)
+            if protection is None:
+                continue
+            if str(order.get("state") or "").lower() != "filled":
+                continue
+            if str(order.get("reduceOnly") or "").lower() != "true":
+                continue
+            position = position_store.get(protection.position_id)
+            if position is None or position.status not in {"open", "reducing", "closing"}:
+                continue
+            trigger_client_order_id = str(order.get("clOrdId") or raw_fill.get("clOrdId") or "")
+            if position.status in {"open", "reducing"}:
+                position_store.mark_pending_execution(
+                    position.id,
+                    status="closing",
+                    exchange_order_id=order_id,
+                    client_order_id=trigger_client_order_id,
+                    metadata={
+                        "order_action": "close",
+                        "close_reason": "exchange protective stop triggered",
+                        "execution_status": "protection_triggered_startup_recovery",
+                        "protection_algo_id": protection.algo_id,
+                    },
+                )
+            else:
+                position_store.link_execution_order(
+                    position.id,
+                    exchange_order_id=order_id,
+                    client_order_id=trigger_client_order_id,
+                    action="close",
+                    metadata={
+                        "source": "protective_stop_trigger_startup_recovery",
+                        "algo_id": protection.algo_id,
+                        "algo_client_order_id": protection.algo_client_order_id,
+                    },
+                )
+            position_store.update_protection(
+                position.id,
+                status="triggered",
+                trigger_order_id=order_id,
+                metadata={
+                    "startup_recovered": True,
+                    "trigger_detected_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            fill_payload = {**raw_fill, "algoClOrdId": algo_client_id}
+            fill = normalize_okx_fill(fill_payload)
+            allocator.ingest(fill)
+        bill_ids = [str(item.get("billId") or "") for item in fills]
+        next_after = bill_ids[-1] if bill_ids else ""
+        if not next_after or next_after == after or len(fills) < 100:
+            return
+        after = next_after

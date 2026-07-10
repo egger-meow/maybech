@@ -1,0 +1,22 @@
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - dependabot
+  categories:
+    - title: Runtime and Safety
+      labels:
+        - runtime
+        - safety
+        - backend
+    - title: Dashboard
+      labels:
+        - frontend
+        - ui
+    - title: Documentation
+      labels:
+        - docs
+    - title: Other Changes
+      labels:
+        - "*"

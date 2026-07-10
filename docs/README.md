@@ -21,6 +21,8 @@ frontend workflows.
 - `storage.md`: SQLite persistence and schema-management direction.
 - `ui-direction.md`: target dashboard pages and interaction requirements.
 - `deployment.md`: local, Windows startup, Docker, and remote-access notes.
+- `release.md`: project versioning, release checklist, and GitHub release
+  notes template.
 
 ## Raw Notes
 

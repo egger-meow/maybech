@@ -30,12 +30,26 @@ export type KlineChartOverlay = {
   evidenceScore?: number | null;
 };
 
+// A reflected candle from lib/research/reflection.ts — deliberately the same OHLC shape
+// as a real candle so it draws with exact candle geometry, not an approximation.
+export type ReflectionOverlayCandle = {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
 export type KlineChartData = {
   inst_id: string;
   bar: string;
   candles?: CandleResponse[];
   fetched_at: string;
   overlays?: KlineChartOverlay[];
+  // Research-only geometric projection (e.g. Adam Theory secondary reflection), rendered
+  // as visually distinct synthetic candles so it never reads as real market data.
+  reflectionCandles?: ReflectionOverlayCandle[];
+  reflectionCenterTimestamp?: string | null;
 };
 
 const THEME_CHANGE_EVENT = "maybech-theme-change";
@@ -55,6 +69,9 @@ const OVERLAY_COLORS: Record<string, string> = {
 
 const LEVEL_LINE_OVERLAY = "position-level-line";
 const EVENT_MARKER_OVERLAY = "position-event-marker";
+const REFLECTION_CANDLE_OVERLAY = "reflection-candle";
+const REFLECTION_CENTER_LINE_OVERLAY = "reflection-center-line";
+const REFLECTION_COLOR = "#8b5cf6";
 
 // klinecharts' one built-in pane id for the main candle pane; not exported as a
 // constant by the library, but stable across the public overlay/indicator API.
@@ -142,6 +159,82 @@ function registerPositionOverlays() {
           type: "text",
           attrs: { x: point.x, y: point.y - 10, text, align: "center", baseline: "bottom" },
           styles: { color, size: 10, weight: "600" },
+          ignoreEvent: true,
+        },
+      ];
+    },
+  });
+
+  // One reflected candle: points carry open/high/low/close as four values sharing the
+  // same timestamp, so their coordinates share an x and land at each price's y. Styled
+  // with a dashed border and translucent fill (independent of up/down color) so it never
+  // reads as a real candle at a glance.
+  registerOverlay({
+    name: REFLECTION_CANDLE_OVERLAY,
+    totalStep: 1,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ barSpace, coordinates }): OverlayFigure[] => {
+      const [openPt, highPt, lowPt, closePt] = coordinates;
+      if (!openPt || !highPt || !lowPt || !closePt) return [];
+      const width = Math.max(2, barSpace.bar * 0.6);
+      const x = openPt.x;
+      const bodyTop = Math.min(openPt.y, closePt.y);
+      const bodyBottom = Math.max(openPt.y, closePt.y);
+      return [
+        {
+          type: "line",
+          attrs: { coordinates: [{ x, y: highPt.y }, { x, y: lowPt.y }] },
+          styles: { color: REFLECTION_COLOR, size: 1.5, style: "dashed", dashedValue: [2, 2] },
+          ignoreEvent: true,
+        },
+        {
+          type: "rect",
+          attrs: { x: x - width / 2, y: bodyTop, width, height: Math.max(1, bodyBottom - bodyTop) },
+          styles: {
+            style: "stroke_fill",
+            color: `${REFLECTION_COLOR}33`,
+            borderColor: REFLECTION_COLOR,
+            borderStyle: "dashed",
+            borderSize: 1.5,
+          },
+          ignoreEvent: true,
+        },
+      ];
+    },
+  });
+
+  registerOverlay({
+    name: REFLECTION_CENTER_LINE_OVERLAY,
+    totalStep: 1,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, bounding }): OverlayFigure[] => {
+      const point = coordinates[0];
+      if (!point) return [];
+      return [
+        {
+          type: "line",
+          attrs: { coordinates: [{ x: point.x, y: 0 }, { x: point.x, y: bounding.height }] },
+          styles: { color: REFLECTION_COLOR, size: 1.5, style: "dashed", dashedValue: [6, 4] },
+          ignoreEvent: true,
+        },
+        {
+          type: "text",
+          attrs: { x: point.x, y: 4, text: "反射中心", align: "center", baseline: "top" },
+          styles: {
+            color: "#fff",
+            backgroundColor: REFLECTION_COLOR,
+            size: 11,
+            weight: "600",
+            paddingLeft: 4,
+            paddingRight: 4,
+            paddingTop: 2,
+            paddingBottom: 2,
+            borderRadius: 3,
+          },
           ignoreEvent: true,
         },
       ];
@@ -340,6 +433,35 @@ export default function KlineChart({
         lock: true,
       });
     });
+
+    const reflectionCandles = chart.reflectionCandles ?? [];
+    if (reflectionCandles.length > 0) {
+      reflectionCandles.forEach((candle, index) => {
+        const timestamp = new Date(candle.timestamp).getTime();
+        instance.createOverlay({
+          name: REFLECTION_CANDLE_OVERLAY,
+          id: `reflection-${index}`,
+          points: [
+            { timestamp, value: candle.open },
+            { timestamp, value: candle.high },
+            { timestamp, value: candle.low },
+            { timestamp, value: candle.close },
+          ],
+          lock: true,
+        });
+      });
+      // Reserve blank canvas to the right so the reflected path (which extends past the
+      // last real candle) isn't clipped off-screen.
+      instance.setOffsetRightDistance(reflectionCandles.length * instance.getBarSpace() + 40);
+    }
+    if (chart.reflectionCenterTimestamp) {
+      instance.createOverlay({
+        name: REFLECTION_CENTER_LINE_OVERLAY,
+        id: "reflection-center-line",
+        points: [{ timestamp: new Date(chart.reflectionCenterTimestamp).getTime() }],
+        lock: true,
+      });
+    }
   }, [chart, pricePrecision, ready]);
 
   const currentOverlay = chart.overlays?.find((overlay) => overlay.kind === "current");

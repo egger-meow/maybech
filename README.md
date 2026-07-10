@@ -214,6 +214,13 @@ For product direction, see `docs/project-charter.md` and
 see `docs/storage.md`. For operational setup, see `docs/deployment.md`. For
 architecture direction, see `docs/system-direction.md`.
 
+## Release Version
+
+The current release baseline is `v0.1.0`. Project version metadata is stored in
+`pyproject.toml`, `src/version.py`, `frontend/package.json`, and
+`frontend/package-lock.json`. GitHub releases should use annotated tags such as
+`v0.1.0`; see `docs/release.md` for the release checklist and notes template.
+
 ## Security
 
 Create secrets from `.env.example` and never commit `.env`. The example file is
