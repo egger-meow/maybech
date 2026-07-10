@@ -17,6 +17,7 @@ import {
   deleteStrategySignal,
   disableStrategy,
   enableStrategy,
+  getMarketOverview,
   getRiskLimits,
   getLivePreflight,
   listPersistedStrategyDecisions,
@@ -209,10 +210,11 @@ function SizeQuotePreview({ instrument, quantity, price, side }: { instrument: s
     quantity && price ? ["size-quote", instrument, quantity, price, side] : null,
     () => quoteInstrumentSize(instrument, { display_quantity: quantity, entry_price: price, side, rule_price: null }),
   );
-  if (!quantity || !price) return <small className="size-quote pending">輸入幣量與參考價格後才會計算 OKX 口數。</small>;
-  if (quote.error) return <small className="size-quote blocked">無法安全換算；此策略目前不能儲存。</small>;
-  if (!quote.data) return <small className="size-quote pending">正在換算…</small>;
-  return <small className="size-quote ready">OKX API：{quote.data.api_quantity_contracts} 口 · 約 {quote.data.estimated_notional_usdt} USDT</small>;
+  if (!quantity) return <small className="size-quote pending">輸入想開的幣量後，系統會用目前市價換算 OKX 合約口數。</small>;
+  if (!price) return <small className="size-quote blocked">缺少目前市價，暫時不能安全換算或儲存。</small>;
+  if (quote.error) return <small className="size-quote blocked">無法安全換算；請確認幣量、市價與 OKX 最小口數。</small>;
+  if (!quote.data) return <small className="size-quote pending">正在換算...</small>;
+  return <small className="size-quote ready">送給 OKX 的數量：{quote.data.api_quantity_contracts} 口 · 以此市價估約 {quote.data.estimated_notional_usdt} USDT</small>;
 }
 
 function TypedCloseRuleEditor({ rule, side, onChange, analysisSymbols = [] }: { rule: CloseRule; side: "long" | "short"; onChange: (rule: CloseRule) => void; analysisSymbols?: string[] }) {
@@ -283,7 +285,7 @@ function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
           <button type="button" className={`strategy-list-item ${selectedId === strategy.id ? "selected" : ""}`} key={strategy.id} onClick={() => onSelect(strategy.id)}>
             {selectedId === strategy.id && <motion.span layoutId="strategy-list-active-rail" className="list-active-rail" transition={{ type: "spring", stiffness: 500, damping: 35 }} />}
             <span className={`status-dot ${strategy.enabled ? "on" : "off"}`} />
-            <span><strong>{strategy.name}</strong><small>{strategy.target_instruments?.join(" · ") || "尚未指定商品"}</small></span>
+            <span className="strategy-list-copy"><strong>{strategy.name}</strong><small>{strategy.target_instruments?.join(" · ") || "尚未指定商品"}</small></span>
             <ChevronRight size={17} />
           </button>
         ))}
@@ -347,8 +349,11 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [newSignal, setNewSignal] = useState(false);
+  const marketOverview = useSWR("strategy-sizing-market-overview", () => getMarketOverview({ instType: "SWAP" }), { refreshInterval: 15_000 });
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => { setDraft((current) => ({ ...current, [key]: value })); setDirty(true); };
   const instruments = draft.instruments;
+  const livePrices = Object.fromEntries((marketOverview.data?.items ?? []).map((item) => [item.inst_id, item.last_price]));
+  const sizingPrice = (instrument: string): string => livePrices[instrument] || draft.referencePrices[instrument] || "";
   const outsideAllowlist = allowedInstruments
     ? instruments.filter((item) => !allowedInstruments.includes(item))
     : [];
@@ -369,9 +374,12 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       const validated = await Promise.all(expressions.map((expression) => validateSignal({ expression })));
       const invalid = validated.find((result) => !result.valid);
       if (invalid) throw new Error(invalid.errors?.join("；") || "規則格式不正確");
+      const referencePrices = Object.fromEntries(instruments.map((instrument) => [instrument, sizingPrice(instrument)]));
+      const missingPrices = instruments.filter((instrument) => !referencePrices[instrument]);
+      if (missingPrices.length) throw new Error(`缺少目前市價，無法換算 OKX 口數：${missingPrices.join("、")}。請確認市場總覽 API 可用後再儲存。`);
       const quotes = await Promise.all(instruments.map((instrument) => quoteInstrumentSize(instrument, {
         display_quantity: draft.displayQuantities[instrument] ?? "",
-        entry_price: draft.referencePrices[instrument] ?? "",
+        entry_price: referencePrices[instrument],
         side: draft.side,
         rule_price: null,
       })));
@@ -383,7 +391,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         entry_signal: validated[0].normalized ?? draft.entrySignal,
         default_rules: { close_conditions: draft.closeRules.map((rule, index) => ({ ...rule, expression: validated[index + 1].normalized ?? rule.expression })) },
         execution_delay_seconds: executionDelaySeconds,
-        metadata: { ...object(strategy?.metadata), position_side: draft.side, order_size_contracts: sizes, order_display_quantities: draft.displayQuantities, sizing_reference_prices: draft.referencePrices, max_entry_slippage_pct: String(Number(draft.slippagePercent) / 100) },
+        metadata: { ...object(strategy?.metadata), position_side: draft.side, order_size_contracts: sizes, order_display_quantities: draft.displayQuantities, sizing_reference_prices: referencePrices, max_entry_slippage_pct: String(Number(draft.slippagePercent) / 100) },
       };
       if (strategy?.enabled && !confirm("此策略目前已啟用。確認先停用並進入審查，再儲存完整策略變更？停用完成前仍會執行舊版本。")) return;
       const saved = strategy
@@ -429,7 +437,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} eligibleInstruments={allowedInstruments} />{allowedInstruments ? <small>顯示所有可交易 SWAP；選項會標示是否位於帳戶 allowlist（目前允許 {allowedInstruments.length} 個）。</small> : <div className="inline-warning">帳戶風險 allowlist 尚未建立；策略可先儲存為停用，但實盤不能通過 preflight。</div>}<AnimatePresence>{outsideAllowlist.length > 0 && <motion.div key="outside-allowlist" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>目前策略超出帳戶 allowlist：{outsideAllowlist.join("、")}。請移除商品或先至「風險上限」調整邊界。</motion.div>}</AnimatePresence></div>
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
         <label className="field"><span>訊號成立後執行延遲</span><span className="input-with-suffix"><input type="number" min="0" max="86400" step="1" value={draft.executionDelaySeconds} onChange={(event) => set("executionDelaySeconds", event.target.value)} /><small>秒</small></span><small>{Number(draft.executionDelaySeconds) > 0 ? "到期後會重新驗證訊號與風險；失效即取消。" : "0 秒＝停用延遲，沿用立即執行。"}</small></label>
-        <div className="field full"><span>每個商品的操作者幣量</span><div className="contract-size-grid">{instruments.map((instrument) => <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><label><small>換算參考價格（USDT）</small><input type="number" min="0" step="any" value={draft.referencePrices[instrument] ?? ""} onChange={(event) => set("referencePrices", { ...draft.referencePrices, [instrument]: event.target.value })} /></label><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={draft.referencePrices[instrument] ?? ""} side={draft.side} /></div>)}</div></div>
+        <div className="field full"><span>每個商品想開的固定幣量</span><small>你只需要輸入幣量。系統用目前市價換算 OKX 合約口數；策略觸發時仍用當下行情與滑價設定送單。</small><div className="contract-size-grid">{instruments.map((instrument) => { const price = sizingPrice(instrument); return <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>想開幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><div className="size-reference-price"><small>估算市價（自動）</small><strong>{price ? `${price} USDT` : "等待市場價格"}</strong></div><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={price} side={draft.side} /></div>; })}</div></div>
         <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" analysisSymbols={draft.instruments} /></div>
       </div>
 

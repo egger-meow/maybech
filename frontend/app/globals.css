@@ -408,7 +408,7 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .strategy-list-items, .rule-stack { display: grid; gap: .75rem; }
 .strategy-list-item { position: relative; width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .65rem; align-items: center; text-align: left; border: 1px solid transparent; border-radius: var(--radius-md); padding: .8rem; background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
 .strategy-list-item.selected { border-color: var(--accent-primary); background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-secondary)); }
-.strategy-list-item span:nth-child(2) { display: grid; gap: .2rem; min-width: 0; }
+.strategy-list-copy { display: grid; gap: .2rem; min-width: 0; }
 .strategy-list-item small { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-muted); }
 .status-dot.on { background: var(--accent-success); box-shadow: 0 0 0 4px rgba(16,185,129,.12); }
@@ -440,6 +440,8 @@ details[open] > .lifecycle-summary::after, details[open] > .audit-summary::after
 .size-entry-card { display: grid; gap: .55rem; min-width: 0; padding: .8rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }
 .contract-size-grid .size-entry-card label { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, .6fr); align-items: center; gap: .5rem; }
 .size-entry-card small { color: var(--text-muted); }
+.size-reference-price { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .55rem .65rem; border-radius: var(--radius-md); background: var(--bg-secondary); }
+.size-reference-price strong { font-size: .9rem; overflow-wrap: anywhere; text-align: right; }
 .size-quote { display: block; padding: .55rem .65rem; border-radius: 10px; font-weight: 750; line-height: 1.4; }
 .size-quote.ready { background: color-mix(in srgb, var(--accent-success) 12%, var(--bg-secondary)); color: var(--text-primary); }
 .size-quote.pending { background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-secondary)); }
