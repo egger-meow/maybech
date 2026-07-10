@@ -29,7 +29,6 @@ from src.trading.trade_store import TradeStore
 from src.trading.execution_allocation import ExecutionAllocationService
 from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
-from src.trading.entry_control import EntryControlManager
 from src.utils.logger import setup_logger
 
 
@@ -72,6 +71,8 @@ def create_default_runner(
     try:
         lease.acquire()
         risk_store = AccountRiskStore(store.db_path)
+        if not simulation:
+            risk_store.set_entries_enabled(False)
         if simulation:
             preflight_status = simulation_preflight_report()
         else:
@@ -156,13 +157,6 @@ def create_default_runner(
             should_arm_orders = order_capable and report.passed
             if should_arm_orders:
                 arm_order_placement(preflight_passed=True)
-                if risk_store.entries_enabled():
-                    try:
-                        EntryControlManager(risk_store=risk_store).enable_entries()
-                    except Exception:
-                        logger.exception(
-                            "Failed to restore previously enabled strategy entries at startup"
-                        )
             else:
                 disarm_order_placement()
             runner.runtime.set_value(

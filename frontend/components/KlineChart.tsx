@@ -291,6 +291,7 @@ export default function KlineChart({
     window.addEventListener("storage", onThemeChange);
 
     return () => {
+      setReady(false);
       resizeObserver.disconnect();
       unbindWheelZoom();
       window.removeEventListener(THEME_CHANGE_EVENT, onThemeChange);

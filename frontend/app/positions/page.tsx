@@ -342,7 +342,7 @@ function PositionListItem({ position, selected, onSelect }: { position: LogicalP
     <button type="button" className={`position-list-item ${selected ? "selected" : ""}`} onClick={() => onSelect(position.id)}>
       {selected && <motion.span layoutId="position-list-active-rail" className="list-active-rail" transition={{ type: "spring", stiffness: 500, damping: 35 }} />}
       <span className={`side-mark ${position.side === "long" ? "long" : "short"}`} />
-      <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · {quote.data ? `剩餘 ${quote.data.display_quantity} ${quote.data.display_currency} · API ${quote.data.api_quantity_contracts} 口` : `API 剩餘 ${number(position.remaining_quantity)} 口（顯示幣量不可用）`}</small><small className="mono">{position.id}</small></span>
+      <span><strong>{position.inst_id}</strong><small>{position.side === "long" ? "做多" : "做空"} · {quote.data ? `剩餘 ${quote.data.display_quantity} ${quote.data.display_currency}` : `剩餘幣量資料不足 · 技術數量 ${number(position.remaining_quantity)} 口`}</small><small className="mono">{position.id}</small></span>
       <span className="status-column"><span className={`badge source-${position.source}`}>{position.source}</span>{metadata.requires_manual_review === true && <span className="badge danger">需人工對帳</span>}<span className={`badge ${activeStatuses.has(position.status) ? "info" : ""}`}>{statusLabel(position.status)}</span></span>
     </button>
   );
@@ -589,6 +589,17 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
   );
   const direction = position.side === "short" ? -1 : 1;
   const pnlPct = currentPrice && position.entry_price ? direction * (currentPrice - position.entry_price) / position.entry_price * 100 : null;
+  const displayQuantity = positionQuote.data ? Number(positionQuote.data.display_quantity) : null;
+  const displayCurrency = positionQuote.data?.display_currency ?? position.inst_id.split("-")[0] ?? "基礎幣";
+  const unrealizedPnlUsdt = currentPrice && displayQuantity != null && Number.isFinite(displayQuantity)
+    ? direction * (currentPrice - position.entry_price) * displayQuantity
+    : null;
+  const currentNotionalUsdt = currentPrice && displayQuantity != null && Number.isFinite(displayQuantity)
+    ? currentPrice * displayQuantity
+    : null;
+  const openedDisplayQuantity = position.opened_quantity && remaining && displayQuantity != null
+    ? displayQuantity * (position.opened_quantity / remaining)
+    : null;
   const okx = object(position.okx_net_position);
   const metadata = object(position.metadata);
   const command = async (name: string, action: () => Promise<unknown>) => { setBusyAction(name); setError(""); try { await action(); await refresh(); await chart.mutate(); } catch (caught) { setError(errorMessage(caught)); } finally { setBusyAction(""); } };
@@ -609,8 +620,17 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
   return (
     <div className="position-detail">
       <section className="panel position-hero">
-        <div className="position-title"><div><div className="status-row"><h2>{position.inst_id}</h2><span className={`badge ${position.side === "long" ? "success" : "danger"}`}>{position.side === "long" ? "做多 LONG" : "做空 SHORT"}</span><span className="badge info">{statusLabel(position.status)}</span></div><p className="mono">Maybech 單位：{position.id}</p></div><div className="position-metric"><small>未實現損益估算</small><strong className={pnlPct != null && pnlPct >= 0 ? "positive" : "negative"}>{pnlPct == null ? "資料不足" : `${pnlPct >= 0 ? "+" : ""}${number(pnlPct, 2)}%`}</strong></div></div>
-        <div className="metric-grid"><div><small>進場價</small><strong>{formatPrice(position.entry_price, pricePrecision)}</strong></div><div><small>目前價</small><strong>{formatPrice(currentPrice, pricePrecision)}</strong></div><div><small>剩餘操作者幣量</small><strong>{positionQuote.data ? `${positionQuote.data.display_quantity} ${positionQuote.data.display_currency}` : "資料不足"}</strong></div><div><small>OKX API 原始數量</small><strong>{number(position.opened_quantity)} 口</strong></div><div><small>OKX API 剩餘數量</small><strong>{number(position.remaining_quantity)} 口</strong></div><div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div></div>
+        <div className="position-title"><div><div className="status-row"><h2>{position.inst_id}</h2><span className={`badge ${position.side === "long" ? "success" : "danger"}`}>{position.side === "long" ? "做多 LONG" : "做空 SHORT"}</span><span className="badge info">{statusLabel(position.status)}</span></div><p className="mono">Maybech 單位：{position.id}</p></div><div className="position-metric"><small>目前未實現損益</small><strong className={unrealizedPnlUsdt != null && unrealizedPnlUsdt >= 0 ? "positive" : "negative"}>{unrealizedPnlUsdt == null ? "資料不足" : `${unrealizedPnlUsdt >= 0 ? "+" : ""}${number(unrealizedPnlUsdt, 2)} USDT`}</strong>{pnlPct != null && <span className={pnlPct >= 0 ? "positive" : "negative"}>{pnlPct >= 0 ? "+" : ""}{number(pnlPct, 2)}%</span>}</div></div>
+        <div className="metric-grid position-primary-metrics">
+          <div className="metric-highlight"><small>剩餘幣量</small><strong>{positionQuote.data ? `${positionQuote.data.display_quantity} ${displayCurrency}` : "資料不足"}</strong></div>
+          <div className="metric-highlight"><small>目前 +/- USDT</small><strong className={unrealizedPnlUsdt != null && unrealizedPnlUsdt >= 0 ? "positive" : "negative"}>{unrealizedPnlUsdt == null ? "資料不足" : `${unrealizedPnlUsdt >= 0 ? "+" : ""}${number(unrealizedPnlUsdt, 2)} USDT`}</strong></div>
+          <div><small>目前名目</small><strong>{currentNotionalUsdt == null ? "資料不足" : `${number(currentNotionalUsdt, 2)} USDT`}</strong></div>
+          <div><small>進場價</small><strong>{formatPrice(position.entry_price, pricePrecision)}</strong></div>
+          <div><small>目前價</small><strong>{formatPrice(currentPrice, pricePrecision)}</strong></div>
+          <div><small>原始幣量</small><strong>{openedDisplayQuantity == null ? "資料不足" : `${number(openedDisplayQuantity, 8)} ${displayCurrency}`}</strong></div>
+          <div className="technical-quantity"><small>技術數量（OKX API）</small><strong>{number(position.remaining_quantity)} / {number(position.opened_quantity)} 口</strong></div>
+          <div><small>來源</small><strong>{position.source}{position.strategy_id ? ` · ${position.strategy_id}` : ""}</strong></div>
+        </div>
       </section>
       <AnimatePresence>
         {metadata.requires_manual_review === true && <motion.div key="manual-review-banner" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={17} /> 此單位需要人工對帳：{String(metadata.reconciliation_review_reason ?? metadata.recovery_reason ?? "來源或數量尚未確認")}。系統不會猜測外部減倉應分配到哪一個邏輯單位。</motion.div>}
@@ -646,7 +666,7 @@ function PositionDetail({ position, refresh, instrumentMetadata }: { position: L
 
       <section className="panel">
         <div className="panel-heading"><div><h2>單位專屬出場規則</h2><p>支援 AND、OR 與括號群組；規則只管理這一個 Maybech 邏輯單位。</p></div><button type="button" className="btn btn-outline" onClick={() => setNewRule(true)}><CirclePlus size={15} /> 新增規則</button></div>
-        <div className="rule-stack"><AnimatePresence>{position.close_conditions?.filter((condition) => !["break_even", "trailing"].includes(condition.purpose ?? "")).map((condition) => <RuleEditor key={condition.id} position={position} condition={condition} onSaved={refresh} tickSize={tickSize} />)}{newRule && <RuleEditor key="new-rule" position={position} onSaved={refresh} onCancel={() => setNewRule(false)} tickSize={tickSize} />}</AnimatePresence>{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
+        <div className="rule-stack"><AnimatePresence>{position.close_conditions?.filter((condition) => !["break_even", "trailing"].includes(condition.purpose ?? "")).map((condition) => <RuleEditor key={`${condition.id}-${condition.updated_at}`} position={position} condition={condition} onSaved={refresh} tickSize={tickSize} />)}{newRule && <RuleEditor key="new-rule" position={position} onSaved={refresh} onCancel={() => setNewRule(false)} tickSize={tickSize} />}</AnimatePresence>{!position.close_conditions?.length && !newRule && <div className="error-state">此單位沒有出場規則。真實曝險不應在缺少停損保護時繼續運作。</div>}</div>
       </section>
 
       <section className="panel danger-zone action-zone">

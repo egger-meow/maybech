@@ -69,8 +69,8 @@ export default function RuntimeModeBanner() {
   const mutateEntries = async (action: "enable" | "kill") => {
     if (entryMutation.current) return;
     const prompt = action === "enable"
-      ? "確認啟用新的策略進場？只有已通過 preflight、風險限制與策略檢查的委託才可送出。此設定會持續生效，之後每次重新啟動並通過 preflight 都會自動恢復為已啟用，直到你明確按下「停止新進場（Kill）」為止。"
-      : "確認立即停止所有新進場，並取消 Maybech 尚未成交的進場委託？減倉與保護性出場不受影響。停用狀態會持續生效，直到你明確再次啟用為止。";
+      ? "確認啟用新的策略進場？只有已通過 preflight、風險限制與策略檢查的委託才可送出。此設定只對目前這次執行階段生效；系統重新啟動後會自動回到停止新進場。"
+      : "確認立即停止所有新進場，並取消 Maybech 尚未成交的進場委託？減倉與保護性出場不受影響。停用狀態會維持到你明確再次啟用；重新啟動也會保持停用。";
     if (!confirm(prompt)) return;
     entryMutation.current = true;
     setEntryBusy(action);

@@ -435,7 +435,10 @@ def test_live_preflight_requires_authenticated_account_uid(monkeypatch, tmp_path
         )
 
 
-def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_path):
+def test_default_runner_arms_orders_but_resets_entry_gate_at_startup(
+    monkeypatch,
+    tmp_path,
+):
     store = TradeStore(str(tmp_path / "trades.db"))
     monkeypatch.setattr(runtime_module, "TradeStore", lambda: store)
     real_lease = runtime_module.RuntimeLease
@@ -486,8 +489,8 @@ def test_default_runner_arms_only_after_successful_preflight(monkeypatch, tmp_pa
     runner = runtime_module.create_default_runner(dry_run=False, include_strategy=False)
 
     assert client_module._ORDER_PLACEMENT_ARMED is True
-    assert client_module._ENTRY_ORDER_PLACEMENT_ENABLED is True
-    assert risk_store.entries_enabled() is True
+    assert client_module._ENTRY_ORDER_PLACEMENT_ENABLED is False
+    assert risk_store.entries_enabled() is False
     assert runner.runtime.get_value("runtime.live_preflight")["armed"] is True
     assert preflight_calls[0]["include_strategy"] is False
     assert runner.services["execution_fills"].enable_private_stream is True

@@ -155,9 +155,11 @@ automatically on process death and explicitly after order placement is disarmed.
 Strategy entries default to disabled until an operator enables them. Enabling entries
 requires a successfully preflighted order-capable process plus `{ "confirm": true }`;
 Simulation or offline enable attempts are rejected instead of being scheduled for restart.
-Once enabled, the state persists across restarts and is automatically restored once the
-process is armed again, so a routine restart does not require re-enabling. Killing entries
-requires the same confirmation and stays disabled until explicitly re-enabled.
+Once enabled, the gate stays open for the current running process so multiple new
+positions do not require repeated confirmation. Every real runtime startup resets
+the entry gate to disabled, even if the previous process ended while entries were
+enabled. Killing entries requires the same confirmation and stays disabled until
+explicitly re-enabled.
 The kill command persists the disabled state before canceling Maybech
 `pending_open` orders and never disables reduce-only close submission.
 

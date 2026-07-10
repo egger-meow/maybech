@@ -27,15 +27,73 @@ const researchStateLabel = (s?: string | null) => ({
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 type ResearchLevel = NonNullable<SupportResistanceAnalysisResponse["levels"]>[number];
 
+function readSessionValue(key: string, fallback: string, forceFallback = false) {
+  if (forceFallback || typeof window === "undefined") return fallback;
+  try {
+    return sessionStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function useSessionTextState(key: string, fallback: string, forceFallback = false) {
+  const [value, setValue] = useState(() => readSessionValue(key, fallback, forceFallback));
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch {
+      // Browser storage can be unavailable in private or restricted contexts.
+    }
+  }, [key, value]);
+  return [value, setValue] as const;
+}
+
+function useSessionChoiceState<T extends string>(
+  key: string,
+  fallback: T,
+  choices: readonly T[],
+) {
+  const [value, setValue] = useState<T>(() => {
+    const stored = readSessionValue(key, fallback);
+    return choices.includes(stored as T) ? stored as T : fallback;
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch {
+      // Browser storage can be unavailable in private or restricted contexts.
+    }
+  }, [key, value]);
+  return [value, setValue] as const;
+}
+
+function useSessionNumberState(key: string, fallback: number | null) {
+  const [value, setValue] = useState<number | null>(() => {
+    const stored = readSessionValue(key, "");
+    if (!stored) return fallback;
+    const parsed = Number(stored);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  });
+  useEffect(() => {
+    try {
+      if (value == null) sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, String(value));
+    } catch {
+      // Browser storage can be unavailable in private or restricted contexts.
+    }
+  }, [key, value]);
+  return [value, setValue] as const;
+}
+
 function RiskSizing({ instrument, bar, latestPrice, selectedStop, selectedLevel, analysisState, evaluatedAt, entryFeePct, exitFeePct, slippagePct, pricePrecision, onPreview }: { instrument: string; bar: string; latestPrice?: number | null; selectedStop?: number | null; selectedLevel?: ResearchLevel | null; analysisState: string; evaluatedAt?: string; entryFeePct: string; exitFeePct: string; slippagePct: string; pricePrecision?: number | null; onPreview?: (preview: { entry: number; stop: number } | null) => void }) {
-  const [mode, setMode] = useState<"fixed_loss" | "chart_anchored">("chart_anchored");
-  const [side, setSide] = useState<"long" | "short">("long");
-  const [entry, setEntry] = useState("");
-  const [loss, setLoss] = useState("100");
-  const [notional, setNotional] = useState("3000");
-  const [stop, setStop] = useState("");
-  const [positionId, setPositionId] = useState("");
-  const [strategyId, setStrategyId] = useState("");
+  const [mode, setMode] = useSessionChoiceState("maybech.analysis.risk.mode", "chart_anchored", ["fixed_loss", "chart_anchored"] as const);
+  const [side, setSide] = useSessionChoiceState("maybech.analysis.risk.side", "long", ["long", "short"] as const);
+  const [entry, setEntry] = useSessionTextState("maybech.analysis.risk.entry", "");
+  const [loss, setLoss] = useSessionTextState("maybech.analysis.risk.loss", "100");
+  const [notional, setNotional] = useSessionTextState("maybech.analysis.risk.notional", "3000");
+  const [stop, setStop] = useSessionTextState("maybech.analysis.risk.stop", "");
+  const [positionId, setPositionId] = useSessionTextState("maybech.analysis.risk.position", "");
+  const [strategyId, setStrategyId] = useSessionTextState("maybech.analysis.risk.strategy", "");
   const [promotionMessage, setPromotionState] = useState("");
   const positions = useSWR("analysis-open-positions", () => listLogicalPositions("open"));
   const strategies = useSWR("analysis-strategies", listStrategies);
@@ -113,14 +171,15 @@ export default function AnalysisResearchPage() {
 
 function AnalysisResearchContent() {
   const searchParams = useSearchParams();
-  const initialInstrument = searchParams.get("instrument")?.trim().toUpperCase() || "BTC-USDT-SWAP";
-  const [draft, setDraft] = useState(initialInstrument);
-  const [instrument, setInstrument] = useState(initialInstrument);
-  const [bar, setBar] = useState("15m");
-  const [selectedStop, setSelectedStop] = useState<number | null>(null);
-  const [entryFeePct, setEntryFeePct] = useState(DEFAULT_ENTRY_FEE_PERCENT);
-  const [exitFeePct, setExitFeePct] = useState(DEFAULT_EXIT_FEE_PERCENT);
-  const [slippagePct, setSlippagePct] = useState("0.05");
+  const instrumentParam = searchParams.get("instrument")?.trim().toUpperCase() || "";
+  const initialInstrument = instrumentParam || "BTC-USDT-SWAP";
+  const [draft, setDraft] = useSessionTextState("maybech.analysis.instrument.draft", initialInstrument, Boolean(instrumentParam));
+  const [instrument, setInstrument] = useSessionTextState("maybech.analysis.instrument.active", initialInstrument, Boolean(instrumentParam));
+  const [bar, setBar] = useSessionChoiceState("maybech.analysis.bar", "15m", bars);
+  const [selectedStop, setSelectedStop] = useSessionNumberState("maybech.analysis.selectedStop", null);
+  const [entryFeePct, setEntryFeePct] = useSessionTextState("maybech.analysis.entryFeePct", DEFAULT_ENTRY_FEE_PERCENT);
+  const [exitFeePct, setExitFeePct] = useSessionTextState("maybech.analysis.exitFeePct", DEFAULT_EXIT_FEE_PERCENT);
+  const [slippagePct, setSlippagePct] = useSessionTextState("maybech.analysis.slippagePct", "0.05");
   const [riskPreview, setRiskPreview] = useState<{ entry: number; stop: number } | null>(null);
   const limit = 200;
   const catalog = useSWR("instrument-metadata", listInstruments);
