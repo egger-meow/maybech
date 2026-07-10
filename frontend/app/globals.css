@@ -248,6 +248,9 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .expression-condition { display: flex; align-items: flex-end; gap: .6rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-secondary); padding: .7rem; flex-wrap: wrap; }
 .compact-field { min-width: 115px; flex: 0 1 150px; }
 .grow-field { flex: 1 1 190px; }
+.price-analysis-field { display: contents; }
+.level-picker-field { flex: 1 1 250px; min-width: 220px; }
+.expression-level-warning { flex: 1 1 100%; margin: 0; }
 .input-with-suffix { position: relative; display: block; }
 .input-with-suffix small { position: absolute; right: .55rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
 .input-with-suffix input { padding-right: 2.8rem; }

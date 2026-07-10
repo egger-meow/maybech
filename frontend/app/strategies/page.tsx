@@ -215,7 +215,7 @@ function SizeQuotePreview({ instrument, quantity, price, side }: { instrument: s
   return <small className="size-quote ready">OKX API：{quote.data.api_quantity_contracts} 口 · 約 {quote.data.estimated_notional_usdt} USDT</small>;
 }
 
-function TypedCloseRuleEditor({ rule, side, onChange }: { rule: CloseRule; side: "long" | "short"; onChange: (rule: CloseRule) => void }) {
+function TypedCloseRuleEditor({ rule, side, onChange, analysisSymbols = [] }: { rule: CloseRule; side: "long" | "short"; onChange: (rule: CloseRule) => void; analysisSymbols?: string[] }) {
   const style = ruleStyle(rule);
   const parameters = ruleParameters(rule);
   const definition = ruleDefinition(rule);
@@ -262,7 +262,7 @@ function TypedCloseRuleEditor({ rule, side, onChange }: { rule: CloseRule; side:
       <div className="inline-warning">移動停損只會收緊既有保護；移動停利則等待水位回撤後才平倉或減倉。缺少新鮮價格時兩者都不會前進。</div>
     </div>;
   }
-  return <ExpressionEditor value={rule.expression} onChange={(expression) => onChange({ ...rule, expression })} label={`${rule.purpose.replaceAll("_", " ")} 條件`} />;
+  return <ExpressionEditor value={rule.expression} onChange={(expression) => onChange({ ...rule, expression })} label={`${rule.purpose.replaceAll("_", " ")} 條件`} analysisSymbols={analysisSymbols} />;
 }
 
 function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
@@ -294,7 +294,7 @@ function StrategyList({ strategies, selectedId, onSelect, onCreate }: {
   );
 }
 
-function ChildSignal({ strategyId, strategyUpdatedAt, strategyEnabled, signal, onSaved }: { strategyId: string; strategyUpdatedAt: string; strategyEnabled: boolean; signal?: PersistedSignalExpression; onSaved: () => Promise<unknown> }) {
+function ChildSignal({ strategyId, strategyUpdatedAt, strategyEnabled, signal, onSaved, analysisSymbols = [] }: { strategyId: string; strategyUpdatedAt: string; strategyEnabled: boolean; signal?: PersistedSignalExpression; onSaved: () => Promise<unknown>; analysisSymbols?: string[] }) {
   const mutationRef = useRef(false);
   const [purpose, setPurpose] = useState(signal?.purpose ?? "filter");
   const [expression, setExpression] = useState<SignalExpression>(object(signal?.expression).type || object(signal?.expression).op ? object(signal?.expression) : { type: "price_above", symbol: "BTC-USDT-SWAP", value: 0 });
@@ -330,7 +330,7 @@ function ChildSignal({ strategyId, strategyUpdatedAt, strategyEnabled, signal, o
         <label className="field"><span>用途</span><select value={purpose} onChange={(event) => { setPurpose(event.target.value); setDirty(true); }}><option value="entry">進場條件</option><option value="filter">進場過濾</option><option value="exit">複製至部位的出場條件</option></select></label>
         <span className={dirty ? "dirty-note" : "saved-note"}>{dirty ? "尚未儲存" : "已儲存"}</span>
       </div>
-      <ExpressionEditor value={expression} onChange={(next) => { setExpression(next); setDirty(true); }} label="附加訊號" />
+      <ExpressionEditor value={expression} onChange={(next) => { setExpression(next); setDirty(true); }} label="附加訊號" analysisSymbols={analysisSymbols} />
       {error && <div className="error-state">{error}</div>}
       <div className="form-actions">
         {signal && <button type="button" className="btn btn-danger" disabled={busy} onClick={remove}><Trash2 size={15} /> 刪除</button>}
@@ -430,7 +430,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
         <label className="field"><span>訊號成立後執行延遲</span><span className="input-with-suffix"><input type="number" min="0" max="86400" step="1" value={draft.executionDelaySeconds} onChange={(event) => set("executionDelaySeconds", event.target.value)} /><small>秒</small></span><small>{Number(draft.executionDelaySeconds) > 0 ? "到期後會重新驗證訊號與風險；失效即取消。" : "0 秒＝停用延遲，沿用立即執行。"}</small></label>
         <div className="field full"><span>每個商品的操作者幣量</span><div className="contract-size-grid">{instruments.map((instrument) => <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><label><small>換算參考價格（USDT）</small><input type="number" min="0" step="any" value={draft.referencePrices[instrument] ?? ""} onChange={(event) => set("referencePrices", { ...draft.referencePrices, [instrument]: event.target.value })} /></label><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={draft.referencePrices[instrument] ?? ""} side={draft.side} /></div>)}</div></div>
-        <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" /></div>
+        <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" analysisSymbols={draft.instruments} /></div>
       </div>
 
       <AnimatePresence>
@@ -449,7 +449,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
               <label className="check-field"><input type="checkbox" checked={rule.enabled} onChange={(event) => updateRule(index, { ...rule, enabled: event.target.checked })} /> 啟用</label>
               <button type="button" className="icon-button danger-ghost" aria-label="移除規則" onClick={() => set("closeRules", draft.closeRules.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} /></button>
             </div>
-            <TypedCloseRuleEditor rule={rule} side={draft.side} onChange={(next) => updateRule(index, next)} />
+            <TypedCloseRuleEditor rule={rule} side={draft.side} onChange={(next) => updateRule(index, next)} analysisSymbols={draft.instruments} />
           </motion.div>
         ))}
       </div>
@@ -466,8 +466,8 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         <div className="section-divider"><div><h3>附加訊號</h3><p>Entry／Filter 會與主要訊號以 AND 組合；Exit 會複製至新部位。</p></div><button type="button" className="btn btn-outline" onClick={() => setNewSignal(true)}><CirclePlus size={15} /> 新增訊號</button></div>
         <div className="rule-stack">
           <AnimatePresence>
-            {strategy.signal_expressions?.map((signal) => <ChildSignal key={signal.id} strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} signal={signal} onSaved={() => onSaved(strategy.id)} />)}
-            {newSignal && <ChildSignal key="new-signal" strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} onSaved={async () => { setNewSignal(false); return onSaved(strategy.id); }} />}
+            {strategy.signal_expressions?.map((signal) => <ChildSignal key={signal.id} strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} signal={signal} onSaved={() => onSaved(strategy.id)} analysisSymbols={draft.instruments} />)}
+            {newSignal && <ChildSignal key="new-signal" strategyId={strategy.id} strategyUpdatedAt={strategy.updated_at ?? ""} strategyEnabled={strategy.enabled} onSaved={async () => { setNewSignal(false); return onSaved(strategy.id); }} analysisSymbols={draft.instruments} />}
           </AnimatePresence>
           {!strategy.signal_expressions?.length && !newSignal && <div className="empty-state">沒有附加訊號；主要進場訊號仍會獨立運作。</div>}
         </div>

@@ -62,17 +62,6 @@ Items here may be useful, but they must not interrupt `Current Priorities`.
 Add work here only when it is outside an activated phase and is not required to
 prevent uncontrolled behavior, excessive loss, incorrect live execution,
 broken operator control, unexpected state, or hidden safety threats.
-- Replace the current custom candle UI in Position Management with a real chart engine.
-  Use KLineChart as the first candidate because Maybech needs interactive financial K-lines with overlays, labels, markers, and future drawing/editing support. Do not build a custom candle renderer.
-  Implement:
-   1. GET /market/candles?inst_id=...&bar=...&limit=...
-   2. GET /positions/logical/{position_id}/chart returning candles plus overlays:
-      entry, current_price, stop_loss, take_profit, break_even, and event markers.
-   3. Frontend reusable PositionKlineChart component.
-   4. Render it inside each logical position unit card.
-   5. Keep it read-only first. Do not add drag-to-edit until the save/confirmation path is explicit.
-   6. Use generated OpenAPI types and add contract tests.
-  Stay inside current product direction: improve Position Management visualization only. No new architecture, no unrelated cleanup.
 - Frontend polish, broad architecture cleanup, and unrelated refactors remain
   deferred until independently prioritized.
 - The execution-leader/read-replica boundary exists and replica SQLite
@@ -84,3 +73,8 @@ broken operator control, unexpected state, or hidden safety threats.
 - Notification delivery intentionally remains basic: configured LINE/Gmail
   sends, bounded retry, backlog, and last health are sufficient unless
   notification reliability becomes an explicit priority.
+- Add a reviewed range-trading signal for "price approaches but does not cross"
+  a configured support/resistance boundary, including backend validation,
+  evaluation evidence, and Strategy/Position editor controls.
+- Replace the `volume_multiple` free-text timeframe input with a bounded period
+  selector so invalid candle bars cannot be saved from the dashboard.

@@ -1,14 +1,23 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { Brackets, Plus, Trash2 } from "lucide-react";
 import useSWR from "swr";
 
 import InstrumentSelector from "@/components/InstrumentSelector";
-import { listInstruments, type InstrumentMetadataResponse } from "@/lib/api";
+import {
+  getSupportResistanceAnalysis,
+  listInstruments,
+  type InstrumentMetadataResponse,
+  type SupportResistanceAnalysisResponse,
+} from "@/lib/api";
 
 export type SignalExpression = Record<string, unknown>;
 
 type PrimitiveType = "price_above" | "price_below" | "rapid_rise" | "rapid_drop" | "volume_multiple";
+type SupportResistanceLevel = NonNullable<SupportResistanceAnalysisResponse["levels"]>[number];
+
+const analysisBars = ["1m", "5m", "15m", "1H", "4H", "1D"];
 
 const primitiveLabels: Record<PrimitiveType, string> = {
   price_above: "價格高於門檻",
@@ -55,13 +64,83 @@ function NumberField({ label, value, onChange, suffix }: { label: string; value:
   );
 }
 
-function Node({ expression, onChange, onRemove, depth, instruments, catalogStale }: {
+function levelLabel(level: SupportResistanceLevel, pricePrecision?: number | null): string {
+  const kind = level.kind === "support" ? "支撐" : "壓力";
+  const price = Number(level.price).toLocaleString("zh-TW", { maximumFractionDigits: pricePrecision ?? 8 });
+  const score = Math.round(Number(level.score ?? 0) * 100);
+  return `${kind} ${price} · ${score}% · ${level.touches} 次`;
+}
+
+function PriceFieldWithAnalysis({ expression, setValue, analysisSymbols }: {
+  expression: SignalExpression;
+  setValue: (value: number) => void;
+  analysisSymbols: string[];
+}) {
+  const [bar, setBar] = useState("15m");
+  const symbol = asText(expression.symbol, "self");
+  const concreteSymbol = symbol === "self"
+    ? analysisSymbols.length === 1 ? analysisSymbols[0] : ""
+    : symbol;
+  const analysis = useSWR(
+    concreteSymbol ? ["expression-support-resistance", concreteSymbol, bar] : null,
+    () => getSupportResistanceAnalysis(concreteSymbol, { bar, limit: 200 }),
+    { refreshInterval: 30_000 },
+  );
+  const preferredKind = expression.type === "price_below" ? "support" : "resistance";
+  const levels = useMemo(() => {
+    const raw = analysis.data?.levels ?? [];
+    return [...raw]
+      .filter((level) => level.state === "active")
+      .sort((left, right) => {
+        if (left.kind !== right.kind) return left.kind === preferredKind ? -1 : 1;
+        return Number(right.score ?? 0) - Number(left.score ?? 0);
+      })
+      .slice(0, 12);
+  }, [analysis.data?.levels, preferredKind]);
+  return (
+    <div className="price-analysis-field">
+      <NumberField label="價格" value={expression.value} onChange={setValue} />
+      <label className="field compact-field">
+        <span>分析週期</span>
+        <select value={bar} onChange={(event) => setBar(event.target.value)}>
+          {analysisBars.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+      </label>
+      <label className="field level-picker-field">
+        <span>支撐／壓力</span>
+        <select
+          disabled={!concreteSymbol || analysis.isLoading || Boolean(analysis.error) || levels.length === 0}
+          value=""
+          onChange={(event) => {
+            const level = levels[Number(event.target.value)];
+            if (level) setValue(Number(level.price));
+          }}
+        >
+          <option value="">{analysis.isLoading ? "讀取市場分析…" : levels.length ? "選擇分析價位" : "沒有可用層級"}</option>
+          {levels.map((level, index) => (
+            <option key={`${level.kind}-${level.price}-${level.latest_touch_at}`} value={index}>
+              {levelLabel(level, analysis.data?.price_precision)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {symbol === "self" && analysisSymbols.length !== 1 && (
+        <div className="inline-warning expression-level-warning">self 需要唯一交易商品才會載入支撐／壓力；請改選明確市場，或讓策略只選一個商品。</div>
+      )}
+      {analysis.error && <div className="inline-warning expression-level-warning">市場分析 API 無法使用；仍可手動輸入價格。</div>}
+      {analysis.data && analysis.data.status !== "fresh" && <div className="inline-warning expression-level-warning">此分析目前為 {analysis.data.status}；選入後仍只是填入價格，請自行審閱。</div>}
+    </div>
+  );
+}
+
+function Node({ expression, onChange, onRemove, depth, instruments, catalogStale, analysisSymbols }: {
   expression: SignalExpression;
   onChange: (next: SignalExpression) => void;
   onRemove?: () => void;
   depth: number;
   instruments: InstrumentMetadataResponse[];
   catalogStale: boolean;
+  analysisSymbols: string[];
 }) {
   if (isComposite(expression)) {
     const items = conditions(expression);
@@ -89,7 +168,7 @@ function Node({ expression, onChange, onRemove, depth, instruments, catalogStale
           {items.map((item, index) => (
             <div className="expression-child" key={index}>
               {index > 0 && <span className="operator-chip">{op.toUpperCase()}</span>}
-              <Node expression={item} onChange={(next) => updateItem(index, next)} onRemove={() => removeItem(index)} depth={depth + 1} instruments={instruments} catalogStale={catalogStale} />
+              <Node expression={item} onChange={(next) => updateItem(index, next)} onRemove={() => removeItem(index)} depth={depth + 1} instruments={instruments} catalogStale={catalogStale} analysisSymbols={analysisSymbols} />
             </div>
           ))}
         </div>
@@ -121,7 +200,9 @@ function Node({ expression, onChange, onRemove, depth, instruments, catalogStale
           onChange={(next) => set("symbol", next[0] ?? "self")}
         />
       </label>
-      {(type === "price_above" || type === "price_below") && <NumberField label="價格" value={expression.value} onChange={(value) => set("value", value)} />}
+      {(type === "price_above" || type === "price_below") && (
+        <PriceFieldWithAnalysis expression={expression} setValue={(value) => set("value", value)} analysisSymbols={analysisSymbols} />
+      )}
       {(type === "rapid_rise" || type === "rapid_drop") && <>
         <NumberField label="漲跌幅" value={expression.change_pct} suffix="%" onChange={(value) => set("change_pct", value)} />
         <NumberField label="時間內" value={expression.window_seconds} suffix="秒" onChange={(value) => set("window_seconds", value)} />
@@ -150,9 +231,10 @@ export function describeExpression(expression: SignalExpression): string {
   return "條件尚未完成";
 }
 
-export default function ExpressionEditor({ value, onChange, label = "規則運算式" }: { value: SignalExpression; onChange: (value: SignalExpression) => void; label?: string }) {
+export default function ExpressionEditor({ value, onChange, label = "規則運算式", analysisSymbols = [] }: { value: SignalExpression; onChange: (value: SignalExpression) => void; label?: string; analysisSymbols?: string[] }) {
   const safeValue = Object.keys(value).length ? value : defaultPrimitive();
   const catalog = useSWR("instrument-metadata", listInstruments);
+  const concreteAnalysisSymbols = analysisSymbols.filter((item) => item && item !== "self");
   return (
     <div className="expression-editor">
       <div className="expression-heading">
@@ -160,7 +242,7 @@ export default function ExpressionEditor({ value, onChange, label = "規則運�
         {!isComposite(safeValue) && <button type="button" className="btn btn-outline" onClick={() => onChange({ op: "and", conditions: [safeValue, defaultPrimitive()] })}><Brackets size={15} /> 加入 AND／OR</button>}
       </div>
       {catalog.error && <div className="inline-warning">商品資料尚未快取；請先更新 OKX 商品資料，規則目標目前只能使用 self。</div>}
-      <Node expression={safeValue} onChange={onChange} depth={0} instruments={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} />
+      <Node expression={safeValue} onChange={onChange} depth={0} instruments={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} analysisSymbols={concreteAnalysisSymbols} />
     </div>
   );
 }

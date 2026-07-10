@@ -429,7 +429,7 @@ function RuleEditor({ position, condition, onSaved, onCancel, tickSize }: { posi
         {purpose === "take_profit" && <label className="check-field"><input type="checkbox" checked={reduceOnly} onChange={(event) => { setReduceOnly(event.target.checked); setDirty(true); }} /> 只減倉並保留剩餘部位</label>}
         {purpose === "take_profit" && reduceOnly && <label className="field"><span>減倉比例</span><span className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={reducePct} onChange={(event) => { setReducePct(event.target.value); setDirty(true); }} /><small>%</small></span></label>}
         <div className="inline-warning">相對百分比以此邏輯部位的確認進場均價計算；受保護停損會先完成交易所修改確認，再更新型別化規則 metadata。</div>
-      </div> : <ExpressionEditor value={expression} onChange={change} label={`${purposeLabel(purpose)}條件`} />}
+      </div> : <ExpressionEditor value={expression} onChange={change} label={`${purposeLabel(purpose)}條件`} analysisSymbols={[position.inst_id]} />}
       {ruleQuote.data && <div className="rule-pnl-estimate"><span>依剩餘 {ruleQuote.data.display_quantity} {ruleQuote.data.display_currency} 估算</span><strong className={Number(ruleQuote.data.estimated_pnl_usdt) < 0 ? "negative" : "positive"}>{ruleQuote.data.estimated_pnl_usdt} USDT</strong></div>}
       {!rulePrice && <div className="inline-warning">此規則沒有單一絕對價位，無法顯示單值 USDT 損益；實際條件仍會完整評估。</div>}
       {rulePrice && ruleQuote.error && <div className="inline-warning">缺少或無法解讀商品單位 metadata，USDT 損益估算不可用。</div>}
