@@ -14,6 +14,7 @@ from src.exchange.client import disable_entry_order_placement
 from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.entry_control import ENTRY_EXECUTION_LOCK
+from src.trading.fee_defaults import DEFAULT_ENTRY_FEE_RATE, DEFAULT_EXIT_FEE_RATE
 from src.trading.instrument_constraints import InstrumentConstraints
 from src.trading.logical_position_store import (
     LogicalPositionProtection,
@@ -258,8 +259,8 @@ class PositionProtectionService:
         reason: str,
         expected_position_updated_at: str | None = None,
         expected_condition_updated_at: str | None = None,
-        entry_fee_rate: Decimal = Decimal("0.0005"),
-        exit_fee_rate: Decimal = Decimal("0.0005"),
+        entry_fee_rate: Decimal = Decimal(DEFAULT_ENTRY_FEE_RATE),
+        exit_fee_rate: Decimal = Decimal(DEFAULT_EXIT_FEE_RATE),
         slippage_rate: Decimal = Decimal("0.0005"),
     ) -> LogicalPositionRecord:
         """Move an owned stop to entry or a side-consistent protected profit."""

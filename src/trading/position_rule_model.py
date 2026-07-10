@@ -6,6 +6,8 @@ from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from src.trading.fee_defaults import DEFAULT_ENTRY_FEE_RATE, DEFAULT_EXIT_FEE_RATE
+
 
 RULE_SCHEMA_VERSION = 1
 RULE_PURPOSES = {
@@ -364,8 +366,8 @@ def calculate_break_even_target(
     *,
     entry_price: object,
     side: str,
-    entry_fee_rate: object = "0.0005",
-    exit_fee_rate: object = "0.0005",
+    entry_fee_rate: object = DEFAULT_ENTRY_FEE_RATE,
+    exit_fee_rate: object = DEFAULT_EXIT_FEE_RATE,
     slippage_rate: object = "0.0005",
     lock_in_pct: object = "0",
 ) -> tuple[Decimal, dict[str, str]]:

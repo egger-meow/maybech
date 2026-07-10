@@ -22,6 +22,7 @@ from src.exchange.client import OKXClient, disable_entry_order_placement
 from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
 from src.trading.executor import Executor
+from src.trading.fee_defaults import DEFAULT_ENTRY_FEE_RATE, DEFAULT_EXIT_FEE_RATE
 from src.trading.logical_position_store import (
     LogicalPositionAllocation,
     LogicalPositionCloseCondition,
@@ -323,8 +324,8 @@ class PositionManagerService(DaemonService):
             target, cost_evidence = calculate_break_even_target(
                 entry_price=position.entry_price,
                 side=position.side,
-                entry_fee_rate=parameters.get("entry_fee_rate", "0.0005"),
-                exit_fee_rate=parameters.get("exit_fee_rate", "0.0005"),
+                entry_fee_rate=parameters.get("entry_fee_rate", DEFAULT_ENTRY_FEE_RATE),
+                exit_fee_rate=parameters.get("exit_fee_rate", DEFAULT_EXIT_FEE_RATE),
                 slippage_rate=parameters.get("slippage_rate", "0.0005"),
                 lock_in_pct=parameters.get("lock_in_pct", "0"),
             )
@@ -386,8 +387,8 @@ class PositionManagerService(DaemonService):
                     reason=f"automatic break-even rule {condition.id}",
                     expected_position_updated_at=position.updated_at,
                     expected_condition_updated_at=stop.updated_at,
-                    entry_fee_rate=Decimal(str(parameters.get("entry_fee_rate", "0.0005"))),
-                    exit_fee_rate=Decimal(str(parameters.get("exit_fee_rate", "0.0005"))),
+                    entry_fee_rate=Decimal(str(parameters.get("entry_fee_rate", DEFAULT_ENTRY_FEE_RATE))),
+                    exit_fee_rate=Decimal(str(parameters.get("exit_fee_rate", DEFAULT_EXIT_FEE_RATE))),
                     slippage_rate=Decimal(str(parameters.get("slippage_rate", "0.0005"))),
                 )
             except PositionProtectionError as exc:

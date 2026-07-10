@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 
+from src.trading.fee_defaults import DEFAULT_ENTRY_FEE_RATE, DEFAULT_EXIT_FEE_RATE
 from src.trading.instrument_metadata import InstrumentMetadata
 
 
@@ -214,8 +215,8 @@ class InstrumentSizer:
         stop_price: object | None = None,
         timeframe: str | None = None,
         evidence: dict | None = None,
-        entry_fee_rate: object = "0.0005",
-        exit_fee_rate: object = "0.0005",
+        entry_fee_rate: object = DEFAULT_ENTRY_FEE_RATE,
+        exit_fee_rate: object = DEFAULT_EXIT_FEE_RATE,
         slippage_rate: object = "0.0005",
     ) -> RiskSizeQuote:
         """Derive a lot-aligned size/stop without exceeding allowed loss."""

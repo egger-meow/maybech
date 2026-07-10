@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from src.trading.fee_defaults import DEFAULT_ENTRY_FEE_RATE, DEFAULT_EXIT_FEE_RATE
+
 
 # ---------------------------------------------------------------------------
 # Runtime Snapshots
@@ -209,8 +211,8 @@ class InstrumentRiskQuoteRequest(BaseModel):
     stop_price: str | None = Field(default=None, min_length=1, max_length=64)
     timeframe: str | None = Field(default=None, min_length=1, max_length=16)
     evidence: dict[str, Any] = Field(default_factory=dict)
-    entry_fee_rate: str = Field(default="0.0005", min_length=1, max_length=64)
-    exit_fee_rate: str = Field(default="0.0005", min_length=1, max_length=64)
+    entry_fee_rate: str = Field(default=DEFAULT_ENTRY_FEE_RATE, min_length=1, max_length=64)
+    exit_fee_rate: str = Field(default=DEFAULT_EXIT_FEE_RATE, min_length=1, max_length=64)
     slippage_rate: str = Field(default="0.0005", min_length=1, max_length=64)
 
 
@@ -890,8 +892,8 @@ class PositionBreakEvenCommand(BaseModel):
     expected_position_updated_at: str = Field(min_length=1)
     expected_condition_updated_at: str = Field(min_length=1)
     lock_in_pct: float = Field(default=0, ge=0, le=0.05)
-    entry_fee_rate: float = Field(default=0.0005, ge=0, le=0.02)
-    exit_fee_rate: float = Field(default=0.0005, ge=0, le=0.02)
+    entry_fee_rate: float = Field(default=float(DEFAULT_ENTRY_FEE_RATE), ge=0, le=0.02)
+    exit_fee_rate: float = Field(default=float(DEFAULT_EXIT_FEE_RATE), ge=0, le=0.02)
     slippage_rate: float = Field(default=0.0005, ge=0, le=0.02)
     reason: str = Field(default="operator break-even", min_length=1, max_length=256)
 

@@ -42,6 +42,7 @@ import {
   type InstrumentMetadataResponse,
   type PositionChartOverlayResponse,
 } from "@/lib/api";
+import { DEFAULT_ENTRY_FEE_RATE, DEFAULT_EXIT_FEE_RATE } from "@/lib/fee-defaults";
 
 const activeStatuses = new Set(["pending_open", "open", "reducing", "closing"]);
 
@@ -447,8 +448,8 @@ function BreakEvenLifecycle({ position, refresh }: { position: LogicalPositionUn
   const parameters = object(object(existing?.rule_definition).parameters);
   const lifecycle = object(object(existing?.metadata).break_even_state);
   const [activationPct, setActivationPct] = useState(String(Number(parameters.activation_profit_pct ?? 0.01) * 100));
-  const [entryFeePct, setEntryFeePct] = useState(String(Number(parameters.entry_fee_rate ?? 0.0005) * 100));
-  const [exitFeePct, setExitFeePct] = useState(String(Number(parameters.exit_fee_rate ?? 0.0005) * 100));
+  const [entryFeePct, setEntryFeePct] = useState(String(Number(parameters.entry_fee_rate ?? DEFAULT_ENTRY_FEE_RATE) * 100));
+  const [exitFeePct, setExitFeePct] = useState(String(Number(parameters.exit_fee_rate ?? DEFAULT_EXIT_FEE_RATE) * 100));
   const [slippagePct, setSlippagePct] = useState(String(Number(parameters.slippage_rate ?? 0.0005) * 100));
   const [lockPct, setLockPct] = useState(String(Number(parameters.lock_in_pct ?? 0) * 100));
   const [busy, setBusy] = useState(false);

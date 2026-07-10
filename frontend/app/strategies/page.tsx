@@ -31,6 +31,7 @@ import {
   type InstrumentMetadataResponse,
   type StrategySummary,
 } from "@/lib/api";
+import { DEFAULT_ENTRY_FEE_RATE, DEFAULT_EXIT_FEE_RATE } from "@/lib/fee-defaults";
 
 type CloseRule = { purpose: string; enabled: boolean; expression: SignalExpression; metadata?: Record<string, unknown> };
 type Draft = {
@@ -112,7 +113,7 @@ function withTypedRule(
 
 function defaultCloseRule(purpose: string, side: "long" | "short"): CloseRule {
   const expression = priceExpression(purpose, side, 1);
-  if (purpose === "break_even") return withTypedRule({ purpose, enabled: true, expression }, "break_even_threshold", { activation_profit_pct: "0.01", entry_fee_rate: "0.0005", exit_fee_rate: "0.0005", slippage_rate: "0.0005", lock_in_pct: "0" }, { type: "amend_stop" });
+  if (purpose === "break_even") return withTypedRule({ purpose, enabled: true, expression }, "break_even_threshold", { activation_profit_pct: "0.01", entry_fee_rate: String(DEFAULT_ENTRY_FEE_RATE), exit_fee_rate: String(DEFAULT_EXIT_FEE_RATE), slippage_rate: "0.0005", lock_in_pct: "0" }, { type: "amend_stop" });
   if (purpose === "trailing") return withTypedRule({ purpose, enabled: true, expression: { type: side === "long" ? "price_above" : "price_below", symbol: "self", value: 1 } }, "trailing_threshold", { trailing_kind: "stop", activation_profit_pct: "0.03", distance_pct: "0.02", timeframe: "1m", stale_after_seconds: 90 }, { type: "amend_stop" });
   if (purpose === "stop_loss" || purpose === "take_profit") return withTypedRule({ purpose, enabled: true, expression }, "fixed_percent", { offset_pct: purpose === "stop_loss" ? "0.01" : "0.02" }, { type: "close_position" });
   return { purpose, enabled: true, expression };

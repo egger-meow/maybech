@@ -8,6 +8,7 @@ import useSWR from "swr";
 import InstrumentSelector from "@/components/InstrumentSelector";
 import KlineChart, { type KlineChartOverlay } from "@/components/KlineChart";
 import { getMarketCandles, getRiskLimits, getSupportResistanceAnalysis, listInstruments, listLogicalPositions, listStrategies, promotePositionRiskStop, promoteStrategyRiskStop, quoteInstrumentRisk, type InstrumentRiskQuoteRequest, type SupportResistanceAnalysisResponse } from "@/lib/api";
+import { DEFAULT_ENTRY_FEE_PERCENT, DEFAULT_EXIT_FEE_PERCENT } from "@/lib/fee-defaults";
 import { formatPrice } from "@/lib/price-format";
 
 const bars = ["1m", "5m", "15m", "1H", "4H", "1D"];
@@ -117,8 +118,8 @@ function AnalysisResearchContent() {
   const [instrument, setInstrument] = useState(initialInstrument);
   const [bar, setBar] = useState("15m");
   const [selectedStop, setSelectedStop] = useState<number | null>(null);
-  const [entryFeePct, setEntryFeePct] = useState("0.05");
-  const [exitFeePct, setExitFeePct] = useState("0.05");
+  const [entryFeePct, setEntryFeePct] = useState(DEFAULT_ENTRY_FEE_PERCENT);
+  const [exitFeePct, setExitFeePct] = useState(DEFAULT_EXIT_FEE_PERCENT);
   const [slippagePct, setSlippagePct] = useState("0.05");
   const [riskPreview, setRiskPreview] = useState<{ entry: number; stop: number } | null>(null);
   const limit = 200;
@@ -147,7 +148,7 @@ function AnalysisResearchContent() {
       overlays.push({ kind: "stop_loss", price: riskPreview.stop, label: "風險試算停損" });
     }
     return overlays;
-  }, [sortedLevels, selectedLevel, selectedStop, riskPreview, analysis.data?.latest_price]);
+  }, [sortedLevels, selectedLevel, selectedStop, riskPreview, analysis.data]);
   const klineChart = useMemo(() => ({
     inst_id: instrument,
     bar,
