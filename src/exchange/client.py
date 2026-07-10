@@ -245,6 +245,11 @@ class OKXClient:
         resp = self.public_api.get_funding_rate(instId=inst_id)
         return _extract(resp, label="get_funding_rate")
 
+    def get_open_interest(self, inst_id: str) -> list[dict]:
+        """Fetch current open interest for a perpetual swap."""
+        resp = self.public_api.get_open_interest(instType="SWAP", instId=inst_id)
+        return _extract(resp, label="get_open_interest")
+
     # -- Order History (read-only) -------------------------------------------
 
     def get_order_history(

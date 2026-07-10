@@ -2690,3 +2690,27 @@ def test_trade_history_exposes_short_identity_and_correlation(monkeypatch, tmp_p
 
     assert trade["short_id"] == "trade-12"
     assert trade["correlation_id"] == "corr-778899"
+
+
+def test_market_macro_overview_simulation_mode_skips_okx_but_keeps_external_indices(monkeypatch):
+    monkeypatch.setattr(
+        "src.api.app.fetch_fear_greed",
+        lambda: {"latest": {"value": 55, "classification": "Neutral", "date": "2026-07-09"}, "history": []},
+    )
+    monkeypatch.setattr(
+        "src.api.app.fetch_mvrv_zscore",
+        lambda: {"value": 0.32, "as_of": "2026-07-09", "classification": "neutral"},
+    )
+    runner = DaemonRunner()
+    runner.runtime.set_value("runtime.live_preflight", {"execution_mode": "dry_run"})
+    client = TestClient(create_app(runner))
+
+    response = client.get("/market/macro-overview")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fear_greed"]["latest"]["value"] == 55
+    assert body["mvrv"]["value"] == "0.32"
+    assert body["mvrv"]["classification"] == "neutral"
+    assert body["prices"] == []
+    assert "Simulation mode" in body["funding"]["unavailable_reason"]

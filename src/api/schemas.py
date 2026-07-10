@@ -603,6 +603,51 @@ class MarketOverviewResponse(BaseModel):
     fetched_at: str
 
 
+class MacroPricePointResponse(BaseModel):
+    symbol: str
+    last_price: str | None = None
+    change_24h_pct: str | None = None
+
+
+class FearGreedPointResponse(BaseModel):
+    value: int
+    classification: str
+    date: str
+
+
+class FearGreedResponse(BaseModel):
+    latest: FearGreedPointResponse | None = None
+    history: list[FearGreedPointResponse] = Field(default_factory=list)
+    unavailable_reason: str | None = None
+
+
+class MvrvZScoreResponse(BaseModel):
+    value: str | None = None
+    classification: str | None = None
+    as_of: str | None = None
+    unavailable_reason: str | None = None
+
+
+class FundingOverviewEntryResponse(BaseModel):
+    symbol: str
+    funding_rate: str | None = None
+    open_interest_ccy: str | None = None
+
+
+class FundingOverviewResponse(BaseModel):
+    entries: list[FundingOverviewEntryResponse] = Field(default_factory=list)
+    weighted_average_funding_rate: str | None = None
+    unavailable_reason: str | None = None
+
+
+class MarketMacroOverviewResponse(BaseModel):
+    fetched_at: str
+    prices: list[MacroPricePointResponse] = Field(default_factory=list)
+    fear_greed: FearGreedResponse
+    mvrv: MvrvZScoreResponse
+    funding: FundingOverviewResponse
+
+
 class MarketAnalysisFreshnessResponse(BaseModel):
     evaluated_at: str
     latest_candle_at: str | None = None

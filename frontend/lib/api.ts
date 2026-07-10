@@ -39,6 +39,7 @@ import type {
   NotificationTestRequest,
   NotificationTestResponse,
   MarketCandlesResponse,
+  MarketMacroOverviewResponse,
   MarketOverviewResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
@@ -112,6 +113,7 @@ export type {
   NotificationTestRequest,
   NotificationTestResponse,
   MarketCandlesResponse,
+  MarketMacroOverviewResponse,
   MarketOverviewResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
@@ -377,6 +379,9 @@ export const getMarketOverview = (
   const query = params.toString();
   return fetcher<MarketOverviewResponse>(`/market/overview${query ? `?${query}` : ""}`);
 };
+
+export const getMarketMacroOverview = (): Promise<MarketMacroOverviewResponse> =>
+  fetcher<MarketMacroOverviewResponse>("/market/macro-overview");
 
 export const getSupportResistanceAnalysis = (
   instId: string,

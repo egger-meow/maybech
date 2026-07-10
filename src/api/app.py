@@ -22,6 +22,7 @@ from src.config.settings import settings
 from src.data.candles import CandleManager
 from src.data.simulation_market import SimulationMarketClient
 from src.data.simulation_instruments import SIMULATION_SWAP_INSTRUMENTS
+from src.market.macro_overview import fetch_fear_greed, fetch_funding_overview, fetch_mvrv_zscore, fetch_prices
 from src.market.support_resistance import SupportResistanceService
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
@@ -108,6 +109,7 @@ from src.api.schemas import (
     LogicalPositionAllocationResponse,
     MutationStatusResponse,
     MarketCandlesResponse,
+    MarketMacroOverviewResponse,
     MarketOverviewResponse,
     MarketOverviewTickerResponse,
     SupportResistanceAnalysisResponse,
@@ -1567,6 +1569,59 @@ def create_app(
                 row.funding_rate = str(funding[0].get("fundingRate") or "") or None
                 row.next_funding_time = str(funding[0].get("nextFundingTime") or "") or None
         return MarketOverviewResponse(inst_type=inst_type, items=rows, fetched_at=fetched_at).model_dump()
+
+    def _mvrv_response_dict(mvrv: dict) -> dict:
+        return {**mvrv, "value": None if mvrv.get("value") is None else str(mvrv["value"])}
+
+    @app.get("/market/macro-overview", response_model=MarketMacroOverviewResponse)
+    def get_market_macro_overview() -> dict:
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        fear_greed = fetch_fear_greed()
+        mvrv = _mvrv_response_dict(fetch_mvrv_zscore())
+        if runtime_mode() == "simulation":
+            return MarketMacroOverviewResponse(
+                fetched_at=fetched_at,
+                fear_greed=fear_greed,
+                mvrv=mvrv,
+                funding={
+                    "unavailable_reason": (
+                        "Simulation mode has no live market feed; switch to demo or live "
+                        "to see BTC/ETH price and funding data."
+                    )
+                },
+            ).model_dump()
+        client = exchange_client()
+        prices = fetch_prices(client)
+        funding = fetch_funding_overview(client)
+        return MarketMacroOverviewResponse(
+            fetched_at=fetched_at,
+            prices=[
+                {
+                    "symbol": row["symbol"],
+                    "last_price": None if row["last_price"] is None else str(row["last_price"]),
+                    "change_24h_pct": None if row["change_24h_pct"] is None else str(round(row["change_24h_pct"], 2)),
+                }
+                for row in prices
+            ],
+            fear_greed=fear_greed,
+            mvrv=mvrv,
+            funding={
+                "entries": [
+                    {
+                        "symbol": entry["symbol"],
+                        "funding_rate": None if entry["funding_rate"] is None else str(entry["funding_rate"]),
+                        "open_interest_ccy": None if entry["open_interest_ccy"] is None else str(entry["open_interest_ccy"]),
+                    }
+                    for entry in funding["entries"]
+                ],
+                "weighted_average_funding_rate": (
+                    None
+                    if funding.get("weighted_average_funding_rate") is None
+                    else str(funding["weighted_average_funding_rate"])
+                ),
+                "unavailable_reason": funding.get("unavailable_reason"),
+            },
+        ).model_dump()
 
     @app.get(
         "/market/analysis/support-resistance",

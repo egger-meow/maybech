@@ -1024,6 +1024,133 @@
         "title": "ExternalPositionImportRequest",
         "type": "object"
       },
+      "FearGreedPointResponse": {
+        "properties": {
+          "classification": {
+            "title": "Classification",
+            "type": "string"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "value",
+          "classification",
+          "date"
+        ],
+        "title": "FearGreedPointResponse",
+        "type": "object"
+      },
+      "FearGreedResponse": {
+        "properties": {
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/FearGreedPointResponse"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FearGreedPointResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "title": "FearGreedResponse",
+        "type": "object"
+      },
+      "FundingOverviewEntryResponse": {
+        "properties": {
+          "funding_rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Funding Rate"
+          },
+          "open_interest_ccy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Interest Ccy"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "FundingOverviewEntryResponse",
+        "type": "object"
+      },
+      "FundingOverviewResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/FundingOverviewEntryResponse"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "weighted_average_funding_rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weighted Average Funding Rate"
+          }
+        },
+        "title": "FundingOverviewResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2682,6 +2809,41 @@
         "title": "LogicalPositionUnitResponse",
         "type": "object"
       },
+      "MacroPricePointResponse": {
+        "properties": {
+          "change_24h_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change 24H Pct"
+          },
+          "last_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Price"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "MacroPricePointResponse",
+        "type": "object"
+      },
       "ManualPositionOpenRequest": {
         "properties": {
           "confirm": {
@@ -2860,6 +3022,38 @@
         "title": "MarketCandlesResponse",
         "type": "object"
       },
+      "MarketMacroOverviewResponse": {
+        "properties": {
+          "fear_greed": {
+            "$ref": "#/components/schemas/FearGreedResponse"
+          },
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "funding": {
+            "$ref": "#/components/schemas/FundingOverviewResponse"
+          },
+          "mvrv": {
+            "$ref": "#/components/schemas/MvrvZScoreResponse"
+          },
+          "prices": {
+            "items": {
+              "$ref": "#/components/schemas/MacroPricePointResponse"
+            },
+            "title": "Prices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "fetched_at",
+          "fear_greed",
+          "mvrv",
+          "funding"
+        ],
+        "title": "MarketMacroOverviewResponse",
+        "type": "object"
+      },
       "MarketOverviewResponse": {
         "properties": {
           "fetched_at": {
@@ -3008,6 +3202,56 @@
           "id"
         ],
         "title": "MutationStatusResponse",
+        "type": "object"
+      },
+      "MvrvZScoreResponse": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classification"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "MvrvZScoreResponse",
         "type": "object"
       },
       "NotificationChannelHealthResponse": {
@@ -6796,6 +7040,24 @@
           }
         },
         "summary": "Get Market Candles"
+      }
+    },
+    "/market/macro-overview": {
+      "get": {
+        "operationId": "get_market_macro_overview_market_macro_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketMacroOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Market Macro Overview"
       }
     },
     "/market/overview": {

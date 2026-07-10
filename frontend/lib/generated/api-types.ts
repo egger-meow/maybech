@@ -184,6 +184,30 @@ export type ExternalPositionImportRequest = {
   "reason": string;
 };
 
+export type FearGreedPointResponse = {
+  "value": number;
+  "classification": string;
+  "date": string;
+};
+
+export type FearGreedResponse = {
+  "latest"?: FearGreedPointResponse | null;
+  "history"?: FearGreedPointResponse[];
+  "unavailable_reason"?: string | null;
+};
+
+export type FundingOverviewEntryResponse = {
+  "symbol": string;
+  "funding_rate"?: string | null;
+  "open_interest_ccy"?: string | null;
+};
+
+export type FundingOverviewResponse = {
+  "entries"?: FundingOverviewEntryResponse[];
+  "weighted_average_funding_rate"?: string | null;
+  "unavailable_reason"?: string | null;
+};
+
 export type HTTPValidationError = {
   "detail"?: ValidationError[];
 };
@@ -467,6 +491,12 @@ export type LogicalPositionUnitResponse = {
   "audit_events"?: RuntimeEventResponse[];
 };
 
+export type MacroPricePointResponse = {
+  "symbol": string;
+  "last_price"?: string | null;
+  "change_24h_pct"?: string | null;
+};
+
 export type ManualPositionOpenRequest = {
   "confirm": true;
   "inst_id": string;
@@ -500,6 +530,14 @@ export type MarketCandlesResponse = {
   "fetched_at": string;
 };
 
+export type MarketMacroOverviewResponse = {
+  "fetched_at": string;
+  "prices"?: MacroPricePointResponse[];
+  "fear_greed": FearGreedResponse;
+  "mvrv": MvrvZScoreResponse;
+  "funding": FundingOverviewResponse;
+};
+
 export type MarketOverviewResponse = {
   "inst_type": string;
   "items"?: MarketOverviewTickerResponse[];
@@ -525,6 +563,13 @@ export type MarketOverviewTickerResponse = {
 export type MutationStatusResponse = {
   "status": "deleted" | "ok";
   "id": string;
+};
+
+export type MvrvZScoreResponse = {
+  "value"?: string | null;
+  "classification"?: string | null;
+  "as_of"?: string | null;
+  "unavailable_reason"?: string | null;
 };
 
 export type NotificationChannelHealthResponse = {
@@ -1029,6 +1074,10 @@ export type ApiSchemas = {
   "EntryControlResponse": EntryControlResponse;
   "ExecutionFillIngestionStatusResponse": ExecutionFillIngestionStatusResponse;
   "ExternalPositionImportRequest": ExternalPositionImportRequest;
+  "FearGreedPointResponse": FearGreedPointResponse;
+  "FearGreedResponse": FearGreedResponse;
+  "FundingOverviewEntryResponse": FundingOverviewEntryResponse;
+  "FundingOverviewResponse": FundingOverviewResponse;
   "HTTPValidationError": HTTPValidationError;
   "HealthResponse": HealthResponse;
   "InstrumentContractQuoteRequest": InstrumentContractQuoteRequest;
@@ -1054,13 +1103,16 @@ export type ApiSchemas = {
   "LogicalPositionReduceRequest": LogicalPositionReduceRequest;
   "LogicalPositionReduceResponse": LogicalPositionReduceResponse;
   "LogicalPositionUnitResponse": LogicalPositionUnitResponse;
+  "MacroPricePointResponse": MacroPricePointResponse;
   "ManualPositionOpenRequest": ManualPositionOpenRequest;
   "MarketAnalysisFreshnessResponse": MarketAnalysisFreshnessResponse;
   "MarketAnalysisQualityResponse": MarketAnalysisQualityResponse;
   "MarketCandlesResponse": MarketCandlesResponse;
+  "MarketMacroOverviewResponse": MarketMacroOverviewResponse;
   "MarketOverviewResponse": MarketOverviewResponse;
   "MarketOverviewTickerResponse": MarketOverviewTickerResponse;
   "MutationStatusResponse": MutationStatusResponse;
+  "MvrvZScoreResponse": MvrvZScoreResponse;
   "NotificationChannelHealthResponse": NotificationChannelHealthResponse;
   "NotificationHealthResponse": NotificationHealthResponse;
   "NotificationTestRequest": NotificationTestRequest;
