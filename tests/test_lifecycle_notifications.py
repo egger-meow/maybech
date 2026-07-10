@@ -4,6 +4,7 @@ from src.daemon.events import RuntimeState
 from src.daemon.lifecycle_notification_service import (
     LifecycleNotificationService,
     classify_lifecycle_event,
+    format_lifecycle_message,
 )
 from src.notifications.email_alert import EmailNotifier
 from src.trading.audit_event_store import AuditEventStore
@@ -271,6 +272,53 @@ def test_category_mapping_covers_confirmed_position_lifecycle():
         "position.allocation_confirmed", {"action": "close"}
     ) == "部位已平倉"
     assert classify_lifecycle_event("position.close_condition_evaluated", {}) is None
+
+
+def test_category_mapping_covers_protection_trigger_and_kill_switch():
+    assert (
+        classify_lifecycle_event("position.protection_triggered", {})
+        == "保護單已觸發（停損／停利）"
+    )
+    assert (
+        classify_lifecycle_event("entry_control.killed", {})
+        == "已停止進場（Kill Switch）"
+    )
+    assert (
+        classify_lifecycle_event("entry_control.enabled", {})
+        == "已恢復進場"
+    )
+
+
+def test_format_lifecycle_message_surfaces_pnl_price_reason_and_duration():
+    payload = {
+        "strategy_id": "strategy-a",
+        "position_id": "pos-1",
+        "inst_id": "BTC-USDT-SWAP",
+        "side": "long",
+        "quantity": 0.5,
+        "entry_price": 60000.0,
+        "exit_price": 61000.0,
+        "realized_pnl": 500.0,
+        "realized_pnl_pct": 1.67,
+        "exit_reason": "take_profit",
+        "entry_time": "2026-07-10T00:00:00+00:00",
+        "exit_time": "2026-07-10T02:30:00+00:00",
+    }
+    message = format_lifecycle_message("部位已平倉", "position.allocation_confirmed", payload)
+
+    assert "損益：+500.0000 USDT（+1.67%）　🟢 獲利" in message
+    assert "進場價：60000.0" in message
+    assert "出場價：61000.0" in message
+    assert "原因：take_profit" in message
+    assert "持倉時間：2h 30m" in message
+
+
+def test_format_lifecycle_message_marks_losing_trade():
+    payload = {"pnl": -120.5, "pnl_pct": -3.4}
+    message = format_lifecycle_message("部位已平倉", "position.closed", payload)
+
+    assert "🔴 虧損" in message
+    assert "🟢" not in message
 
 
 def test_email_notifier_sends_once_with_equivalent_message_cooldown():

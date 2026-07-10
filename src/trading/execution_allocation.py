@@ -665,6 +665,8 @@ class ExecutionAllocationService:
                     trade_metadata = {}
                 payload["realized_pnl"] = closed_trade.pnl
                 payload["realized_pnl_pct"] = closed_trade.pnl_pct
+                payload["entry_time"] = closed_trade.entry_time
+                payload["exit_time"] = closed_trade.exit_time
                 payload["realized_pnl_evidence"] = (
                     trade_metadata.get("realized_pnl", {})
                     if isinstance(trade_metadata, dict)

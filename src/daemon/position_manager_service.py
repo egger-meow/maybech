@@ -1249,6 +1249,8 @@ class PositionManagerService(DaemonService):
             "exit_price": current_price,
             "pnl": None if closed_trade is None else closed_trade.pnl,
             "pnl_pct": None if closed_trade is None else closed_trade.pnl_pct,
+            "entry_time": None if closed_trade is None else closed_trade.entry_time,
+            "exit_time": None if closed_trade is None else closed_trade.exit_time,
             "remaining_quantity": None if updated_position is None else updated_position.remaining_quantity,
         })
         return {

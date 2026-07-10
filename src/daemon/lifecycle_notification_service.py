@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Callable
 
 from src.daemon.events import RuntimeEvent
@@ -23,8 +24,11 @@ _EXACT_CATEGORIES = {
     "position.reconciliation_manual_review": "部位需要人工檢查",
     "position.protection_rearm_failed": "部位保護重建失敗",
     "position.protection_reconcile_failed": "部位保護對帳失敗",
+    "position.protection_triggered": "保護單已觸發（停損／停利）",
     "position.filled_without_allocation": "成交尚未分配",
     "execution.fill_rejected": "成交資料遭拒絕",
+    "entry_control.killed": "已停止進場（Kill Switch）",
+    "entry_control.enabled": "已恢復進場",
 }
 
 
@@ -55,6 +59,46 @@ def classify_lifecycle_event(
     return _EXACT_CATEGORIES.get(event_type)
 
 
+def _format_pnl_line(payload: dict[str, Any]) -> str | None:
+    """Render a prominent P&L summary line, preferring confirmed over dry-run fields."""
+    for pnl_key, pct_key in (("realized_pnl", "realized_pnl_pct"), ("pnl", "pnl_pct")):
+        raw = payload.get(pnl_key)
+        if raw in (None, ""):
+            continue
+        try:
+            pnl = float(raw)
+        except (TypeError, ValueError):
+            continue
+        pct_text = ""
+        raw_pct = payload.get(pct_key)
+        if raw_pct not in (None, ""):
+            try:
+                pct_text = f"（{float(raw_pct):+.2f}%）"
+            except (TypeError, ValueError):
+                pass
+        indicator = "🟢 獲利" if pnl > 0 else "🔴 虧損" if pnl < 0 else "⚪ 打平"
+        return f"損益：{pnl:+.4f} USDT{pct_text}　{indicator}"
+    return None
+
+
+def _format_duration_line(payload: dict[str, Any]) -> str | None:
+    entry_time = payload.get("entry_time")
+    exit_time = payload.get("exit_time")
+    if not entry_time or not exit_time:
+        return None
+    try:
+        started = datetime.fromisoformat(str(entry_time))
+        ended = datetime.fromisoformat(str(exit_time))
+    except ValueError:
+        return None
+    seconds = (ended - started).total_seconds()
+    if seconds < 0:
+        return None
+    hours, remainder = divmod(int(seconds), 3600)
+    minutes = remainder // 60
+    return f"持倉時間：{hours}h {minutes}m"
+
+
 def format_lifecycle_message(
     category: str,
     event_type: str,
@@ -71,20 +115,41 @@ def format_lifecycle_message(
         ("side", "方向"),
         ("quantity", "數量"),
         ("remaining_quantity", "剩餘數量"),
+        ("entry_price", "進場價"),
+        ("exit_price", "出場價"),
+        ("current_price", "出場價"),
+        ("fee", "手續費"),
         ("execution_status", "結果"),
         ("result", "結果"),
         ("reason", "原因"),
+        ("exit_reason", "原因"),
         ("error", "錯誤"),
+        ("errors", "錯誤"),
+        ("pending_entries", "待處理進場"),
+        ("cancellations_requested", "已請求取消"),
         ("correlation_id", "關聯 ID"),
     )
     lines = [f"Maybech｜{category}", f"事件：{event_type}"]
+    pnl_line = _format_pnl_line(payload)
+    if pnl_line:
+        lines.append(pnl_line)
     used_labels: set[str] = set()
     for key, label in labels:
         value = payload.get(key)
+        if isinstance(value, list):
+            if not value:
+                continue
+            value = "、".join(str(item) for item in value)
         if value in (None, "") or label in used_labels:
             continue
         used_labels.add(label)
+        if key == "fee":
+            fee_currency = payload.get("fee_currency")
+            value = f"{value} {fee_currency}" if fee_currency else value
         lines.append(f"{label}：{value}")
+    duration_line = _format_duration_line(payload)
+    if duration_line:
+        lines.append(duration_line)
     return "\n".join(lines)
 
 
