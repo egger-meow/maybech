@@ -73,8 +73,3 @@ broken operator control, unexpected state, or hidden safety threats.
 - Notification delivery intentionally remains basic: configured LINE/Gmail
   sends, bounded retry, backlog, and last health are sufficient unless
   notification reliability becomes an explicit priority.
-- Add a reviewed range-trading signal for "price approaches but does not cross"
-  a configured support/resistance boundary, including backend validation,
-  evaluation evidence, and Strategy/Position editor controls.
-- Replace the `volume_multiple` free-text timeframe input with a bounded period
-  selector so invalid candle bars cannot be saved from the dashboard.

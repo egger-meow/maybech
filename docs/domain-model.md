@@ -22,6 +22,9 @@ Primitive examples:
 - `rapid_drop(symbol, window_seconds, percent_or_points)`
 - `rapid_rise(symbol, window_seconds, percent_or_points)`
 - `volume_multiple(symbol, timeframe, lookback, multiplier)`
+- `boundary_approach(symbol, boundary, side, tolerance_pct)`: matches when
+  price is within `tolerance_pct` of a configured support/resistance boundary
+  but has not crossed it (a range-trading "approach, don't break" signal).
 
 Composite examples:
 

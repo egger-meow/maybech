@@ -75,3 +75,103 @@ def test_signal_engine_rejects_removed_strategy_specific_signal_shape():
     )
 
     assert result.valid is False
+
+
+def test_signal_engine_rejects_volume_multiple_with_invalid_timeframe():
+    result = SignalExpressionEngine().validate(
+        {"type": "volume_multiple", "symbol": "BTC-USDT-SWAP", "timeframe": "7m", "multiplier": 2}
+    )
+
+    assert result.valid is False
+    assert any("timeframe" in error for error in result.errors)
+
+
+def test_signal_engine_accepts_volume_multiple_with_supported_timeframe():
+    result = SignalExpressionEngine().validate(
+        {"type": "volume_multiple", "symbol": "BTC-USDT-SWAP", "timeframe": "5m", "multiplier": 2}
+    )
+
+    assert result.valid is True
+
+
+def test_signal_engine_validates_boundary_approach_expression():
+    result = SignalExpressionEngine().validate(
+        {
+            "type": "boundary_approach",
+            "symbol": "BTC-USDT-SWAP",
+            "boundary": 65000,
+            "side": "support",
+            "tolerance_pct": 0.5,
+        }
+    )
+
+    assert result.valid is True
+    assert result.normalized["boundary"] == 65000.0
+    assert result.normalized["side"] == "support"
+
+
+def test_signal_engine_rejects_boundary_approach_with_bad_side_or_tolerance():
+    result = SignalExpressionEngine().validate(
+        {
+            "type": "boundary_approach",
+            "symbol": "BTC-USDT-SWAP",
+            "boundary": 65000,
+            "side": "up",
+            "tolerance_pct": 10,
+        }
+    )
+
+    assert result.valid is False
+    assert any("side" in error for error in result.errors)
+    assert any("tolerance_pct" in error for error in result.errors)
+
+
+def test_signal_engine_evaluates_boundary_approach_support_not_crossed():
+    result = SignalExpressionEngine().evaluate(
+        {
+            "type": "boundary_approach",
+            "symbol": "BTC-USDT-SWAP",
+            "boundary": 65000,
+            "side": "support",
+            "tolerance_pct": 0.5,
+        },
+        context={"prices": {"BTC-USDT-SWAP": 65100}},
+    )
+
+    assert result.valid is True
+    assert result.matched is True
+    assert result.evidence["crossed"] is False
+
+
+def test_signal_engine_evaluates_boundary_approach_does_not_match_once_crossed():
+    result = SignalExpressionEngine().evaluate(
+        {
+            "type": "boundary_approach",
+            "symbol": "BTC-USDT-SWAP",
+            "boundary": 65000,
+            "side": "support",
+            "tolerance_pct": 0.5,
+        },
+        context={"prices": {"BTC-USDT-SWAP": 64900}},
+    )
+
+    assert result.valid is True
+    assert result.matched is False
+    assert result.evidence["crossed"] is True
+
+
+def test_signal_engine_evaluates_boundary_approach_resistance_side():
+    result = SignalExpressionEngine().evaluate(
+        {
+            "type": "boundary_approach",
+            "symbol": "BTC-USDT-SWAP",
+            "boundary": 65000,
+            "side": "resistance",
+            "tolerance_pct": 0.5,
+        },
+        context={"prices": {"BTC-USDT-SWAP": 64950}},
+    )
+
+    assert result.valid is True
+    assert result.matched is True
+    assert result.evidence["crossed"] is False

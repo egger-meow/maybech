@@ -28,6 +28,9 @@ def bar_seconds(bar: str) -> int:
     return _BAR_SECONDS.get(bar, 60)
 
 
+SUPPORTED_BARS: tuple[str, ...] = tuple(_BAR_SECONDS.keys())
+
+
 def collect_signal_requirements(expression: dict[str, Any]) -> dict[str, set]:
     """Collect symbols, rapid-move windows, and volume timeframes from JSON AST."""
     requirements = {

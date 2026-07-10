@@ -326,7 +326,12 @@ Signals should be reusable by both strategies and position close rules:
 The current implementation supports JSON expression objects:
 
 - primitives such as `price_above`, `price_below`, `rapid_drop`,
-  `rapid_rise`, and `volume_multiple`
+  `rapid_rise`, `volume_multiple`, and `boundary_approach`
+- `volume_multiple.timeframe` must be one of the supported OKX candle bars
+  (`src.trading.signal_context.SUPPORTED_BARS`); other values fail validation
+- `boundary_approach` requires `boundary` (price), `side` (`support` or
+  `resistance`), and `tolerance_pct` (0-5); it matches when price is within
+  `tolerance_pct` of `boundary` on the originating side but has not crossed it
 - composites shaped as `{ "op": "and" | "or", "conditions": [...] }`
 
 Persisted strategies must satisfy the complete execution contract before

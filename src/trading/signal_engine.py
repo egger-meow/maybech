@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+from src.trading.signal_context import SUPPORTED_BARS
+
 
 PrimitiveSignalType = Literal[
     "price_above",
@@ -13,6 +15,7 @@ PrimitiveSignalType = Literal[
     "rapid_drop",
     "rapid_rise",
     "volume_multiple",
+    "boundary_approach",
 ]
 
 
@@ -41,6 +44,14 @@ SIGNAL_TEMPLATES: list[dict[str, Any]] = [
         "type": "volume_multiple",
         "description": "Matches when current volume is at least multiplier times baseline.",
         "required": ["symbol", "timeframe", "multiplier"],
+    },
+    {
+        "type": "boundary_approach",
+        "description": (
+            "Matches when symbol price is within tolerance_pct of a configured "
+            "support/resistance boundary but has not crossed it."
+        ),
+        "required": ["symbol", "boundary", "side", "tolerance_pct"],
     },
 ]
 
@@ -140,8 +151,25 @@ class SignalExpressionEngine:
         elif signal_type == "volume_multiple":
             self._require_symbol(normalized, path, errors)
             self._require_positive_number(normalized, "multiplier", path, errors)
-            if not normalized.get("timeframe"):
-                errors.append(f"{path}.timeframe: required for volume_multiple")
+            timeframe = normalized.get("timeframe")
+            if timeframe not in SUPPORTED_BARS:
+                errors.append(
+                    f"{path}.timeframe: must be one of {', '.join(SUPPORTED_BARS)}"
+                )
+        elif signal_type == "boundary_approach":
+            self._require_symbol(normalized, path, errors)
+            self._require_number(normalized, "boundary", path, errors)
+            self._require_positive_number(normalized, "tolerance_pct", path, errors)
+            if (
+                isinstance(normalized.get("tolerance_pct"), float)
+                and normalized["tolerance_pct"] > 5
+            ):
+                errors.append(f"{path}.tolerance_pct: must be 5 or less")
+            side = str(normalized.get("side") or "").lower()
+            if side not in {"support", "resistance"}:
+                errors.append(f"{path}.side: must be 'support' or 'resistance'")
+            else:
+                normalized["side"] = side
         return normalized
 
     def _require_symbol(self, expression: dict[str, Any], path: str, errors: list[str]) -> None:
@@ -203,6 +231,33 @@ class SignalExpressionEngine:
             if ratio is None:
                 return False, {"type": signal_type, "symbol": symbol, "missing": "volume_ratio"}
             return ratio >= threshold, {"type": signal_type, "symbol": symbol, "volume_ratio": ratio, "threshold": threshold}
+
+        if signal_type == "boundary_approach":
+            price = self._lookup_nested_float(context, "prices", symbol)
+            boundary = float(expression["boundary"])
+            tolerance_pct = float(expression["tolerance_pct"])
+            side = expression["side"]
+            if price is None:
+                return False, {"type": signal_type, "symbol": symbol, "missing": "price"}
+            tolerance_abs = abs(boundary) * (tolerance_pct / 100.0)
+            if side == "support":
+                crossed = price < boundary
+                within_tolerance = price <= boundary + tolerance_abs
+            else:
+                crossed = price > boundary
+                within_tolerance = price >= boundary - tolerance_abs
+            matched = within_tolerance and not crossed
+            distance_pct = abs(price - boundary) / abs(boundary) * 100.0 if boundary else None
+            return matched, {
+                "type": signal_type,
+                "symbol": symbol,
+                "side": side,
+                "boundary": boundary,
+                "tolerance_pct": tolerance_pct,
+                "price": price,
+                "distance_pct": distance_pct,
+                "crossed": crossed,
+            }
 
         return False, {"type": signal_type, "note": "validation-only primitive"}
 
