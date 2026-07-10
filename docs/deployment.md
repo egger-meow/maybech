@@ -260,7 +260,7 @@ built-in bearer token.
 
 `POST /notifications/line/webhook` accepts inbound LINE Messaging API events and
 executes a small fixed command grammar (`status`, `strategies`, `enable <id>`,
-`disable <id>`) by calling the same FastAPI app's own routes in-process — every
+`disable <id>`) by calling the same FastAPI app's own routes in-process; every
 existing safety gate (bearer auth on the routes it calls, the replica read-only
 guard, strategy validation, optimistic-concurrency checks) applies identically
 to a chat-triggered action as to one made through the dashboard. This is
@@ -268,12 +268,12 @@ disabled unless `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`, and
 `LINE_USER_ID` are all configured.
 
 Every inbound sender is checked against `LINE_USER_ID` before any command
-parses — a LINE Official Account can be added and messaged by anyone who finds
+parses. A LINE Official Account can be added and messaged by anyone who finds
 it, so this check, not the LINE console, is what keeps the bot single-operator.
 Unrecognized senders get a generic "unauthorized" reply (rate-limited) and are
 logged as `line_bot.unauthorized_attempt` audit events; never treat their
 absence from replies as proof no one is probing the bot. Only run this webhook
-against the combined execution leader — a replica instance rejects the route
+against the combined execution leader. A replica instance rejects the route
 outright (non-GET mutation) since it has no live account state to act on
 anyway.
 
@@ -281,46 +281,75 @@ The route itself must stay unauthenticated by `MAYBECH_API_TOKEN` (LINE cannot
 send that header); `X-Line-Signature` verification against `LINE_CHANNEL_SECRET`
 is what authenticates the request instead. Because of that, exposing this one
 route publicly is different from exposing the API generally (see "Remote
-Access Safety" above) — restrict the tunnel to this single path, do not
+Access Safety" above). Restrict the tunnel to this single path; do not
 forward the whole API.
 
-The quick/anonymous form (`cloudflared tunnel --url http://127.0.0.1:8000`)
-mints a random `*.trycloudflare.com` hostname on every run with no login
-required — fine for a one-off manual test, useless for a webhook URL you
-register once with LINE, since it changes every time the process restarts.
-Use a **named tunnel** instead; it is one-time setup, after which the hostname
-never changes across restarts. Requires a domain already added to your
-Cloudflare account (the free tier is enough):
+Use ngrok when you do not own a domain. A plain foreground tunnel is enough for
+manual testing, but its generated hostname can change; a LINE webhook URL must
+be updated whenever that happens. For a webhook you want to register once, use
+an ngrok reserved/static domain from your ngrok account and pass it with
+`--url`.
+
+Install ngrok, copy the account authtoken from the ngrok dashboard, and connect
+the local agent:
 
 ```powershell
-# One-time setup
-cloudflared tunnel login                              # opens browser, pick your domain
-cloudflared tunnel create maybech-line-bot             # writes a credentials file under %USERPROFILE%\.cloudflared
-cloudflared tunnel route dns maybech-line-bot line-bot.yourdomain.com
+ngrok authtoken <your-ngrok-authtoken>
 ```
 
-Create `%USERPROFILE%\.cloudflared\config.yml`, restricting ingress to the
-webhook path so nothing else on port 8000 is reachable through this hostname:
-
-```yaml
-tunnel: maybech-line-bot
-credentials-file: C:\Users\<you>\.cloudflared\<tunnel-uuid>.json
-ingress:
-  - hostname: line-bot.yourdomain.com
-    path: ^/notifications/line/webhook$
-    service: http://127.0.0.1:8000
-  - service: http_status:404
-```
-
-Then run it in the foreground to test (`cloudflared tunnel run maybech-line-bot`),
-or install it as a Windows service so it starts automatically and survives
-reboots without ever needing to be re-run manually:
+Start the Maybech API locally and expose only that local port through ngrok:
 
 ```powershell
-cloudflared service install
+uv run python -m src.runtime api --mode demo
+ngrok http --domain=<your-ngrok-domain> 8000
 ```
 
-In the LINE Developers console, set the webhook URL to
-`https://line-bot.yourdomain.com/notifications/line/webhook` once and disable
-auto-reply/greeting messages — it stays valid indefinitely since the hostname
-is now fixed to this tunnel, not regenerated per run.
+For this workspace, you can put the reserved ngrok domain in `.env`:
+
+```dotenv
+MAYBECH_NGROK_DOMAIN=drop-down-promenade-carried.ngrok-free.dev
+```
+
+Start the backend from the repository root. The script keeps backend logs in
+the current terminal and opens a separate PowerShell window for ngrok tunnel
+logs:
+
+```powershell
+.\start_backend.ps1 -Mode demo
+```
+
+Use this URL in the LINE Developers console:
+
+```text
+https://drop-down-promenade-carried.ngrok-free.dev/notifications/line/webhook
+```
+
+Run the frontend in its own terminal so dashboard logs stay separate:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+To start only the backend without opening the ngrok tunnel:
+
+```powershell
+.\start_backend.ps1 -Mode demo -NoLineWebhookTunnel
+```
+
+Disable LINE auto-reply/greeting messages. Keep the main API bound to
+`127.0.0.1`; ngrok supplies HTTPS on the public side while FastAPI still serves
+the local HTTP backend. Do not expose the whole dashboard/API as a general
+remote-control surface through this tunnel. The webhook route remains
+unauthenticated by `MAYBECH_API_TOKEN`, but it still requires a valid
+`X-Line-Signature` and the configured `LINE_USER_ID`.
+
+For unattended Windows startup, create an ngrok config file that defines the
+same tunnel and install ngrok as a service using that config:
+
+```powershell
+ngrok service install --config C:\ngrok\ngrok.yml
+```
+
+Use either the helper script or the ngrok service, not both for the same domain
+and local port.
