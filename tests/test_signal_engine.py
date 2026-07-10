@@ -77,6 +77,88 @@ def test_signal_engine_rejects_removed_strategy_specific_signal_shape():
     assert result.valid is False
 
 
+def test_signal_engine_validates_not_expression():
+    result = SignalExpressionEngine().validate(
+        {
+            "op": "not",
+            "conditions": [{"type": "price_above", "symbol": "BTC-USDT-SWAP", "value": 65000}],
+        }
+    )
+
+    assert result.valid is True
+
+
+def test_signal_engine_rejects_not_expression_with_multiple_conditions():
+    result = SignalExpressionEngine().validate(
+        {
+            "op": "not",
+            "conditions": [
+                {"type": "price_above", "symbol": "BTC-USDT-SWAP", "value": 65000},
+                {"type": "price_below", "symbol": "BTC-USDT-SWAP", "value": 60000},
+            ],
+        }
+    )
+
+    assert result.valid is False
+    assert any("exactly one condition" in error for error in result.errors)
+
+
+def test_signal_engine_evaluates_not_expression():
+    result = SignalExpressionEngine().evaluate(
+        {
+            "op": "not",
+            "conditions": [
+                {
+                    "type": "volume_multiple",
+                    "symbol": "BTC-USDT-SWAP",
+                    "timeframe": "1m",
+                    "multiplier": 2,
+                }
+            ],
+        },
+        context={"volume_ratios": {"BTC-USDT-SWAP:1m": 1.2}},
+    )
+
+    assert result.valid is True
+    assert result.matched is True
+
+
+def test_signal_engine_evaluates_not_wrapping_composite_group():
+    result = SignalExpressionEngine().evaluate(
+        {
+            "op": "not",
+            "conditions": [
+                {
+                    "op": "and",
+                    "conditions": [
+                        {
+                            "type": "boundary_approach",
+                            "symbol": "BTC-USDT-SWAP",
+                            "boundary": 65000,
+                            "side": "resistance",
+                            "tolerance_pct": 0.5,
+                        },
+                        {
+                            "type": "volume_multiple",
+                            "symbol": "BTC-USDT-SWAP",
+                            "timeframe": "1m",
+                            "multiplier": 2,
+                        },
+                    ],
+                }
+            ],
+        },
+        context={
+            "prices": {"BTC-USDT-SWAP": 64950},
+            "volume_ratios": {"BTC-USDT-SWAP:1m": 1.0},
+        },
+    )
+
+    assert result.valid is True
+    assert result.matched is True
+    assert result.evidence["conditions"][0]["op"] == "and"
+
+
 def test_signal_engine_rejects_volume_multiple_with_invalid_timeframe():
     result = SignalExpressionEngine().validate(
         {"type": "volume_multiple", "symbol": "BTC-USDT-SWAP", "timeframe": "7m", "multiplier": 2}

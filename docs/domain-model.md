@@ -32,6 +32,12 @@ Composite examples:
 - `btc_price_above_level OR market_impulse_up`
 - `(volume_spike AND price_gap) AND NOT risk_blocked`
 
+`not` is a first-class unary composite operator (`{"op": "not", "conditions":
+[expression]}`), wrapping exactly one primitive or composite expression so any
+signal can be negated in place, e.g. `NOT volume_multiple(...)` combined with
+`boundary_approach(...)` for "not a volume explosion, and approaching
+resistance".
+
 ## Strategy
 
 A strategy is a pre-position plan. It owns entry conditions and default position

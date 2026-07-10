@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Brackets, Plus, Trash2 } from "lucide-react";
+import { Ban, Brackets, Plus, Trash2 } from "lucide-react";
 import useSWR from "swr";
 
 import InstrumentSelector from "@/components/InstrumentSelector";
@@ -34,7 +34,7 @@ const primitiveLabels: Record<PrimitiveType, string> = {
 const defaultPrimitive = (): SignalExpression => ({ type: "price_above", symbol: "self", value: 0 });
 
 function isComposite(expression: SignalExpression): boolean {
-  return expression.op === "and" || expression.op === "or";
+  return expression.op === "and" || expression.op === "or" || expression.op === "not";
 }
 
 function conditions(expression: SignalExpression): SignalExpression[] {
@@ -219,7 +219,7 @@ function Node({ expression, onChange, onRemove, depth, instruments, catalogStale
 }) {
   if (isComposite(expression)) {
     const items = conditions(expression);
-    const op = expression.op === "or" ? "or" : "and";
+    const op = expression.op === "or" ? "or" : expression.op === "not" ? "not" : "and";
     const updateItem = (index: number, next: SignalExpression) => {
       const updated = [...items];
       updated[index] = next;
@@ -229,28 +229,55 @@ function Node({ expression, onChange, onRemove, depth, instruments, catalogStale
       const updated = items.filter((_, itemIndex) => itemIndex !== index);
       onChange(updated.length === 1 ? updated[0] : { op, conditions: updated });
     };
+    const setOp = (nextOp: "and" | "or" | "not") => {
+      if (nextOp === "not") {
+        // Wrap rather than drop conditions when switching a multi-condition AND/OR group to NOT.
+        onChange({
+          op: "not",
+          conditions: items.length > 1 ? [{ op: op === "not" ? "and" : op, conditions: items }] : [items[0] ?? defaultPrimitive()],
+        });
+        return;
+      }
+      onChange({ op: nextOp, conditions: items.length ? items : [defaultPrimitive()] });
+    };
     return (
       <div className="expression-group" data-depth={depth}>
         <div className="expression-toolbar">
-          <span className="group-bracket"><Brackets size={16} /> 條件群組</span>
+          <span className="group-bracket"><Brackets size={16} /> {op === "not" ? "NOT 條件" : "條件群組"}</span>
           <div className="segmented" aria-label="群組運算子">
-            <button type="button" className={op === "and" ? "selected" : ""} onClick={() => onChange({ op: "and", conditions: items })}>AND</button>
-            <button type="button" className={op === "or" ? "selected" : ""} onClick={() => onChange({ op: "or", conditions: items })}>OR</button>
+            <button type="button" className={op === "and" ? "selected" : ""} onClick={() => setOp("and")}>AND</button>
+            <button type="button" className={op === "or" ? "selected" : ""} onClick={() => setOp("or")}>OR</button>
+            <button type="button" className={op === "not" ? "selected" : ""} onClick={() => setOp("not")}>NOT</button>
           </div>
           {onRemove && <button type="button" className="icon-button danger-ghost" aria-label="移除群組" onClick={onRemove}><Trash2 size={16} /></button>}
         </div>
         <div className="expression-children">
-          {items.map((item, index) => (
-            <div className="expression-child" key={index}>
-              {index > 0 && <span className="operator-chip">{op.toUpperCase()}</span>}
-              <Node expression={item} onChange={(next) => updateItem(index, next)} onRemove={() => removeItem(index)} depth={depth + 1} instruments={instruments} catalogStale={catalogStale} analysisSymbols={analysisSymbols} />
+          {op === "not" ? (
+            <div className="expression-child">
+              <Node
+                expression={items[0] ?? defaultPrimitive()}
+                onChange={(next) => onChange({ op: "not", conditions: [next] })}
+                depth={depth + 1}
+                instruments={instruments}
+                catalogStale={catalogStale}
+                analysisSymbols={analysisSymbols}
+              />
             </div>
-          ))}
+          ) : (
+            items.map((item, index) => (
+              <div className="expression-child" key={index}>
+                {index > 0 && <span className="operator-chip">{op.toUpperCase()}</span>}
+                <Node expression={item} onChange={(next) => updateItem(index, next)} onRemove={() => removeItem(index)} depth={depth + 1} instruments={instruments} catalogStale={catalogStale} analysisSymbols={analysisSymbols} />
+              </div>
+            ))
+          )}
         </div>
-        <div className="expression-actions">
-          <button type="button" className="btn btn-outline" onClick={() => onChange({ op, conditions: [...items, defaultPrimitive()] })}><Plus size={15} /> 新增條件</button>
-          {depth < 4 && <button type="button" className="btn btn-outline" onClick={() => onChange({ op, conditions: [...items, { op: "and", conditions: [defaultPrimitive(), defaultPrimitive()] }] })}><Brackets size={15} /> 新增群組</button>}
-        </div>
+        {op !== "not" && (
+          <div className="expression-actions">
+            <button type="button" className="btn btn-outline" onClick={() => onChange({ op, conditions: [...items, defaultPrimitive()] })}><Plus size={15} /> 新增條件</button>
+            {depth < 4 && <button type="button" className="btn btn-outline" onClick={() => onChange({ op, conditions: [...items, { op: "and", conditions: [defaultPrimitive(), defaultPrimitive()] }] })}><Brackets size={15} /> 新增群組</button>}
+          </div>
+        )}
       </div>
     );
   }
@@ -301,6 +328,10 @@ function Node({ expression, onChange, onRemove, depth, instruments, catalogStale
 
 export function describeExpression(expression: SignalExpression): string {
   if (isComposite(expression)) {
+    if (expression.op === "not") {
+      const inner = conditions(expression)[0];
+      return `NOT (${inner ? describeExpression(inner) : ""})`;
+    }
     const joiner = ` ${String(expression.op).toUpperCase()} `;
     return `(${conditions(expression).map(describeExpression).join(joiner)})`;
   }
@@ -326,7 +357,10 @@ export default function ExpressionEditor({ value, onChange, label = "規則運�
     <div className="expression-editor">
       <div className="expression-heading">
         <div><strong>{label}</strong><p>{describeExpression(safeValue)}</p></div>
-        {!isComposite(safeValue) && <button type="button" className="btn btn-outline" onClick={() => onChange({ op: "and", conditions: [safeValue, defaultPrimitive()] })}><Brackets size={15} /> 加入 AND／OR</button>}
+        <div className="expression-heading-actions">
+          {!isComposite(safeValue) && <button type="button" className="btn btn-outline" onClick={() => onChange({ op: "and", conditions: [safeValue, defaultPrimitive()] })}><Brackets size={15} /> 加入 AND／OR</button>}
+          <button type="button" className="btn btn-outline" onClick={() => onChange({ op: "not", conditions: [safeValue] })}><Ban size={15} /> 加入 NOT</button>
+        </div>
       </div>
       {catalog.error && <div className="inline-warning">商品資料尚未快取；請先更新 OKX 商品資料，規則目標目前只能使用 self。</div>}
       <Node expression={safeValue} onChange={onChange} depth={0} instruments={catalog.data?.items ?? []} catalogStale={catalog.data?.stale ?? true} analysisSymbols={concreteAnalysisSymbols} />

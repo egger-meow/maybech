@@ -332,7 +332,8 @@ The current implementation supports JSON expression objects:
 - `boundary_approach` requires `boundary` (price), `side` (`support` or
   `resistance`), and `tolerance_pct` (0-5); it matches when price is within
   `tolerance_pct` of `boundary` on the originating side but has not crossed it
-- composites shaped as `{ "op": "and" | "or", "conditions": [...] }`
+- composites shaped as `{ "op": "and" | "or" | "not", "conditions": [...] }`;
+  `not` requires exactly one entry in `conditions` and negates its match
 
 Persisted strategies must satisfy the complete execution contract before
 `POST /strategies/{strategy_id}/enable` succeeds.

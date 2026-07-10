@@ -117,12 +117,14 @@ class SignalExpressionEngine:
 
     def _normalize_composite(self, expression: dict[str, Any], path: str, errors: list[str]) -> dict[str, Any]:
         op = str(expression.get("op") or "").lower()
-        if op not in {"and", "or"}:
-            errors.append(f"{path}.op: must be 'and' or 'or'")
+        if op not in {"and", "or", "not"}:
+            errors.append(f"{path}.op: must be 'and', 'or', or 'not'")
         raw_conditions = expression.get("conditions")
         if not isinstance(raw_conditions, list) or not raw_conditions:
             errors.append(f"{path}.conditions: must be a non-empty list")
             raw_conditions = []
+        elif op == "not" and len(raw_conditions) != 1:
+            errors.append(f"{path}.conditions: 'not' requires exactly one condition")
         conditions = [
             self._normalize(condition, f"{path}.conditions[{index}]", errors)
             for index, condition in enumerate(raw_conditions)
@@ -191,7 +193,12 @@ class SignalExpressionEngine:
         if "op" in expression:
             results = [self._evaluate_node(item, context) for item in expression["conditions"]]
             matched_values = [matched for matched, _ in results]
-            matched = all(matched_values) if expression["op"] == "and" else any(matched_values)
+            if expression["op"] == "and":
+                matched = all(matched_values)
+            elif expression["op"] == "or":
+                matched = any(matched_values)
+            else:
+                matched = not matched_values[0]
             return matched, {
                 "op": expression["op"],
                 "conditions": [evidence for _, evidence in results],
