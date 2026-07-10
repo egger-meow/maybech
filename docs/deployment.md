@@ -281,18 +281,46 @@ The route itself must stay unauthenticated by `MAYBECH_API_TOKEN` (LINE cannot
 send that header); `X-Line-Signature` verification against `LINE_CHANNEL_SECRET`
 is what authenticates the request instead. Because of that, exposing this one
 route publicly is different from exposing the API generally (see "Remote
-Access Safety" above) — restrict whatever tunnel you use to this single path,
-do not forward the whole API:
+Access Safety" above) — restrict the tunnel to this single path, do not
+forward the whole API.
 
-```bash
-# Cloudflare Tunnel, restricted to only the webhook path
-cloudflared tunnel --url http://127.0.0.1:8000 \
-  --http-host-header 127.0.0.1
+The quick/anonymous form (`cloudflared tunnel --url http://127.0.0.1:8000`)
+mints a random `*.trycloudflare.com` hostname on every run with no login
+required — fine for a one-off manual test, useless for a webhook URL you
+register once with LINE, since it changes every time the process restarts.
+Use a **named tunnel** instead; it is one-time setup, after which the hostname
+never changes across restarts. Requires a domain already added to your
+Cloudflare account (the free tier is enough):
+
+```powershell
+# One-time setup
+cloudflared tunnel login                              # opens browser, pick your domain
+cloudflared tunnel create maybech-line-bot             # writes a credentials file under %USERPROFILE%\.cloudflared
+cloudflared tunnel route dns maybech-line-bot line-bot.yourdomain.com
+```
+
+Create `%USERPROFILE%\.cloudflared\config.yml`, restricting ingress to the
+webhook path so nothing else on port 8000 is reachable through this hostname:
+
+```yaml
+tunnel: maybech-line-bot
+credentials-file: C:\Users\<you>\.cloudflared\<tunnel-uuid>.json
+ingress:
+  - hostname: line-bot.yourdomain.com
+    path: ^/notifications/line/webhook$
+    service: http://127.0.0.1:8000
+  - service: http_status:404
+```
+
+Then run it in the foreground to test (`cloudflared tunnel run maybech-line-bot`),
+or install it as a Windows service so it starts automatically and survives
+reboots without ever needing to be re-run manually:
+
+```powershell
+cloudflared service install
 ```
 
 In the LINE Developers console, set the webhook URL to
-`https://<your-tunnel-domain>/notifications/line/webhook` and disable
-auto-reply/greeting messages. Prefer a named Cloudflare Tunnel with an Access
-policy or ingress rule scoped to `/notifications/line/webhook` over the
-quick/anonymous `--url` tunnel once this moves past initial testing, so the
-rest of the API is never reachable through the same public hostname.
+`https://line-bot.yourdomain.com/notifications/line/webhook` once and disable
+auto-reply/greeting messages — it stays valid indefinitely since the hostname
+is now fixed to this tunnel, not regenerated per run.
