@@ -430,6 +430,8 @@ details[open] > .lifecycle-summary::after, details[open] > .audit-summary::after
 .check-field { display: inline-flex; align-items: center; gap: .45rem; min-height: 42px; font-weight: 700; }
 .check-field input { width: 18px; height: 18px; }
 .strategy-delete { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.25rem; }
+.strategy-delete .delete-confirm { display: flex; flex-direction: column; align-items: flex-end; gap: .6rem; max-width: 360px; }
+.strategy-delete .delete-confirm p { margin: 0; text-align: right; }
 .decision-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; }
 .decision-card { display: grid; gap: .55rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }
 .pending-execution-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .65rem; margin-top: 1rem; }

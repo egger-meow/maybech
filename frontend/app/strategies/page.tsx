@@ -349,8 +349,9 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [newSignal, setNewSignal] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const marketOverview = useSWR("strategy-sizing-market-overview", () => getMarketOverview({ instType: "SWAP" }), { refreshInterval: 15_000 });
-  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => { setDraft((current) => ({ ...current, [key]: value })); setDirty(true); };
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => { setDraft((current) => ({ ...current, [key]: value })); setDirty(true); setError(""); };
   const instruments = draft.instruments;
   const livePrices = Object.fromEntries((marketOverview.data?.items ?? []).map((item) => [item.inst_id, item.last_price]));
   const sizingPrice = (instrument: string): string => livePrices[instrument] || draft.referencePrices[instrument] || "";
@@ -379,12 +380,22 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       const referencePrices = Object.fromEntries(instruments.map((instrument) => [instrument, sizingPrice(instrument)]));
       const missingPrices = instruments.filter((instrument) => !referencePrices[instrument]);
       if (missingPrices.length) throw new Error(`缺少目前市價，無法換算 OKX 口數：${missingPrices.join("、")}。請確認市場總覽 API 可用後再儲存。`);
-      const quotes = await Promise.all(instruments.map((instrument) => quoteInstrumentSize(instrument, {
-        display_quantity: draft.displayQuantities[instrument] ?? "",
-        entry_price: referencePrices[instrument],
-        side: draft.side,
-        rule_price: null,
-      })));
+      const missingQuantities = instruments.filter((instrument) => !(Number(draft.displayQuantities[instrument]) > 0));
+      if (missingQuantities.length) throw new Error(`請先輸入想開幣量：${missingQuantities.join("、")}。`);
+      let quotes;
+      try {
+        quotes = await Promise.all(instruments.map((instrument) => quoteInstrumentSize(instrument, {
+          display_quantity: draft.displayQuantities[instrument] ?? "",
+          entry_price: referencePrices[instrument],
+          side: draft.side,
+          rule_price: null,
+        })));
+      } catch (caught) {
+        if (caught instanceof ApiError && typeof object(caught.info).detail !== "string" && typeof object(object(caught.info).detail).message !== "string") {
+          throw new Error("想開幣量無法安全換算成 OKX 口數；請確認幣量是否符合該商品的最小下單量與精度。");
+        }
+        throw caught;
+      }
       const sizes = Object.fromEntries(quotes.map((quote) => [quote.inst_id, quote.api_quantity_contracts]));
       const payload = {
         name: draft.name.trim(),
@@ -418,7 +429,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
     catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   };
   const remove = async () => {
-    if (!strategy || !confirm(`永久刪除已停用的策略「${strategy.name}」？已有部位歷史時後端會拒絕。`)) return;
+    if (!strategy) return;
     setBusy(true); setError("");
     try {
       if (!strategy.updated_at) throw new Error("策略缺少版本時間，無法安全確認刪除；請重新整理後再試。");
@@ -481,7 +492,20 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
           </AnimatePresence>
           {!strategy.signal_expressions?.length && !newSignal && <div className="empty-state">沒有附加訊號；主要進場訊號仍會獨立運作。</div>}
         </div>
-        <div className="danger-zone strategy-delete"><div><strong>永久刪除策略</strong><p>只有已停用且沒有任何邏輯部位或舊交易歷史的策略才能刪除。</p></div><button type="button" className="btn btn-danger" disabled={busy || strategy.enabled} onClick={remove}><Trash2 size={15} /> 刪除策略</button></div>
+        <div className="danger-zone strategy-delete">
+          <div><strong>永久刪除策略</strong><p>只有已停用且沒有任何邏輯部位或舊交易歷史的策略才能刪除。</p></div>
+          {confirmingDelete ? (
+            <div className="delete-confirm">
+              <p>確認永久刪除已停用的策略「{strategy.name}」？已有部位歷史時後端會拒絕，此動作無法復原。</p>
+              <div className="form-actions">
+                <button type="button" className="btn btn-outline" disabled={busy} onClick={() => setConfirmingDelete(false)}>取消</button>
+                <button type="button" className="btn btn-danger" disabled={busy} onClick={remove}><Trash2 size={15} /> {busy ? "刪除中…" : "確認永久刪除"}</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="btn btn-danger" disabled={busy || strategy.enabled} onClick={() => setConfirmingDelete(true)}><Trash2 size={15} /> 刪除策略</button>
+          )}
+        </div>
       </>}
     </section>
   );
