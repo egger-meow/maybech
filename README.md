@@ -4,6 +4,8 @@
 
 **Signal-driven trading workspace for OKX perpetuals — local-first, fail-closed, operator in command.**
 
+**English** | [繁體中文](README.zh-TW.md)
+
 [![Release](https://img.shields.io/github/v/release/egger-meow/maybech?include_prereleases&sort=semver&color=4c8eda)](https://github.com/egger-meow/maybech/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%E2%80%933.14-3776AB?logo=python&logoColor=white)](pyproject.toml)
