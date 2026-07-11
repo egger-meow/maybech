@@ -308,8 +308,8 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .risk-enable-toggle { display: flex; align-items: flex-start; gap: .7rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }.risk-enable-toggle input { width: 20px; height: 20px; }.risk-enable-toggle span { display: grid; gap: .25rem; }
 .risk-confirm-zone { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .75rem; align-items: start; padding: 1rem; border: 2px solid var(--accent-danger); border-radius: var(--radius-md); background: color-mix(in srgb, var(--accent-danger) 7%, var(--bg-secondary)); }.risk-confirm-zone > svg { color: var(--accent-danger); }.risk-confirm-zone p { color: var(--text-muted); margin-top: .25rem; font-size: .84rem; }.risk-confirm-zone .confirm-check { grid-column: 2 / -1; }.risk-confirm-zone .btn { grid-column: 2 / -1; justify-content: center; min-height: 46px; }
 .saved-confirmation { display: flex; align-items: center; gap: .5rem; padding: .85rem 1rem; border: 1px solid var(--accent-success); border-radius: var(--radius-md); color: var(--accent-success); background: color-mix(in srgb, var(--accent-success) 8%, var(--bg-secondary)); font-weight: 800; }
-.analysis-form { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(120px, 180px) auto; align-items: end; gap: .8rem; }
-.analysis-form .btn { min-height: 42px; }
+.analysis-form { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(120px, 180px) minmax(140px, 200px); align-items: end; gap: .8rem; }
+.analysis-form .btn { min-height: 42px; grid-column: 1 / -1; }
 .analysis-state { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.2rem; border: 2px solid var(--accent-success); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--accent-success) 8%, var(--bg-secondary)); }
 .analysis-state.partial { border-color: var(--accent-warning); background: color-mix(in srgb, var(--accent-warning) 10%, var(--bg-secondary)); }
 .analysis-state.stale { border-color: var(--accent-danger); background: color-mix(in srgb, var(--accent-danger) 8%, var(--bg-secondary)); }
@@ -422,6 +422,7 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .lifecycle-summary::-webkit-details-marker, .audit-summary::-webkit-details-marker { display: none; }
 .lifecycle-summary::after, .audit-summary::after { content: "展開"; color: var(--accent-primary); font-size: .78rem; font-weight: 800; margin-left: auto; }
 details[open] > .lifecycle-summary::after, details[open] > .audit-summary::after { content: "收合"; }
+.audit-details { margin-top: 1rem; }
 .audit-summary { display: flex; align-items: center; gap: .6rem; }
 .sub-editor-head .field { min-width: 210px; }
 .sub-editor-head .dirty-note, .sub-editor-head .saved-note { margin-left: auto; margin-right: 0; }

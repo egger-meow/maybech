@@ -48,5 +48,8 @@ export function useReplayIndex({
     setRawIndex(max);
   }, [max]);
 
-  return { index, setIndex, playing, play, pause, stepForward, stepBackward, reset };
+  // Exposed alongside the clamped `index` so callers can detect when a bound change (not
+  // an explicit setIndex/step call) silently pushed the effective index away from the
+  // last value the caller actually chose.
+  return { index, rawIndex, setIndex, playing, play, pause, stepForward, stepBackward, reset };
 }

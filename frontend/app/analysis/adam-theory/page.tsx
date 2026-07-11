@@ -102,11 +102,16 @@ function ReflectionWorkspace({
   // one the user picked. Re-resolve the pinned candle by timestamp whenever the
   // underlying array identity changes, so a chosen center stays pinned to the same real
   // candle across refreshes instead of drifting.
+  //
+  // Pins by rawIndex (the operator's actual last choice), not the reflection-count-clamped
+  // index — otherwise a background refetch re-syncs through the clamped position and
+  // permanently overwrites the operator's original pick with it, silently erasing the
+  // "reflection count pushed the center forward" state on the very next refresh.
   const prevCandlesRef = useRef<CandleResponse[]>([]);
-  const replayIndexRef = useRef(replay.index);
+  const rawIndexRef = useRef(replay.rawIndex);
   useEffect(() => {
-    replayIndexRef.current = replay.index;
-  }, [replay.index]);
+    rawIndexRef.current = replay.rawIndex;
+  }, [replay.rawIndex]);
   useEffect(() => {
     const prevCandles = prevCandlesRef.current;
     prevCandlesRef.current = candles;
@@ -115,7 +120,7 @@ function ReflectionWorkspace({
       replay.setIndex(candles.length - 1);
       return;
     }
-    const prevTimestamp = prevCandles[replayIndexRef.current]?.timestamp;
+    const prevTimestamp = prevCandles[rawIndexRef.current]?.timestamp;
     if (prevTimestamp == null) return;
     const found = candles.findIndex((candle) => candle.timestamp === prevTimestamp);
     replay.setIndex(found >= 0 ? found : candles.length - 1);
@@ -124,6 +129,10 @@ function ReflectionWorkspace({
 
   const centerIndex = Math.min(latestIndex, Math.max(0, replay.index));
   const centerCandle = candles[centerIndex];
+  // reflectionCount raising `minIndex` clamps `replay.index` upward without moving the
+  // raw index the operator actually picked — this is that gap, i.e. "was the center
+  // silently pushed forward to satisfy the reflection count".
+  const centerPushedForward = replay.rawIndex < minIndex;
 
   const reflection = useMemo(
     () => buildReflection(candles, centerIndex, reflectionCount),
@@ -160,6 +169,9 @@ function ReflectionWorkspace({
             <p>拖曳滑桿或使用回放，將反射中心移至任一根歷史 K 棒，觀察反射路徑與之後真實走勢的對照。</p>
           </div>
         </div>
+        {centerPushedForward && (
+          <div className="inline-warning">反射根數需要更多歷史 K 棒，反射中心已自動前移以確保足夠資料；可調低反射根數取回原本的中心位置。</div>
+        )}
         <CenterCandleControls
           minIndex={minIndex}
           maxIndex={latestIndex}
@@ -284,6 +296,7 @@ function AdamTheoryContent() {
               step={1}
               value={reflectionCount}
               onChange={(event) => setReflectionCount(Number(event.target.value))}
+              onBlur={() => setReflectionCount(clampedCount)}
             />
             <small>≈ {formatDuration(clampedCount * (BAR_MINUTES[bar] ?? 15))}</small>
           </label>

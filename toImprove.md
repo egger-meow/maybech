@@ -76,24 +76,9 @@ broken operator control, unexpected state, or hidden safety threats.
 
 - UX findings from a manual pressure-test pass (2026-07-11, demo mode,
   BTC/SOL-USDT-SWAP, no orders placed):
-  - Adam Theory secondary-reflection page (`/analysis/adam-theory`): the
-    reflection math itself checks out — verified against real BTC-USDT-SWAP
-    demo candles with the comparison panel correctly reporting 30 compared
-    candles, 47% direction-match rate, 0.85% mean price error. But the
-    rendered reflected candles are visually too thin/cramped at default zoom
-    to read as candles (they look like a stippled dotted texture); consider a
-    thicker minimum body/wick width or auto-zooming the pane when a
-    reflection is active.
   - Adam Theory: moving the reflection center (slider, replay, prev/next)
     does not auto-pan the chart to keep the new center and its reflected path
     in view — the operator has to manually scroll the chart to find it after
-    every move.
-  - Adam Theory: raising "反射根數" can silently push the reflection center
-    forward in time (to guarantee enough history behind the new count), with
-    no indication to the operator of why the center just moved.
-  - Adam Theory: the "反射根數" number input is too narrow — 2-3 digit values
-    clip/overlap with the native spinner arrows, and the field was observed
-    holding a garbled out-of-range value ("28100") after a normal
-    select-all-and-retype interaction. The computed reflection count is
-    separately clamped to 5-100 before use (so the chart itself stayed
-    correct), but the input's own displayed value should be sanitized too.
+    every move. (An auto-pan attempt was tried and reverted per operator
+    feedback: the chart should keep its normal manual-scroll behavior: any
+    fix here needs a different approach than forcibly scrolling the view.)

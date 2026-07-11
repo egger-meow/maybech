@@ -178,7 +178,7 @@ function registerPositionOverlays() {
     createPointFigures: ({ barSpace, coordinates }): OverlayFigure[] => {
       const [openPt, highPt, lowPt, closePt] = coordinates;
       if (!openPt || !highPt || !lowPt || !closePt) return [];
-      const width = Math.max(2, barSpace.bar * 0.6);
+      const width = Math.max(4, barSpace.bar * 0.8);
       const x = openPt.x;
       const bodyTop = Math.min(openPt.y, closePt.y);
       const bodyBottom = Math.max(openPt.y, closePt.y);
@@ -186,18 +186,18 @@ function registerPositionOverlays() {
         {
           type: "line",
           attrs: { coordinates: [{ x, y: highPt.y }, { x, y: lowPt.y }] },
-          styles: { color: REFLECTION_COLOR, size: 1.5, style: "dashed", dashedValue: [2, 2] },
+          styles: { color: REFLECTION_COLOR, size: 2, style: "dashed", dashedValue: [4, 3] },
           ignoreEvent: true,
         },
         {
           type: "rect",
-          attrs: { x: x - width / 2, y: bodyTop, width, height: Math.max(1, bodyBottom - bodyTop) },
+          attrs: { x: x - width / 2, y: bodyTop, width, height: Math.max(2, bodyBottom - bodyTop) },
           styles: {
             style: "stroke_fill",
-            color: `${REFLECTION_COLOR}33`,
+            color: `${REFLECTION_COLOR}40`,
             borderColor: REFLECTION_COLOR,
             borderStyle: "dashed",
-            borderSize: 1.5,
+            borderSize: 2,
           },
           ignoreEvent: true,
         },
