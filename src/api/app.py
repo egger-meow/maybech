@@ -1927,17 +1927,20 @@ def create_app(
         with ENTRY_EXECUTION_LOCK, store.transaction() as connection:
             if payload.id and store.get(payload.id) is not None:
                 raise HTTPException(status_code=409, detail="Strategy id already exists")
-            strategy = store.create(
-                id=payload.id,
-                name=payload.name,
-                kind=payload.kind,
-                enabled=False,
-                target_instruments=payload.target_instruments,
-                entry_signal=payload.entry_signal,
-                default_rules=payload.default_rules,
-                metadata=payload.metadata,
-                execution_delay_seconds=payload.execution_delay_seconds,
-            )
+            try:
+                strategy = store.create(
+                    id=payload.id,
+                    name=payload.name,
+                    kind=payload.kind,
+                    enabled=False,
+                    target_instruments=payload.target_instruments,
+                    entry_signal=payload.entry_signal,
+                    default_rules=payload.default_rules,
+                    metadata=payload.metadata,
+                    execution_delay_seconds=payload.execution_delay_seconds,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             if payload.enabled:
                 validation_errors = _strategy_validation_errors(strategy, store)
                 if validation_errors:
@@ -2093,17 +2096,20 @@ def create_app(
                     store,
                     payload.target_instruments,
                 )
-            strategy = store.update(
-                strategy_id,
-                name=payload.name,
-                kind=payload.kind,
-                enabled=False if previous.enabled else payload.enabled,
-                target_instruments=payload.target_instruments,
-                entry_signal=payload.entry_signal,
-                default_rules=payload.default_rules,
-                metadata=payload.metadata,
-                execution_delay_seconds=payload.execution_delay_seconds,
-            )
+            try:
+                strategy = store.update(
+                    strategy_id,
+                    name=payload.name,
+                    kind=payload.kind,
+                    enabled=False if previous.enabled else payload.enabled,
+                    target_instruments=payload.target_instruments,
+                    entry_signal=payload.entry_signal,
+                    default_rules=payload.default_rules,
+                    metadata=payload.metadata,
+                    execution_delay_seconds=payload.execution_delay_seconds,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             if strategy is None:
                 raise HTTPException(status_code=404, detail="Strategy not found")
             executable_definition_changed = any(

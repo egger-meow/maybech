@@ -1592,6 +1592,43 @@ def test_api_creates_and_updates_persisted_strategy(monkeypatch, tmp_path):
     assert store.get("breakout").name == "Breakout"
 
 
+def test_api_rejects_invalid_strategy_max_entry_slippage(monkeypatch, tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    monkeypatch.setattr("src.api.app.StrategyStore", lambda: store)
+    client = TestClient(create_app(DaemonRunner()))
+
+    created = client.post(
+        "/strategies",
+        json={
+            "id": "bad-slippage",
+            "name": "Bad Slippage",
+            "target_instruments": ["ETH-USDT-SWAP"],
+            "metadata": {"max_entry_slippage_pct": "-0.5"},
+        },
+    )
+
+    store.create(
+        id="breakout",
+        name="Breakout",
+        enabled=False,
+        metadata={"max_entry_slippage_pct": "0.005"},
+    )
+    updated = client.patch(
+        "/strategies/breakout",
+        json={
+            "expected_updated_at": store.get("breakout").updated_at,
+            "metadata": {"max_entry_slippage_pct": "0.5"},
+        },
+    )
+
+    assert created.status_code == 400
+    assert "max_entry_slippage_pct" in created.json()["detail"]
+    assert store.get("bad-slippage") is None
+    assert updated.status_code == 400
+    assert "max_entry_slippage_pct" in updated.json()["detail"]
+    assert store.get("breakout").metadata["max_entry_slippage_pct"] == "0.005"
+
+
 def test_api_enables_and_disables_persisted_strategy(monkeypatch, tmp_path):
     store = StrategyStore(str(tmp_path / "strategies.db"))
     store.create(

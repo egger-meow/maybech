@@ -6,6 +6,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Generator
 from uuid import uuid4
@@ -96,6 +97,22 @@ def _json_loads(value: str, fallback: Any) -> Any:
         return json.loads(value or "")
     except json.JSONDecodeError:
         return fallback
+
+
+def validate_strategy_metadata(metadata: dict[str, Any]) -> None:
+    if "max_entry_slippage_pct" not in metadata:
+        return
+    value = metadata.get("max_entry_slippage_pct")
+    try:
+        slippage = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise ValueError(
+            "metadata.max_entry_slippage_pct must be greater than 0 and at most 0.05"
+        ) from None
+    if not slippage.is_finite() or slippage <= 0 or slippage > Decimal("0.05"):
+        raise ValueError(
+            "metadata.max_entry_slippage_pct must be greater than 0 and at most 0.05"
+        )
 
 
 class StrategyRecord:
@@ -378,6 +395,7 @@ class StrategyStore:
         strategy.default_rules_json = _json_dumps(
             normalize_default_rules(strategy.default_rules)
         )
+        validate_strategy_metadata(strategy.metadata)
         strategy.updated_at = datetime.now(timezone.utc).isoformat()
         with self._conn() as conn:
             conn.execute(

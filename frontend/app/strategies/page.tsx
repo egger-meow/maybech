@@ -367,6 +367,8 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       if (!instruments.length) throw new Error("至少需要一個交易商品。");
       if (strategy && !strategy.updated_at) throw new Error("策略版本時間缺失，無法安全儲存。請重新整理。");
       if (outsideAllowlist.length) throw new Error(`商品超出帳戶風險 allowlist：${outsideAllowlist.join("、")}`);
+      const maxEntrySlippagePct = Number(draft.slippagePercent) / 100;
+      if (!Number.isFinite(maxEntrySlippagePct) || maxEntrySlippagePct <= 0 || maxEntrySlippagePct > 0.05) throw new Error("metadata.max_entry_slippage_pct must be greater than 0 and at most 0.05");
       const executionDelaySeconds = Number(draft.executionDelaySeconds);
       if (!Number.isInteger(executionDelaySeconds) || executionDelaySeconds < 0 || executionDelaySeconds > 86400) throw new Error("執行延遲必須是 0 到 86400 秒的整數。");
       validateTypedCloseRules(draft.closeRules);
@@ -391,7 +393,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         entry_signal: validated[0].normalized ?? draft.entrySignal,
         default_rules: { close_conditions: draft.closeRules.map((rule, index) => ({ ...rule, expression: validated[index + 1].normalized ?? rule.expression })) },
         execution_delay_seconds: executionDelaySeconds,
-        metadata: { ...object(strategy?.metadata), position_side: draft.side, order_size_contracts: sizes, order_display_quantities: draft.displayQuantities, sizing_reference_prices: referencePrices, max_entry_slippage_pct: String(Number(draft.slippagePercent) / 100) },
+        metadata: { ...object(strategy?.metadata), position_side: draft.side, order_size_contracts: sizes, order_display_quantities: draft.displayQuantities, sizing_reference_prices: referencePrices, max_entry_slippage_pct: String(maxEntrySlippagePct) },
       };
       if (strategy?.enabled && !confirm("此策略目前已啟用。確認先停用並進入審查，再儲存完整策略變更？停用完成前仍會執行舊版本。")) return;
       const saved = strategy
@@ -435,7 +437,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         <label className="field"><span>策略名稱</span><input value={draft.name} onChange={(event) => set("name", event.target.value)} /></label>
         <label className="field"><span>方向</span><select value={draft.side} onChange={(event) => set("side", event.target.value as "long" | "short")}><option value="long">做多 Long</option><option value="short">做空 Short</option></select></label>
         <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} eligibleInstruments={allowedInstruments} />{allowedInstruments ? <small>顯示所有可交易 SWAP；選項會標示是否位於帳戶 allowlist（目前允許 {allowedInstruments.length} 個）。</small> : <div className="inline-warning">帳戶風險 allowlist 尚未建立；策略可先儲存為停用，但實盤不能通過 preflight。</div>}<AnimatePresence>{outsideAllowlist.length > 0 && <motion.div key="outside-allowlist" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>目前策略超出帳戶 allowlist：{outsideAllowlist.join("、")}。請移除商品或先至「風險上限」調整邊界。</motion.div>}</AnimatePresence></div>
-        <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
+        <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0.0001" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
         <label className="field"><span>訊號成立後執行延遲</span><span className="input-with-suffix"><input type="number" min="0" max="86400" step="1" value={draft.executionDelaySeconds} onChange={(event) => set("executionDelaySeconds", event.target.value)} /><small>秒</small></span><small>{Number(draft.executionDelaySeconds) > 0 ? "到期後會重新驗證訊號與風險；失效即取消。" : "0 秒＝停用延遲，沿用立即執行。"}</small></label>
         <div className="field full"><span>每個商品想開的固定幣量</span><small>你只需要輸入幣量。系統用目前市價換算 OKX 合約口數；策略觸發時仍用當下行情與滑價設定送單。</small><div className="contract-size-grid">{instruments.map((instrument) => { const price = sizingPrice(instrument); return <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>想開幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><div className="size-reference-price"><small>估算市價（自動）</small><strong>{price ? `${price} USDT` : "等待市場價格"}</strong></div><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={price} side={draft.side} /></div>; })}</div></div>
         <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" analysisSymbols={draft.instruments} /></div>
