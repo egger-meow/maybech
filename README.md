@@ -73,8 +73,14 @@ is one of six primitive types, each checked against live market data:
 
 Primitives compose into a tree with `and` / `or` / `not`, nested arbitrarily. A
 strategy's entry signal, and each of its close rules (stop-loss, take-profit,
-break-even, trailing), is one such tree. For example, an ETH strategy's entry
-signal that requires its own short-term breakout *and* BTC clearing a level:
+break-even, trailing), is one such tree.
+
+The flexibility that matters most in a correlated market like crypto: `symbol`
+on any condition can be `"self"` (the strategy's own traded instrument) *or* any
+other OKX instrument id — cross-asset conditions aren't a special case, just
+another leaf in the same tree. So a strategy trading ETH can gate its entry on
+BTC's move (or any other pair's), combined with its own conditions via
+`and`/`or`/`not`:
 
 ```json
 {
@@ -86,37 +92,15 @@ signal that requires its own short-term breakout *and* BTC clearing a level:
 }
 ```
 
-`symbol` can be `"self"` (the strategy's own traded instrument) or any other OKX
-instrument id — cross-asset conditions are not a special case, just another leaf
-in the same tree. Every false-to-true edge of a strategy's signal is durably
-logged as a `strategy.action_decision` — direction, evidence, and the allow/block
-reason — before any order is considered, queryable via `GET /strategy/decisions`.
+On top of whatever an operator composes, every strategy's entries are also
+checked against a live, always-on BTC regime classification
+(`direction` × `strength` × `impulse`) before being actioned, on any pair — see
+[`BTCRegimeActionPolicy`](src/trading/action_policy.py). It only ever blocks,
+never forces, an entry.
 
-## Trading model: BTC leads the market
-
-Altcoins move with BTC far more often than not — "only buy the ETH breakout if
-BTC also clears its level" is a heuristic most perp traders already use by
-instinct. Maybech makes that reasoning explicit and auditable instead of
-implicit and manual, in two independent layers:
-
-1. **As a signal condition, opt-in.** As shown above, any strategy can reference
-   another instrument's price, velocity, or volume directly in its entry or
-   close-rule tree. "Long ETH once BTC breaks resistance" is just an `and` of a
-   `self` condition and a `BTC-USDT-SWAP` condition — composed per strategy, not
-   hardcoded.
-2. **As a regime gate, always-on.** Independent of what any strategy composes,
-   `BTCRegimeService` continuously classifies BTC into a `direction`
-   (bullish/bearish/neutral) × `strength` (strong/normal/weak) × `impulse`
-   (up/down/none) state from EMA trend and short-window rate of change. Before
-   any strategy's entry is actioned — on **any** pair, not just BTC — that
-   decision is checked against the live regime: a strong bearish regime or a
-   downside impulse blocks new longs system-wide; the mirror blocks new shorts.
-   This gate is conservative by design and cannot be composed away by a
-   strategy; it can only block, never force, an entry.
-
-Net effect: you can build the breakout-correlation heuristic explicitly as a
-signal, and Maybech will additionally refuse to act on it if the broader BTC
-regime disagrees at the moment it would fire.
+Every false-to-true edge of a strategy's signal is durably logged as a
+`strategy.action_decision` — direction, evidence, and the allow/block reason —
+before any order is considered, queryable via `GET /strategy/decisions`.
 
 ## Core functions
 
