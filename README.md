@@ -59,6 +59,88 @@ is `simulation` — it cannot even connect to an exchange.
 > The dashboard UI is currently in Traditional Chinese (繁體中文); the backend,
 > API, and all documentation are in English.
 
+## Signals
+
+A **signal** is a small, typed JSON condition — not a black-box score. Every signal
+is one of six primitive types, each checked against live market data:
+
+| Type | Fires when |
+| --- | --- |
+| `price_above` / `price_below` | price crosses a threshold |
+| `rapid_rise` / `rapid_drop` | price moves ≥ N% within a time window |
+| `volume_multiple` | current volume ≥ N× its baseline over a timeframe |
+| `boundary_approach` | price is within tolerance of a support/resistance level, but hasn't crossed it yet |
+
+Primitives compose into a tree with `and` / `or` / `not`, nested arbitrarily. A
+strategy's entry signal, and each of its close rules (stop-loss, take-profit,
+break-even, trailing), is one such tree. For example, an ETH strategy's entry
+signal that requires its own short-term breakout *and* BTC clearing a level:
+
+```json
+{
+  "op": "and",
+  "conditions": [
+    { "type": "price_above", "symbol": "BTC-USDT-SWAP", "value": 68000 },
+    { "type": "rapid_rise", "symbol": "self", "window_seconds": 300, "change_pct": 1.5 }
+  ]
+}
+```
+
+`symbol` can be `"self"` (the strategy's own traded instrument) or any other OKX
+instrument id — cross-asset conditions are not a special case, just another leaf
+in the same tree. Every false-to-true edge of a strategy's signal is durably
+logged as a `strategy.action_decision` — direction, evidence, and the allow/block
+reason — before any order is considered, queryable via `GET /strategy/decisions`.
+
+## Trading model: BTC leads the market
+
+Altcoins move with BTC far more often than not — "only buy the ETH breakout if
+BTC also clears its level" is a heuristic most perp traders already use by
+instinct. Maybech makes that reasoning explicit and auditable instead of
+implicit and manual, in two independent layers:
+
+1. **As a signal condition, opt-in.** As shown above, any strategy can reference
+   another instrument's price, velocity, or volume directly in its entry or
+   close-rule tree. "Long ETH once BTC breaks resistance" is just an `and` of a
+   `self` condition and a `BTC-USDT-SWAP` condition — composed per strategy, not
+   hardcoded.
+2. **As a regime gate, always-on.** Independent of what any strategy composes,
+   `BTCRegimeService` continuously classifies BTC into a `direction`
+   (bullish/bearish/neutral) × `strength` (strong/normal/weak) × `impulse`
+   (up/down/none) state from EMA trend and short-window rate of change. Before
+   any strategy's entry is actioned — on **any** pair, not just BTC — that
+   decision is checked against the live regime: a strong bearish regime or a
+   downside impulse blocks new longs system-wide; the mirror blocks new shorts.
+   This gate is conservative by design and cannot be composed away by a
+   strategy; it can only block, never force, an entry.
+
+Net effect: you can build the breakout-correlation heuristic explicitly as a
+signal, and Maybech will additionally refuse to act on it if the broader BTC
+regime disagrees at the moment it would fire.
+
+## Core functions
+
+- **Strategy Management** — compose entry signals and close rules from the
+  primitives above; attach typed close-rule presets (stop-loss, take-profit,
+  break-even, trailing) per instrument; set a per-instrument allowlist, max
+  slippage, and post-signal execution delay; preview OKX contract-size
+  conversion live before saving.
+- **Position Management** — every entry is tracked as its own logical unit, not
+  merged into the exchange's raw position; edit stop/target/break-even/trailing
+  rules on an open unit at any time; manually register a logical unit for a
+  position opened outside the strategy engine.
+- **Risk Limits** — account-wide max order notional, max total exposure, max
+  leverage (≤125×), and an instrument allowlist enforced before every order; a
+  kill switch disables new entries instantly while leaving reduce-only closes
+  active.
+- **Market Analysis** — a whole-market macro dashboard (Fear & Greed index,
+  dominance, funding), a per-instrument market list, support/resistance
+  research, and an Adam Theory two-point reflection tool for geometric pattern
+  study (explicitly research-only, never a trading signal).
+- **Notifications & Audit** — LINE/email alerts for strategy, position, and
+  runtime-safety events; every strategy decision and system event is durably
+  logged and queryable through the API.
+
 ## Who is this for
 
 - **Discretionary OKX perp traders** who want rule-driven exits and guarded entries
