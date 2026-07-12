@@ -40,6 +40,10 @@ import type {
   NotificationTestResponse,
   MarketCandlesResponse,
   MarketMacroOverviewResponse,
+  MarketIntelligenceMetricListResponse,
+  MarketIntelligenceMetricResponse,
+  MarketIntelligenceProviderStatusListResponse,
+  MarketIntelligenceSeriesResponse,
   MarketOverviewResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
@@ -114,6 +118,10 @@ export type {
   NotificationTestResponse,
   MarketCandlesResponse,
   MarketMacroOverviewResponse,
+  MarketIntelligenceMetricListResponse,
+  MarketIntelligenceMetricResponse,
+  MarketIntelligenceProviderStatusListResponse,
+  MarketIntelligenceSeriesResponse,
   MarketOverviewResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
@@ -382,6 +390,29 @@ export const getMarketOverview = (
 
 export const getMarketMacroOverview = (): Promise<MarketMacroOverviewResponse> =>
   fetcher<MarketMacroOverviewResponse>("/market/macro-overview");
+
+export const getMarketIntelligenceMetrics = (): Promise<MarketIntelligenceMetricListResponse> =>
+  fetcher<MarketIntelligenceMetricListResponse>("/market/metrics");
+
+export const getMarketIntelligenceMetric = (metricId: string): Promise<MarketIntelligenceMetricResponse> =>
+  fetcher<MarketIntelligenceMetricResponse>(`/market/metrics/${encodeURIComponent(metricId)}`);
+
+export const getMarketIntelligenceSeries = (
+  metricId: string,
+  options: { start?: string; end?: string; limit?: number } = {},
+): Promise<MarketIntelligenceSeriesResponse> => {
+  const params = new URLSearchParams();
+  if (options.start) params.set("start", options.start);
+  if (options.end) params.set("end", options.end);
+  if (options.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  return fetcher<MarketIntelligenceSeriesResponse>(
+    `/market/series/${encodeURIComponent(metricId)}${query ? `?${query}` : ""}`,
+  );
+};
+
+export const getMarketIntelligenceProviderStatus = (): Promise<MarketIntelligenceProviderStatusListResponse> =>
+  fetcher<MarketIntelligenceProviderStatusListResponse>("/market/providers/status");
 
 export const getSupportResistanceAnalysis = (
   instId: string,

@@ -291,3 +291,67 @@ per-metric freshness/source/caveat display, and removing the current page's
 misleading global "auto-refreshes" wording. `GET /market/macro-overview` and
 its frontend page (`frontend/app/analysis/overview/page.tsx`) are still
 untouched as of this section.
+
+## 9. Phase 2: Market Overview UI redesign — delivered
+
+`frontend/app/analysis/overview/page.tsx` is rewritten to consume the typed
+`/market/metrics`, `/market/series/{metric_id}`, and `/market/providers/status`
+endpoints instead of `/market/macro-overview`. `GET /market/macro-overview`
+and its response contract are left untouched (still used nowhere else) per
+the Phase 0 decision to keep it stable rather than force a rewire before the
+UI actually needed it.
+
+Layout: six pillar cards (`price_breadth`, `derivatives`, `valuation`,
+`liquidity`, `sentiment`, `holder_behavior`), each showing every registered
+metric's value and a per-metric freshness badge (`fresh`/`stale`/
+`very_stale`/`unavailable`), plus one history chart for the pillar's
+headline metric with its source/scope/caveat text underneath. No regime
+`state`/`confidence` badge is shown anywhere — that would require the
+regime-assessment engine (Phase 4), and inventing one now would violate
+`plan.md` §9 ("the regime layer may not silently invent certainty"). The
+`holder_behavior` pillar has no registered metrics yet and says so plainly
+("尚無可用、有文件依據的免費資料來源") rather than being hidden or faked.
+
+Page header shows a provider-health strip (`N/M 資料來源正常`, derived from
+`/market/providers/status`), the freshest observed timestamp across all
+metrics, and a per-source cadence disclosure line replacing the old page's
+single "每 60 秒更新" claim, which was untrue for every metric except the
+live OKX ticker feed.
+
+A global timeframe control (7d/30d/90d/all) computes a `start` bound
+client-side and re-fetches every pillar's chart series. A pillar's chart
+metric with fewer than 2 accumulated points shows "尚未累積足夠歷史資料以繪製圖表"
+instead of a fabricated or flat line — expected for metrics that only
+accumulate forward from first ingestion (everything except
+`crypto_fear_greed` and `btc_mvrv_z`, which the providers backfill on first
+sync).
+
+The existing hand-rolled inline-SVG `LineChart` (no charting library
+dependency, matching the prior page's approach) gained a hover crosshair,
+point marker, and floating tooltip (value + full timestamp) — the prior
+version had no interaction at all. Followed the repo's dataviz skill: one
+hue per chart (the existing `--accent-primary` design token, not a new
+palette), thin 2.5px line, recessive axis labels, single-series charts carry
+no legend (title names the series).
+
+Two lint-driven fixes worth noting for future chart work in this repo: (1)
+`react-hooks/purity` rejects `Date.now()` anywhere in the render body,
+including inside `useMemo` — the timeframe boundary must be computed only in
+a `useState` lazy initializer or an event handler, never derived during
+render; (2) a `useMemo` dependency array must not include a value created
+fresh every render via `?? []` fallback, or the memo never actually memoizes.
+
+Live-verified in the browser (not just `npm run build`) against the real
+demo-mode backend: all six pillars rendered real OKX/CoinGecko/DefiLlama/
+alternative.me/bitcoin-data.com data, the provider-health strip correctly
+showed 5/5, the timeframe control correctly changed the MVRV chart's date
+range when clicked, the hover tooltip correctly displayed value and
+timestamp, and dark mode rendered with correct contrast on every badge and
+chart. Screenshots taken during verification are not checked in; the
+behavior above is the durable record.
+
+`npm run contract`, `npm run lint`, `npm run typecheck`, and `npm run build`
+all pass. This closes `plan.md` §13's Phase 2 exit criteria: the page stays
+useful when any one provider is offline (each metric/pillar degrades
+independently), no metric is shown without scope/source/freshness, and
+desktop/dark-mode layouts remain inspectable.
