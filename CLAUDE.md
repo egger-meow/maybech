@@ -153,9 +153,13 @@ re-enabled.
 
 ### SQLite persistence rules (`docs/storage.md`)
 
-- Default DB path is `data/trades.db`, overridable via `MAYBECH_DB_PATH`; all stores go
-  through `src/trading/sqlite_schema.py` for connection config and the shared
-  `schema_migrations` ledger.
+- Default DB path is `data/trades.db` via `MAYBECH_DB_PATH`, used by Simulation, Live Safe,
+  and Live Armed; `--mode demo` instead uses `DEMO_MAYBECH_DB_PATH` (`data/demo_trades.db`
+  by default), mirroring the `DEMO_OKX_*`/`OKX_*` credential split so Demo state can never
+  land in the Simulation/Live database. `create_default_runner` resolves and pins the active
+  path once at startup via `src/config/settings.py::activate_db_path`; all stores go through
+  `src/trading/sqlite_schema.py` for connection config and the shared `schema_migrations`
+  ledger.
 - Every table-owning store needs a versioned schema entry — don't add
   `CREATE TABLE IF NOT EXISTS` without recording a version.
 - Confirmed allocation inserts + their logical-position quantity changes must commit in

@@ -25,9 +25,15 @@ uv run python -m src.runtime api
 The API exposes service state at `http://127.0.0.1:8000/services` and live runtime events at `ws://127.0.0.1:8000/ws/events`.
 It also exposes `GET /market/btc-regime`, `GET /strategy/decisions`, and `GET /position/intents` for frontend control surfaces.
 
-Copy `.env.example` to `.env` for local operator settings. All backend stores
-share `MAYBECH_DB_PATH` (`data/trades.db` by default). Use an absolute path for
-service or scheduled-task deployments where the working directory may vary.
+Copy `.env.example` to `.env` for local operator settings. Backend stores
+share whichever of `MAYBECH_DB_PATH` (`data/trades.db` by default, used by
+Simulation, Live Safe, and Live Armed) or `DEMO_MAYBECH_DB_PATH`
+(`data/demo_trades.db` by default, used only by `--mode demo`) matches the
+active runtime mode — `create_default_runner` resolves and pins this once at
+startup (`src/config/settings.py::activate_db_path`), so Demo can never read
+or write the Simulation/Live database even if both values live in the same
+`.env`. Use absolute paths for service or scheduled-task deployments where the
+working directory may vary.
 Production credentials use `OKX_API_KEY`, `OKX_API_SECRET`, and
 `OKX_PASSPHRASE`. Demo credentials use the corresponding `DEMO_OKX_*` names.
 `OKX_FLAG=1` must select only demo credentials; `OKX_FLAG=0` must select only
@@ -53,12 +59,14 @@ release. It must make the selected environment visually unmistakable:
   gate. It is an environment choice, not one-click live arming.
 
 Demo and Real must not share one SQLite database or one execution process.
-Maybech's database lease and hashed OKX-account lease intentionally allow only
-one mutating leader for a database/account scope. Side-by-side operation is
-safe only as two explicitly separated deployments with different absolute
-`MAYBECH_DB_PATH` values, credential scopes, ports, runtime locks, and one
-leader per account. Until the UI can prove that separation, it should require a
-restart to change environments rather than imply both are concurrently safe.
+`DEMO_MAYBECH_DB_PATH` vs `MAYBECH_DB_PATH` already keeps their databases apart
+within one `.env`, mirroring `DEMO_OKX_*` vs `OKX_*` for credentials, but
+Maybech's database lease and hashed OKX-account lease intentionally still
+allow only one mutating leader for a database/account scope at a time.
+Side-by-side *concurrent* operation is safe only as two explicitly separated
+deployments with distinct ports and runtime locks — one leader per account.
+Until the UI can prove that separation, it should require a restart to change
+environments rather than imply both are concurrently safe.
 
 ## Guarded Path To Real Money
 

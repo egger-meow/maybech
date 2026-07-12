@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from src.config.settings import resolve_db_path_diagnostics
+from src.config.settings import activate_db_path
 from src.daemon.account_service import AccountSnapshotService
 from src.daemon.btc_regime_service import BTCRegimeService
 from src.daemon.execution_fill_service import ExecutionFillService
@@ -54,15 +54,21 @@ def create_default_runner(
     order_capable = resolved_mode.submits_orders
     live_safe = resolved_mode is RuntimeMode.LIVE_SAFE
     disarm_order_placement()
-    # Resolve and log the DB path before any store touches disk. A process-level
-    # env var silently overrides .env (dotenv never overrides an already-set
-    # variable), which previously made "which database is this run actually
-    # using" invisible until state from an unexpected file showed up mid-session.
-    db_path_info = resolve_db_path_diagnostics()
+    # Resolve, pin, and log the DB path before any store touches disk. Demo
+    # gets its own database (DEMO_MAYBECH_DB_PATH) so it can never mix state
+    # with Simulation/Live (MAYBECH_DB_PATH) even if a process-level env var
+    # silently overrides .env (dotenv never overrides an already-set
+    # variable) — previously that made "which database is this run actually
+    # using" invisible until state from an unexpected file showed up
+    # mid-session. Pinning settings.MAYBECH_DB_PATH here (not just logging it)
+    # also keeps every no-arg store the API layer constructs per request in
+    # sync with the store this runner builds below.
+    db_path_info = activate_db_path(resolved_mode)
     logger.info(
-        "Maybech DB path resolved to %s (source=%s, existed_before_process=%s)",
+        "Maybech DB path resolved to %s (source=%s, env=%s, existed_before_process=%s)",
         db_path_info["resolved_path"],
         db_path_info["source"],
+        db_path_info["env_key"],
         db_path_info["existed_before_process"],
     )
     runner = DaemonRunner()

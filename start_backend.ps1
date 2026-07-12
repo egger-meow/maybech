@@ -125,10 +125,10 @@ if ($portOwner) {
 }
 
 $leaseCheckCode = @"
-from src.config.settings import settings
+from src.config.settings import resolve_db_path
 from src.runtime.lease import RuntimeLease
 
-lease = RuntimeLease(db_path=settings.MAYBECH_DB_PATH)
+lease = RuntimeLease(db_path=resolve_db_path('$Mode'))
 status = lease.acquire()
 lease.release()
 print(status.database)

@@ -21,8 +21,14 @@ backup, and does not require a separate database service.
 - `src/trading/sqlite_schema.py`: shared SQLite connection configuration and
   schema migration ledger helpers.
 
-All stores use `MAYBECH_DB_PATH` when no explicit constructor path is supplied.
-The default is `data/trades.db`.
+All stores use `settings.MAYBECH_DB_PATH` when no explicit constructor path is
+supplied. `src.daemon.runtime.create_default_runner` pins that field once at
+startup, before any store is constructed, via `activate_db_path(mode)`
+(`src/config/settings.py`): `RuntimeMode.DEMO` resolves to
+`DEMO_MAYBECH_DB_PATH` (default `data/demo_trades.db`); Simulation and both
+Live modes resolve to `MAYBECH_DB_PATH` (default `data/trades.db`). This keeps
+Demo state out of the Simulation/Live database even if an operator forgets to
+change a path when switching modes — see docs/deployment.md.
 
 ## Schema Management Rule
 

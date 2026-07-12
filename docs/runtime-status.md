@@ -305,10 +305,13 @@ automatic position closes remain independent.
 
 ## Runtime Storage
 
-All SQLite stores resolve `MAYBECH_DB_PATH`, which defaults to
-`data/trades.db`. An explicit constructor path still overrides the environment
-setting for tests and isolated tools. Keep all production stores on one path so
-the API and daemon observe the same schema and records.
+All SQLite stores resolve `settings.MAYBECH_DB_PATH`, which is pinned once at
+startup by mode: `RuntimeMode.DEMO` uses `DEMO_MAYBECH_DB_PATH` (default
+`data/demo_trades.db`); Simulation, Live Safe, and Live Armed use
+`MAYBECH_DB_PATH` (default `data/trades.db`). An explicit constructor path
+still overrides the environment setting for tests and isolated tools. Keep all
+production stores for a given mode on one path so the API and daemon observe
+the same schema and records; see docs/storage.md.
 
 Mutable strategy configuration is stored in the `strategies` table, not in
 `.env`. Enabled strategies require target instruments, `metadata.position_side`,

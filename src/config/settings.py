@@ -98,6 +98,9 @@ class Settings:
     MAYBECH_DB_PATH: str = field(
         default_factory=lambda: _get("MAYBECH_DB_PATH", "data/trades.db")
     )
+    DEMO_MAYBECH_DB_PATH: str = field(
+        default_factory=lambda: _get("DEMO_MAYBECH_DB_PATH", "data/demo_trades.db")
+    )
     MAYBECH_CORS_ORIGINS: list[str] = field(
         default_factory=lambda: [
             origin.strip()
@@ -139,8 +142,35 @@ class Settings:
 # Singleton instance — import this everywhere
 settings = Settings()
 
+# Pristine MAYBECH_DB_PATH as loaded from the environment, captured before
+# activate_db_path() ever has a chance to overwrite settings.MAYBECH_DB_PATH
+# with the demo path. resolve_db_path() must stay idempotent even if
+# activate_db_path() runs more than once in a process (e.g. tests exercising
+# multiple modes), so the non-demo case always reads this constant rather
+# than the (possibly already-pinned) live field.
+_default_maybech_db_path = settings.MAYBECH_DB_PATH
 
-def resolve_db_path_diagnostics(db_path: str | None = None) -> dict[str, Any]:
+
+def resolve_db_path(mode: Any = None) -> str:
+    """Select the SQLite path for a runtime mode.
+
+    Demo trades against OKX's demo instance and must never land in the same
+    database as Simulation or either live mode (see docs/deployment.md,
+    "Demo and Real must not share one SQLite database") — the same
+    mode-scoped separation ``load_okx_connection_settings`` already applies
+    to credentials via ``OKX_FLAG``. Every other mode shares
+    ``MAYBECH_DB_PATH``.
+    """
+    from src.runtime.mode import RuntimeMode, parse_runtime_mode
+
+    if parse_runtime_mode(mode) is RuntimeMode.DEMO:
+        return settings.DEMO_MAYBECH_DB_PATH
+    return _default_maybech_db_path
+
+
+def resolve_db_path_diagnostics(
+    db_path: str | None = None, *, mode: Any = None
+) -> dict[str, Any]:
     """Report exactly where the active SQLite path came from and whether it is new.
 
     Every store falls back to ``settings.MAYBECH_DB_PATH`` when constructed
@@ -150,11 +180,18 @@ def resolve_db_path_diagnostics(db_path: str | None = None) -> dict[str, Any]:
     made "which database is this run actually touching" a matter of
     archaeology. Call this once at startup and log/expose the result instead.
     """
-    configured = db_path or settings.MAYBECH_DB_PATH
+    from src.runtime.mode import RuntimeMode, parse_runtime_mode
+
+    env_key = (
+        "DEMO_MAYBECH_DB_PATH"
+        if parse_runtime_mode(mode) is RuntimeMode.DEMO
+        else "MAYBECH_DB_PATH"
+    )
+    configured = db_path or resolve_db_path(mode)
     resolved_path = str(Path(configured).resolve())
-    if "MAYBECH_DB_PATH" in _pre_dotenv_environ_keys:
+    if env_key in _pre_dotenv_environ_keys:
         source = "process_environment"
-    elif "MAYBECH_DB_PATH" in _dotenv_file_values:
+    elif env_key in _dotenv_file_values:
         source = "dotenv_file"
     else:
         source = "default"
@@ -162,5 +199,22 @@ def resolve_db_path_diagnostics(db_path: str | None = None) -> dict[str, Any]:
         "configured_path": configured,
         "resolved_path": resolved_path,
         "source": source,
+        "env_key": env_key,
         "existed_before_process": Path(resolved_path).exists(),
     }
+
+
+def activate_db_path(mode: Any = None) -> dict[str, Any]:
+    """Pin the process-wide SQLite path for a runtime mode before any store is built.
+
+    ``settings.MAYBECH_DB_PATH`` is what every store's ``db_path or
+    settings.MAYBECH_DB_PATH`` fallback resolves to — including the dozens of
+    stores the API layer (``src/api/app.py``) constructs with no explicit
+    path per request. Call this exactly once, at startup, before the first
+    store is constructed, so that fallback (and the whole process) observes
+    the demo database under ``RuntimeMode.DEMO`` and the shared database
+    everywhere else, instead of the two drifting apart.
+    """
+    diagnostics = resolve_db_path_diagnostics(mode=mode)
+    object.__setattr__(settings, "MAYBECH_DB_PATH", diagnostics["configured_path"])
+    return diagnostics
