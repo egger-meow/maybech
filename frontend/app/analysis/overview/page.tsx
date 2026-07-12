@@ -19,7 +19,9 @@ import {
   getMarketIntelligenceMetrics,
   getMarketIntelligenceProviderStatus,
   getMarketIntelligenceSeries,
+  getMarketRegime,
   type MarketIntelligenceMetricResponse,
+  type MarketRegimeAssessmentResponse,
 } from "@/lib/api";
 import { formatPrice } from "@/lib/price-format";
 
@@ -138,6 +140,24 @@ function FreshnessBadge({ freshness }: { freshness: string | null | undefined })
   );
 }
 
+const REGIME_STATE_LABEL: Record<string, { label: string; cls: string }> = {
+  supportive: { label: "偏正向", cls: "success" },
+  neutral: { label: "中性", cls: "info" },
+  cautious: { label: "留意", cls: "warning" },
+  stressed: { label: "壓力偏高", cls: "danger" },
+  unavailable: { label: "尚無評估", cls: "muted" },
+};
+
+function RegimeBadge({ assessment }: { assessment: MarketRegimeAssessmentResponse | undefined }) {
+  const entry = REGIME_STATE_LABEL[assessment?.state ?? "unavailable"] ?? REGIME_STATE_LABEL.unavailable;
+  return (
+    <span className={`badge ${entry.cls}`}>
+      {entry.label}
+      {assessment && assessment.state !== "unavailable" ? ` · 信心 ${Math.round(assessment.confidence * 100)}%` : ""}
+    </span>
+  );
+}
+
 type ChartPoint = { value: number; shortLabel: string; fullLabel: string };
 
 function LineChart({
@@ -237,10 +257,12 @@ const TIMEFRAME_OPTIONS: { key: string; label: string; days: number | null }[] =
 function PillarSection({
   pillar,
   metricsById,
+  regime,
   startIso,
 }: {
   pillar: Pillar;
   metricsById: Record<string, MarketIntelligenceMetricResponse>;
+  regime: MarketRegimeAssessmentResponse | undefined;
   startIso: string | undefined;
 }) {
   const chartMetricId = pillar.metricIds[0] ?? null;
@@ -262,7 +284,11 @@ function PillarSection({
         <h2>
           <pillar.icon size={17} /> {pillar.label}
         </h2>
+        <RegimeBadge assessment={regime} />
       </div>
+      {regime && (
+        <p className="macro-hint macro-regime-summary">{regime.summary}</p>
+      )}
 
       {pillar.metricIds.length === 0 ? (
         <div className="empty-state">
@@ -331,12 +357,17 @@ export default function AnalysisOverviewPage() {
   const providersQuery = useSWR("market-intelligence-providers", getMarketIntelligenceProviderStatus, {
     refreshInterval: 60_000,
   });
+  const regimeQuery = useSWR("market-intelligence-regime", () => getMarketRegime(), { refreshInterval: 60_000 });
 
   const metrics = metricsQuery.data?.metrics ?? [];
   const metricsById = useMemo(() => {
     const list = metricsQuery.data?.metrics ?? [];
     return Object.fromEntries(list.map((metric) => [metric.metric_id, metric]));
   }, [metricsQuery.data]);
+  const regimeByPillar = useMemo(() => {
+    const list = regimeQuery.data?.pillars ?? [];
+    return Object.fromEntries(list.map((assessment) => [assessment.pillar, assessment]));
+  }, [regimeQuery.data]);
   const providers = providersQuery.data?.providers ?? [];
   const healthyProviders = providers.filter((provider) => provider.enabled && provider.consecutive_failures === 0).length;
   const latestUpdate = metrics.reduce<string | null>((latest, metric) => {
@@ -397,7 +428,13 @@ export default function AnalysisOverviewPage() {
       {metrics.length > 0 && (
         <div className="macro-grid">
           {PILLARS.map((pillar) => (
-            <PillarSection key={pillar.id} pillar={pillar} metricsById={metricsById} startIso={startIso} />
+            <PillarSection
+              key={pillar.id}
+              pillar={pillar}
+              metricsById={metricsById}
+              regime={regimeByPillar[pillar.id]}
+              startIso={startIso}
+            />
           ))}
         </div>
       )}

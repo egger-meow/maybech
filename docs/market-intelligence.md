@@ -452,3 +452,113 @@ new derived-calculator tests) all pass — the only failure is the
 pre-existing, unrelated `test_env_example_exactly_covers_runtime_env_vars`
 (stale `MAYBECH_NGROK_DOMAIN` key), present before this phase and out of
 scope.
+
+## 12. Phase 4: Regime assessment — delivered
+
+Added `src/market_intelligence/regime/`: `rules.py` (pure, deterministic
+per-pillar classification functions — no store access, unit-testable against
+plain numbers) and `assessor.py` (reads the store, bounded by a timestamp).
+
+**Architecture deviation from the plan's proposed table list, stated
+explicitly per this doc's existing precedent for adapting the suggested tree
+(plan.md section 6.2: "do not force this exact tree"):** assessments are
+computed on demand from already-persisted `market_metric_observations` via
+a new `MetricStore.latest_at_or_before(metric_id, at)` primitive — nothing is
+written to a `market_regime_assessments` table. Every read in
+`assessor.py` is bounded by `observed_at <= at`, which means:
+
+- an assessment at historical time T is exactly reproducible by calling
+  `assess_all(store, at=T)` again — no stored snapshot to go stale or drift
+  from the current rule version;
+- replay structurally cannot see an observation recorded after T, because
+  the bound is enforced at the SQL query, not by filtering after the fact;
+- there is no new always-growing table to retain/downsample, and no
+  methodology-version reconciliation problem for historical rows computed
+  under an older rule set — replaying old timestamps always uses today's
+  rules against that day's actual data, which is what "reproducible" means
+  here.
+
+The `RegimeAssessment` domain model (`pillar`, `state`, `confidence`,
+`summary`, `evidence[]`, `calculated_at`, `valid_until`,
+`methodology_version`) matches plan.md 5.5 exactly. `state` is one of
+`supportive | neutral | cautious | stressed | unavailable` — a risk-pressure
+reading per pillar, never a buy/sell instruction (plan.md's Non-Goals).
+Per plan.md 5.5, there is deliberately no single composite score anywhere —
+`GET /market/regime` returns a six-pillar map, full stop.
+
+Four pillars are assessed from metrics this layer already persists:
+
+- **derivatives** — from `okx_funding_annualized` (magnitude bands: <5%
+  supportive, 5–20% neutral, 20–50% cautious, ≥50% stressed), with
+  `okx_price_oi_regime` attached as supplementary evidence only.
+- **valuation** — from `btc_mvrv_z` (z<0 supportive, 0–3 neutral, 3–6
+  cautious, ≥6 stressed — Maybech's own heuristic bands, not a claimed
+  industry standard), with `btc_mvrv_percentile` attached as context.
+- **liquidity** — from `stablecoin_mcap_change_7d_pct` (≥+2% supportive,
+  ±2% neutral, down to -5% cautious, beyond that stressed).
+- **sentiment** — from `crypto_fear_greed` (≤20 or ≥80 stressed — extreme
+  fear and extreme greed both read as "stretched," never mapped to
+  supportive, since sentiment extremes are two-sided risk).
+
+Two pillars are honestly `unavailable` rather than guessed, exactly the
+principle already applied to `holder_behavior`'s metric tiles since Phase 2:
+
+- **price_breadth** — no market-wide breadth metric is registered
+  (`market_breadth_advancing_pct` is catalogued in Section 3 but not
+  implemented; BTC/ETH price and dominance alone don't answer "is strength
+  broad or concentrated," which is this pillar's actual purpose per
+  plan.md 4.1).
+- **holder_behavior** — still blocked on the Coin Metrics Community catalog
+  confirmation from Phase 0 Section 6.
+
+Confidence is derived from each input's freshness at the assessed timestamp
+(`fresh`→1.0, `stale`→0.6, `very_stale`→0.3, `unavailable`→0.0, via the
+existing `compute_freshness`), not invented — this is what plan.md 9's
+"confidence must fall or the state must become unavailable when inputs are
+missing" cashes out to concretely.
+
+New endpoint `GET /market/regime?at=<ISO8601>` (optional `at`, defaults to
+now; an unparseable value falls back to now rather than erroring, matching
+`get_series`'s existing lenient handling of `start`/`end`). Response is
+`MarketRegimeResponse { at, pillars: MarketRegimeAssessmentResponse[] }`,
+typed end-to-end through OpenAPI.
+
+UI: each pillar card's heading now shows a state badge (`偏正向` success /
+`中性` info / `留意` warning / `壓力偏高` danger / `尚無評估` muted) with a
+confidence percentage, and the English evidence summary underneath —
+following the same precedent as the existing English `caveats` field
+displayed as-is (Python owns domain text, Next.js owns zh-TW metric labels
+and layout, per plan.md 6.1). No new page section; reuses the existing
+pillar-card layout rather than adding a separate regime-map header, keeping
+this phase's frontend footprint small.
+
+Deliberately deferred, consistent with plan.md's non-goal against
+"redesigning unrelated Maybech pages during the same phase": wiring research
+modules (e.g. Secondary Reflection) to consume historical regime context.
+`GET /market/regime?at=` is the reusable seam plan.md 12 describes for that
+future work; no concrete consumer exists yet, so nothing was built toward
+one speculatively.
+
+Live-verified end to end in a fresh demo-mode database (not just unit
+tests): `derivatives` (supportive, confidence 100%), `valuation` (neutral,
+confidence 100%), and `sentiment` (cautious, confidence 100%) populated
+correctly from real OKX/bitcoin-data.com/alternative.me data on the first
+sync tick; `price_breadth`, `holder_behavior`, and `liquidity` correctly
+showed `unavailable`/"尚無評估" rather than a fabricated state. Confirmed in
+the browser: all six pillar cards render their regime badge and summary with
+no console errors and no layout regressions.
+
+`npm run contract`, `npm run lint`, `npm run typecheck`, `npm run build`,
+and the full backend `pytest` suite all pass (only the pre-existing,
+unrelated `test_env_example_exactly_covers_runtime_env_vars` failure
+remains).
+
+This completes plan.md's Phase 4 exit criteria: an assessment at historical
+time T is reproducible (by construction, not by a cache — see the
+architecture note above), confidence falls to 0 and state becomes
+`unavailable` when inputs are missing, replay cannot use future
+observations (every store read is bounded by `at`), and every regime
+explanation references concrete evidence (the `evidence[]` array, not a
+bare label). Historical replay integration into research modules and rule
+calibration against replayed history remain future work once a concrete
+consumer exists.

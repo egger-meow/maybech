@@ -122,6 +122,7 @@ from src.api.schemas import (
     MarketIntelligenceMetricResponse,
     MarketIntelligenceProviderStatusListResponse,
     MarketIntelligenceSeriesResponse,
+    MarketRegimeResponse,
     MarketOverviewResponse,
     MarketOverviewTickerResponse,
     SupportResistanceAnalysisResponse,
@@ -1689,6 +1690,11 @@ def create_app(
     def get_market_intelligence_provider_status() -> MarketIntelligenceProviderStatusListResponse:
         providers = MarketIntelligenceService().get_provider_status()
         return MarketIntelligenceProviderStatusListResponse(providers=providers)
+
+    @app.get("/market/regime", response_model=MarketRegimeResponse)
+    def get_market_regime(at: Optional[str] = Query(default=None)) -> MarketRegimeResponse:
+        regime = MarketIntelligenceService().get_regime(at=at)
+        return MarketRegimeResponse(**regime)
 
     @app.get(
         "/market/analysis/support-resistance",

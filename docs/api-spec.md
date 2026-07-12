@@ -71,6 +71,17 @@ These endpoints currently exist or are already documented in runtime status:
   last error category, and consecutive-failure count from persisted sync-run
   history. A failing provider degrades only its own metrics' freshness; it
   never breaks these endpoints or any other provider's status.
+- `GET /market/regime?at=<ISO8601>`: six-pillar regime map (`derivatives`,
+  `valuation`, `price_breadth`, `holder_behavior`, `liquidity`, `sentiment`),
+  each with `state` (`supportive` | `neutral` | `cautious` | `stressed` |
+  `unavailable`), `confidence` (0-1, derived from input freshness), a
+  short evidence-referencing `summary`, and a structured `evidence[]` array
+  — never a single composite score. `at` is optional (defaults to now); an
+  unparseable value falls back to now rather than erroring, matching
+  `/market/series/{metric_id}`'s lenient `start`/`end` handling. Computed on
+  demand from persisted observations bounded by `at`, not from a stored
+  snapshot, so any historical timestamp is exactly reproducible. See
+  `docs/market-intelligence.md` Section 12.
 - `GET /strategy/decisions`
 - `GET /strategies/{strategy_id}/decisions`
 - `GET /position/intents`

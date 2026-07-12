@@ -16,6 +16,7 @@ from src.market_intelligence.providers.bitcoin_data import BitcoinDataMvrvProvid
 from src.market_intelligence.providers.coingecko import CoinGeckoGlobalProvider
 from src.market_intelligence.providers.defillama import DefiLlamaStablecoinProvider
 from src.market_intelligence.providers.okx import OKXMarketProvider
+from src.market_intelligence.regime.assessor import assess_all
 from src.market_intelligence.storage.metric_store import MetricStore
 from src.utils.logger import setup_logger
 
@@ -211,6 +212,42 @@ class MarketIntelligenceService:
             "unit": definition.unit,
             "points": [{"observed_at": obs.observed_at, "value": obs.value} for obs in observations],
             "unavailable_reason": None if observations else "no observations stored for this range yet",
+        }
+
+    def get_regime(self, *, at: str | None = None) -> dict[str, Any]:
+        """Pillar-level regime map, optionally as-of a historical timestamp.
+
+        An unparseable ``at`` falls back to "now" rather than erroring,
+        matching this service's existing lenient handling of ``start``/``end``
+        on ``get_series``.
+        """
+        resolved_at: datetime | None = None
+        if at is not None:
+            try:
+                resolved_at = datetime.fromisoformat(at)
+            except ValueError:
+                resolved_at = None
+            else:
+                if resolved_at.tzinfo is None:
+                    resolved_at = resolved_at.replace(tzinfo=timezone.utc)
+        resolved_at = resolved_at or datetime.now(timezone.utc)
+
+        assessments = assess_all(self.store, at=resolved_at)
+        return {
+            "at": resolved_at.isoformat(),
+            "pillars": [
+                {
+                    "pillar": a.pillar,
+                    "state": a.state,
+                    "confidence": a.confidence,
+                    "summary": a.summary,
+                    "evidence": a.evidence,
+                    "calculated_at": a.calculated_at,
+                    "valid_until": a.valid_until,
+                    "methodology_version": a.methodology_version,
+                }
+                for a in assessments
+            ],
         }
 
     def get_provider_status(self) -> list[dict[str, Any]]:

@@ -361,6 +361,7 @@ button:disabled { cursor: not-allowed; opacity: .55; transform: none !important;
 .macro-as-of { display: flex; align-items: center; gap: .3rem; color: var(--text-muted); margin-top: .6rem; font-size: .78rem; }
 .macro-status-strip { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-top: .9rem; padding-top: .9rem; border-top: 1px solid var(--border-color); }
 .macro-status-strip .macro-as-of { margin-top: 0; }
+.macro-regime-summary { margin-top: -.6rem; margin-bottom: .8rem; }
 .pillar-metric-grid > div { gap: .35rem; }
 
   .macro-chart { position: relative; width: 100%; min-width: 0; margin-top: .95rem; color: var(--accent-primary); }

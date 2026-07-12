@@ -44,6 +44,24 @@ class MetricObservation:
 
 
 @dataclass(frozen=True)
+class RegimeAssessment:
+    """A structured, pillar-level interpretation of evidence (plan.md 5.5).
+
+    Not a trading signal and not a composite score — deliberately one
+    assessment per pillar rather than a single headline number.
+    """
+
+    pillar: str
+    state: str  # supportive | neutral | cautious | stressed | unavailable
+    confidence: float
+    summary: str
+    evidence: list[dict[str, Any]]
+    calculated_at: str
+    valid_until: str
+    methodology_version: str
+
+
+@dataclass(frozen=True)
 class ProviderSyncRun:
     """One attempted ingestion cycle for one provider."""
 

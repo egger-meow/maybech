@@ -44,22 +44,15 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-1. Market Intelligence Layer (operator-activated build phase, see
-   `docs/market-intelligence.md` for the full feasibility audit and metric
-   catalog). Phases 0-3 are complete: 20 metrics across five pillars,
-   persisted with freshness/provider-health tracking, exposed through typed
-   endpoints, and rendered on a redesigned Market Overview page (pillar
-   cards, freshness badges, timeframe-controlled charts with hover tooltips,
-   honest empty states). Phase 3 added derived evidence (funding
-   annualization, MVRV percentile within Maybech's own history, stablecoin
-   7d/30d change, price/OI regime), computed locally from already-persisted
-   history with no new external dependency. Live-verified end to end in the
-   browser against real providers, including honest `unavailable` states for
-   window-dependent derived metrics on a fresh database. Regime assessment
-   (Phase 4) is next. Acceptance gates for each phase are listed in
-   `docs/market-intelligence.md` and the phase list is only complete once
-   every phase's exit criteria in that plan are met — do not silently return
-   this to the backlog after a partial milestone.
+The Market Intelligence Layer operator-activated build phase (see
+`docs/market-intelligence.md`) is complete: Phases 0-4 all met their written
+exit criteria — 20 metrics across five active pillars persisted with
+freshness/provider-health tracking, five derived-evidence metrics, and a
+six-pillar `GET /market/regime` map with honest `unavailable` states and no
+composite score — live-verified end to end against real providers, including
+historical-replay reproducibility. Removed from Current Priorities per this
+file's rule 5. `plan.md`'s Phase 5 (optional premium/cross-exchange
+expansion) was never activated by the operator; see `Non-Blocking / Later`.
 
 The Position Management / Strategy Management visual pass (motion,
 list-selection rail, collapsible break-even/trailing/audit panels) is
@@ -90,4 +83,13 @@ broken operator control, unexpected state, or hidden safety threats.
 - Notification delivery intentionally remains basic: configured LINE/Gmail
   sends, bounded retry, backlog, and last health are sufficient unless
   notification reliability becomes an explicit priority.
+- Market Intelligence Layer Phase 5 (optional premium/cross-exchange
+  expansion — CoinGlass/Glassnode/CryptoQuant-style liquidations, ETF flows,
+  true LTH/STH cohorts, options skew; see `docs/market-intelligence.md`
+  §13/plan.md) requires paid provider credentials and explicit operator
+  activation before it becomes a priority item. Also still open, independent
+  of Phase 5: `market_breadth_advancing_pct` (would unblock the
+  `price_breadth` regime pillar) and Fear & Greed rolling-average/percentile
+  derived metrics, both catalogued in `docs/market-intelligence.md` Section 3
+  but never activated.
 

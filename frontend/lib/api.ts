@@ -44,6 +44,7 @@ import type {
   MarketIntelligenceMetricResponse,
   MarketIntelligenceProviderStatusListResponse,
   MarketIntelligenceSeriesResponse,
+  MarketRegimeResponse,
   MarketOverviewResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
@@ -121,7 +122,9 @@ export type {
   MarketIntelligenceMetricListResponse,
   MarketIntelligenceMetricResponse,
   MarketIntelligenceProviderStatusListResponse,
+  MarketRegimeAssessmentResponse,
   MarketIntelligenceSeriesResponse,
+  MarketRegimeResponse,
   MarketOverviewResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
@@ -413,6 +416,13 @@ export const getMarketIntelligenceSeries = (
 
 export const getMarketIntelligenceProviderStatus = (): Promise<MarketIntelligenceProviderStatusListResponse> =>
   fetcher<MarketIntelligenceProviderStatusListResponse>("/market/providers/status");
+
+export const getMarketRegime = (options: { at?: string } = {}): Promise<MarketRegimeResponse> => {
+  const params = new URLSearchParams();
+  if (options.at) params.set("at", options.at);
+  const query = params.toString();
+  return fetcher<MarketRegimeResponse>(`/market/regime${query ? `?${query}` : ""}`);
+};
 
 export const getSupportResistanceAnalysis = (
   instId: string,

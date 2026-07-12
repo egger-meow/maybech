@@ -719,6 +719,22 @@ class MarketIntelligenceProviderStatusListResponse(BaseModel):
     providers: list[MarketIntelligenceProviderStatusResponse] = Field(default_factory=list)
 
 
+class MarketRegimeAssessmentResponse(BaseModel):
+    pillar: str
+    state: str
+    confidence: float
+    summary: str
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    calculated_at: str
+    valid_until: str
+    methodology_version: str
+
+
+class MarketRegimeResponse(BaseModel):
+    at: str
+    pillars: list[MarketRegimeAssessmentResponse] = Field(default_factory=list)
+
+
 class MarketAnalysisFreshnessResponse(BaseModel):
     evaluated_at: str
     latest_candle_at: str | None = None

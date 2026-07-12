@@ -621,6 +621,22 @@ export type MarketOverviewTickerResponse = {
   "ts": string;
 };
 
+export type MarketRegimeAssessmentResponse = {
+  "pillar": string;
+  "state": string;
+  "confidence": number;
+  "summary": string;
+  "evidence"?: Record<string, unknown>[];
+  "calculated_at": string;
+  "valid_until": string;
+  "methodology_version": string;
+};
+
+export type MarketRegimeResponse = {
+  "at": string;
+  "pillars"?: MarketRegimeAssessmentResponse[];
+};
+
 export type MutationStatusResponse = {
   "status": "deleted" | "ok";
   "id": string;
@@ -1185,6 +1201,8 @@ export type ApiSchemas = {
   "MarketMacroOverviewResponse": MarketMacroOverviewResponse;
   "MarketOverviewResponse": MarketOverviewResponse;
   "MarketOverviewTickerResponse": MarketOverviewTickerResponse;
+  "MarketRegimeAssessmentResponse": MarketRegimeAssessmentResponse;
+  "MarketRegimeResponse": MarketRegimeResponse;
   "MutationStatusResponse": MutationStatusResponse;
   "MvrvZScorePointResponse": MvrvZScorePointResponse;
   "MvrvZScoreResponse": MvrvZScoreResponse;

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Generator
 
@@ -137,6 +138,21 @@ class MetricStore:
                 """SELECT * FROM market_metric_observations
                    WHERE metric_id = ? ORDER BY observed_at DESC LIMIT 1""",
                 (metric_id,),
+            ).fetchone()
+        return self._row_to_observation(row) if row is not None else None
+
+    def latest_at_or_before(self, metric_id: str, at: datetime) -> MetricObservation | None:
+        """The most recent observation with ``observed_at <= at`` — the primitive replay needs.
+
+        Bounding every read this way is what makes a regime assessment at
+        historical time T reproducible without ever seeing an observation
+        recorded after T.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM market_metric_observations
+                   WHERE metric_id = ? AND observed_at <= ? ORDER BY observed_at DESC LIMIT 1""",
+                (metric_id, at.isoformat()),
             ).fetchone()
         return self._row_to_observation(row) if row is not None else None
 

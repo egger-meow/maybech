@@ -3595,6 +3595,77 @@
         "title": "MarketOverviewTickerResponse",
         "type": "object"
       },
+      "MarketRegimeAssessmentResponse": {
+        "properties": {
+          "calculated_at": {
+            "title": "Calculated At",
+            "type": "string"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "methodology_version": {
+            "title": "Methodology Version",
+            "type": "string"
+          },
+          "pillar": {
+            "title": "Pillar",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "valid_until": {
+            "title": "Valid Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pillar",
+          "state",
+          "confidence",
+          "summary",
+          "calculated_at",
+          "valid_until",
+          "methodology_version"
+        ],
+        "title": "MarketRegimeAssessmentResponse",
+        "type": "object"
+      },
+      "MarketRegimeResponse": {
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "pillars": {
+            "items": {
+              "$ref": "#/components/schemas/MarketRegimeAssessmentResponse"
+            },
+            "title": "Pillars",
+            "type": "array"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "title": "MarketRegimeResponse",
+        "type": "object"
+      },
       "MutationStatusResponse": {
         "properties": {
           "id": {
@@ -7611,6 +7682,52 @@
           }
         },
         "summary": "Get Market Intelligence Provider Status"
+      }
+    },
+    "/market/regime": {
+      "get": {
+        "operationId": "get_market_regime_market_regime_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketRegimeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Market Regime"
       }
     },
     "/market/series/{metric_id}": {

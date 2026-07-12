@@ -115,6 +115,34 @@ def test_get_provider_status_reports_empty_when_no_providers_registered(tmp_path
     assert response.json() == {"providers": []}
 
 
+def test_get_regime_returns_six_pillars(tmp_path, monkeypatch):
+    client = _client_with_seeded_service(tmp_path, monkeypatch)
+
+    response = client.get("/market/regime")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["pillars"]) == 6
+    sentiment = next(p for p in body["pillars"] if p["pillar"] == "sentiment")
+    assert sentiment["state"] == "cautious"  # seeded fear_greed=65.0 -> leaning greedy band
+
+
+def test_get_regime_honors_at_query_param(tmp_path, monkeypatch):
+    store = MetricStore(str(tmp_path / "trades.db"))
+    store.insert_observations(
+        [_observation(value=15.0, observed_at="2026-07-01T00:00:00+00:00")]
+    )
+    service = MarketIntelligenceService(store=store, providers=[])
+    monkeypatch.setattr("src.api.app.MarketIntelligenceService", lambda: service)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.get("/market/regime", params={"at": "2026-07-01T00:00:00+00:00"})
+
+    assert response.status_code == 200
+    sentiment = next(p for p in response.json()["pillars"] if p["pillar"] == "sentiment")
+    assert sentiment["state"] == "stressed"
+
+
 def test_provider_failure_does_not_break_metrics_endpoint(tmp_path, monkeypatch):
     """A provider outage must degrade its own metric, not the whole response."""
     store = MetricStore(str(tmp_path / "trades.db"))
