@@ -54,6 +54,28 @@ _DEFINITIONS: dict[str, MetricDefinition] = {
             ),
         ),
         MetricDefinition(
+            metric_id="btc_mvrv",
+            name="BTC MVRV Ratio",
+            pillar="valuation",
+            description="Market value divided by realized value for Bitcoin.",
+            unit="ratio",
+            scope="btc",
+            source_kind="raw",
+            primary_provider="bitcoin_data_mvrv",
+            provider_metric_or_endpoint="https://bitcoin-data.com/v1/mvrv",
+            expected_frequency_seconds=86400,
+            freshness_ttl_seconds=86400 * 2,
+            history_support=True,
+            methodology_version="bgeometrics_mvrv_ratio_v1",
+            caveats=(
+                "Provider-computed raw ratio (BGeometrics/bitcoin-data.com "
+                "methodology), same source as btc_mvrv_z. Above 1.0 means "
+                "aggregate holders are in unrealized profit; below 1.0 means "
+                "aggregate unrealized loss. Long-horizon valuation context "
+                "only, not a timing signal."
+            ),
+        ),
+        MetricDefinition(
             metric_id="global_market_cap_usd",
             name="Global Crypto Market Cap",
             pillar="price_breadth",

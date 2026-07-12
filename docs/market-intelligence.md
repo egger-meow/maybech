@@ -79,7 +79,8 @@ Provider-independent IDs per `plan.md` §5.1. `status` follows the plan's
 ### On-Chain Valuation and Cycle Context
 | metric_id | source_kind | primary_provider | state |
 | --- | --- | --- | --- |
-| `btc_mvrv_z` | raw (provider-computed) | bitcoin-data.com | live, no persisted history (memory cache only) |
+| `btc_mvrv_z` | raw (provider-computed) | bitcoin-data.com | live, persisted (Phase 1/2) |
+| `btc_mvrv` | raw (provider-computed) | bitcoin-data.com | live, persisted (added post-Phase 2 — same source, sibling `/v1/mvrv` endpoint, `>1.0`/`<1.0` reads as aggregate holder profit/loss) |
 | `btc_market_cap_usd` | raw | bitcoin-data.com or CoinGecko coin endpoint | planned — pick one canonical source in Phase 1, do not derive from `global_market_cap_usd * btc_dominance_pct` (compounds two approximations) |
 | `btc_realized_cap_usd` / `btc_realized_price_usd` | raw | bitcoin-data.com (likely has dedicated endpoints alongside `mvrv-zscore`, per its metric list) | planned, Phase 1 endpoint discovery |
 | `btc_mvrv_percentile` | derived | Maybech (from `btc_mvrv_z` history) | planned, Phase 3 — needs persisted history first |
@@ -110,11 +111,12 @@ stays `unavailable` rather than getting a scraped or invented proxy.
 
 ## 4. Naming ambiguity resolution
 
-- **MVRV**: exactly one live source now (bitcoin-data.com's `mvrv-zscore`),
-  after removing the bitbo.io duplicate. `btc_mvrv_z` is documented as
-  provider-computed (BGeometrics methodology), not a "MVRV Score." A
-  Maybech-derived `btc_mvrv_percentile` is allowed later only as an explicitly
-  named, separately versioned derived metric.
+- **MVRV**: exactly one live source (bitcoin-data.com), after removing the
+  bitbo.io duplicate. Both `btc_mvrv_z` (Z-score) and `btc_mvrv` (raw ratio)
+  are provider-computed (BGeometrics methodology, sibling `/v1/mvrv-zscore`
+  and `/v1/mvrv` endpoints), not a "MVRV Score." A Maybech-derived
+  `btc_mvrv_percentile` is allowed later only as an explicitly named,
+  separately versioned derived metric.
 - **LTH/STH**: no implementation exists anywhere in the repo today. Any future
   holder-behavior metric must ship labeled `proxy` (e.g.
   `btc_supply_active_180d_pct`) until a provider with documented cohort
@@ -280,10 +282,11 @@ DefiLlama data: real BTC/ETH prices, funding rates, open interest, and a
 $311B total stablecoin figure were ingested and served correctly through
 `GET /market/metrics` and `GET /market/providers/status` in the same run.
 
-Registry now has 14 metrics across `sentiment`, `valuation`, `price_breadth`,
+Registry now has 15 metrics across `sentiment`, `valuation`, `price_breadth`,
 `derivatives`, and `liquidity` pillars — `holder_behavior` remains
 unregistered pending the Coin Metrics Community catalog confirmation from
-Phase 0 §6.
+Phase 0 §6. (`btc_mvrv`, the raw MVRV ratio alongside `btc_mvrv_z`, was added
+after this section was first written — see §10.)
 
 Still open for Phase 2 to be "done" per `plan.md` §13: the Market Overview UI
 redesign around regime pillars, historical charts with timeframe controls,
@@ -355,3 +358,31 @@ all pass. This closes `plan.md` §13's Phase 2 exit criteria: the page stays
 useful when any one provider is offline (each metric/pillar degrades
 independently), no metric is shown without scope/source/freshness, and
 desktop/dark-mode layouts remain inspectable.
+
+## 10. Post-Phase-2 addendum: raw MVRV ratio
+
+Operator request: show MVRV as more than just the Z-score. bitcoin-data.com
+has a sibling endpoint, `GET https://bitcoin-data.com/v1/mvrv`, same shape as
+`/v1/mvrv-zscore` (`{d, unixTs, mvrv}`), free, unauthenticated — verified
+before implementing, not assumed.
+
+`BitcoinDataMvrvProvider` (`src/market_intelligence/providers/bitcoin_data.py`)
+now fetches both endpoints per sync and parses each independently: one
+failing (network error or unexpected shape) no longer discards observations
+already obtained from the other, which the single-endpoint Phase 2 version
+could not do. New registry entry `btc_mvrv` (unit `ratio`, pillar
+`valuation`, methodology `bgeometrics_mvrv_ratio_v1`) documents the reading
+convention (`>1.0` aggregate profit, `<1.0` aggregate loss) directly in its
+`caveats` field. `btc_mvrv_z` stays the pillar's chart target; `btc_mvrv` is
+a second tile in the same pillar card, no separate chart.
+
+Live-verified end to end after finding and fixing a testing-only mixup (not
+a code bug): `--mode demo` reads `DEMO_MAYBECH_DB_PATH`, not
+`MAYBECH_DB_PATH` — an env var override aimed at the wrong variable caused a
+verification run to silently reuse an old persisted demo database, where the
+provider's hourly `min_refresh_interval_seconds` due-check correctly skipped
+re-fetching a metric it had "already" synced 25 minutes earlier. Isolating
+the provider in a standalone script proved the parser itself was correct
+before chasing the real cause. With the correct env var, a fresh demo run
+showed `btc_mvrv_z=0.3854` and `btc_mvrv=1.214` for the same day, both
+`fresh`, both live.

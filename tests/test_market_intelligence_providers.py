@@ -75,34 +75,56 @@ def test_alternative_me_provider_raises_provider_error_on_total_failure(monkeypa
         alternative_me.AlternativeMeProvider().fetch_observations()
 
 
-def test_bitcoin_data_provider_parses_history(monkeypatch):
+def _mvrv_get(zscore_payload=None, ratio_payload=None, fail_urls=()):
+    def _get(url, *args, **kwargs):
+        if url in fail_urls:
+            raise requests.ConnectionError(f"boom: {url}")
+        if url == bitcoin_data._ZSCORE_URL:
+            return _FakeResponse(zscore_payload if zscore_payload is not None else {"unexpected": True})
+        if url == bitcoin_data._RATIO_URL:
+            return _FakeResponse(ratio_payload if ratio_payload is not None else {"unexpected": True})
+        raise AssertionError(f"unexpected URL: {url}")
+
+    return _get
+
+
+def test_bitcoin_data_provider_parses_both_series(monkeypatch):
     monkeypatch.setattr(
         bitcoin_data.requests,
         "get",
-        lambda *a, **k: _FakeResponse(
-            {
+        _mvrv_get(
+            zscore_payload={
                 "value": [
                     {"d": "2026-07-08", "mvrvZscore": 0.35},
                     {"d": "2026-07-09", "mvrvZscore": 0.32},
                 ]
-            }
+            },
+            ratio_payload={
+                "value": [
+                    {"d": "2026-07-08", "mvrv": 1.42},
+                    {"d": "2026-07-09", "mvrv": 1.38},
+                ]
+            },
         ),
     )
 
     observations = bitcoin_data.BitcoinDataMvrvProvider().fetch_observations()
 
-    assert len(observations) == 2
-    assert observations[0].metric_id == "btc_mvrv_z"
-    assert observations[-1].value == 0.32
-    assert observations[-1].observed_at == "2026-07-09T00:00:00+00:00"
+    by_metric = {}
+    for obs in observations:
+        by_metric.setdefault(obs.metric_id, []).append(obs)
+    assert {obs.value for obs in by_metric["btc_mvrv_z"]} == {0.35, 0.32}
+    assert {obs.value for obs in by_metric["btc_mvrv"]} == {1.42, 1.38}
+    assert all(obs.unit == "z_score" for obs in by_metric["btc_mvrv_z"])
+    assert all(obs.unit == "ratio" for obs in by_metric["btc_mvrv"])
 
 
 def test_bitcoin_data_provider_filters_nan_entries(monkeypatch):
     monkeypatch.setattr(
         bitcoin_data.requests,
         "get",
-        lambda *a, **k: _FakeResponse(
-            {
+        _mvrv_get(
+            zscore_payload={
                 "value": [
                     {"d": "2026-07-07", "mvrvZscore": "NaN"},
                     {"d": "2026-07-08", "mvrvZscore": 0.35},
@@ -112,13 +134,30 @@ def test_bitcoin_data_provider_filters_nan_entries(monkeypatch):
     )
 
     observations = bitcoin_data.BitcoinDataMvrvProvider().fetch_observations()
+    zscore_obs = [obs for obs in observations if obs.metric_id == "btc_mvrv_z"]
+
+    assert len(zscore_obs) == 1
+    assert zscore_obs[0].observed_at == "2026-07-08T00:00:00+00:00"
+
+
+def test_bitcoin_data_provider_one_series_failing_does_not_drop_the_other(monkeypatch):
+    monkeypatch.setattr(
+        bitcoin_data.requests,
+        "get",
+        _mvrv_get(
+            zscore_payload={"value": [{"d": "2026-07-09", "mvrvZscore": 0.32}]},
+            fail_urls={bitcoin_data._RATIO_URL},
+        ),
+    )
+
+    observations = bitcoin_data.BitcoinDataMvrvProvider().fetch_observations()
 
     assert len(observations) == 1
-    assert observations[0].observed_at == "2026-07-08T00:00:00+00:00"
+    assert observations[0].metric_id == "btc_mvrv_z"
 
 
-def test_bitcoin_data_provider_raises_on_unexpected_shape(monkeypatch):
-    monkeypatch.setattr(bitcoin_data.requests, "get", lambda *a, **k: _FakeResponse({"unexpected": True}))
+def test_bitcoin_data_provider_raises_when_both_series_fail(monkeypatch):
+    monkeypatch.setattr(bitcoin_data.requests, "get", _mvrv_get())
 
     with pytest.raises(ValueError):
         bitcoin_data.BitcoinDataMvrvProvider().fetch_observations()

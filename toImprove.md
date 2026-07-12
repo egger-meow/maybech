@@ -46,7 +46,7 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 1. Market Intelligence Layer (operator-activated build phase, see
    `docs/market-intelligence.md` for the full feasibility audit and metric
-   catalog). Phases 0-2 are complete: 14 metrics across five pillars,
+   catalog). Phases 0-2 are complete: 15 metrics across five pillars,
    persisted with freshness/provider-health tracking, exposed through typed
    endpoints, and rendered on a redesigned Market Overview page (pillar
    cards, freshness badges, timeframe-controlled charts with hover tooltips,

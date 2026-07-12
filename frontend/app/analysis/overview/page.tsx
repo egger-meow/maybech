@@ -36,11 +36,13 @@ const compactUsd = (value: number): string =>
 const ratePct = (value: number): string => `${(value * 100).toFixed(4)}%`;
 const plainPct = (value: number): string => `${value.toFixed(2)}%`;
 const zScore = (value: number): string => value.toFixed(2);
+const mvrvRatio = (value: number): string => `${value.toFixed(2)}x`;
 const index0to100 = (value: number): string => Math.round(value).toString();
 
 const METRIC_DISPLAY: Record<string, MetricDisplay> = {
   crypto_fear_greed: { label: "恐懼與貪婪指數", format: index0to100 },
   btc_mvrv_z: { label: "BTC MVRV Z-Score", format: zScore },
+  btc_mvrv: { label: "BTC MVRV 比值", format: mvrvRatio },
   global_market_cap_usd: { label: "全球總市值", format: compactUsd },
   global_volume_24h_usd: { label: "全球 24h 成交量", format: compactUsd },
   btc_dominance_pct: { label: "BTC 市占率", format: plainPct },
@@ -85,7 +87,7 @@ const PILLARS: Pillar[] = [
     ],
     wide: true,
   },
-  { id: "valuation", label: "鏈上估值與週期", icon: Bitcoin, metricIds: ["btc_mvrv_z"], wide: false },
+  { id: "valuation", label: "鏈上估值與週期", icon: Bitcoin, metricIds: ["btc_mvrv_z", "btc_mvrv"], wide: false },
   { id: "liquidity", label: "流動性與資金量能", icon: Droplets, metricIds: ["stablecoin_total_mcap_usd"], wide: false },
   { id: "sentiment", label: "市場情緒與極端值", icon: Gauge, metricIds: ["crypto_fear_greed"], wide: false },
   { id: "holder_behavior", label: "持有者行為", icon: ShieldQuestion, metricIds: [], wide: false },
