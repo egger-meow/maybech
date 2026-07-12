@@ -146,6 +146,16 @@ This repo now includes a conservative `Dockerfile` and `docker-compose.yml` for 
 7. Add a reconciliation layer between Maybech logical position units and OKX net
    positions.
 
+## Market Intelligence Layer
+
+A separate initiative (`docs/market-intelligence.md`) evolves the existing
+`GET /market/macro-overview` (`src/market/macro_overview.py`) from an
+in-memory-cached macro snapshot into a persisted, provider-agnostic market
+regime layer upstream of the signal engine. It extends the existing macro
+provider functions rather than replacing them, and does not change the
+runtime-mode, order-placement, or storage-authority boundaries described
+above.
+
 ## Near-Term Decision
 
 Keep improving the API/event layer and the Next.js dashboard rather than maintaining a parallel terminal UI.

@@ -44,7 +44,18 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 ## Current Priorities
 
-Empty. The Position Management / Strategy Management visual pass (motion,
+1. Market Intelligence Layer (operator-activated build phase, see
+   `docs/market-intelligence.md` for the full feasibility audit and metric
+   catalog). Phase 0 (feasibility audit, metric catalog, provider capability
+   matrix, dead-code cleanup) is complete. Phase 1 (domain models, metric
+   registry, provider base contract, SQLite persistence, freshness/last-known-
+   good behavior, typed metric/provider-status endpoints, deterministic tests)
+   is next. Acceptance gates for each phase are listed in
+   `docs/market-intelligence.md` and the phase list is only complete once every
+   phase's exit criteria in that plan are met — do not silently return this to
+   the backlog after a partial milestone.
+
+The Position Management / Strategy Management visual pass (motion,
 list-selection rail, collapsible break-even/trailing/audit panels) is
 complete and verified: `npm run verify` (contract/lint/typecheck/build)
 passed, and manual browser testing confirmed close-condition add/remove still
@@ -74,11 +85,3 @@ broken operator control, unexpected state, or hidden safety threats.
   sends, bounded retry, backlog, and last health are sufficient unless
   notification reliability becomes an explicit priority.
 
-- UX findings from a manual pressure-test pass (2026-07-11, demo mode,
-  BTC/SOL-USDT-SWAP, no orders placed):
-  - Adam Theory: moving the reflection center (slider, replay, prev/next)
-    does not auto-pan the chart to keep the new center and its reflected path
-    in view — the operator has to manually scroll the chart to find it after
-    every move. (An auto-pan attempt was tried and reverted per operator
-    feedback: the chart should keep its normal manual-scroll behavior: any
-    fix here needs a different approach than forcibly scrolling the view.)

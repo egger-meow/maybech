@@ -16,6 +16,8 @@ frontend workflows.
 - `build-status.md`: what is built, partial, planned, or intentionally blocked.
 - `position-rule-phase-audit.md`: requirement-by-requirement completion evidence
   for the position-rule and market-analysis phase.
+- `market-intelligence.md`: Market Intelligence Layer feasibility audit, metric
+  catalog, provider capability matrix, and phased build direction.
 - `api-spec.md`: target API surface for strategy, signal, position, and chart
   workflows.
 - `storage.md`: SQLite persistence and schema-management direction.

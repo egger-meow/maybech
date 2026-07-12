@@ -1,0 +1,184 @@
+# Market Intelligence Layer — Phase 0 Feasibility Audit
+
+Tracks the market-regime workspace initiative from `plan.md` (operator-provided
+strategic plan, 2026-07-12). This document is the Phase 0 deliverable: a
+repository-grounded feasibility report and initial metric catalog. Update it as
+later phases land; do not let it drift into a changelog (see `toImprove.md`
+priority rules for the same discipline).
+
+## 1. What already exists
+
+The plan assumed a green field. It is not one. `GET /market/macro-overview`
+already implements a working, provider-agnostic macro data endpoint:
+
+- `src/market/macro_overview.py` — fetches Fear & Greed, MVRV Z-Score, and
+  CoinGecko global market data, each behind an in-process TTL cache
+  (`_cache` module dict) with stale-on-error fallback. No retry/backoff beyond
+  the cache. No SQLite persistence — cache is memory-only, lost on restart, not
+  shared across API workers.
+- `src/api/app.py:1606-1657` (`get_market_macro_overview`) wires it to the
+  endpoint and adds OKX BTC/ETH price + OI-weighted funding outside simulation
+  mode.
+- `frontend/app/analysis/overview/page.tsx` renders it as five hand-rolled
+  stat-card sections (global market, Fear & Greed meter + history, MVRV
+  Z-Score + history, BTC/ETH price, funding/OI table) with a custom inline SVG
+  line chart — no charting library.
+- `GET /market/overview` (`src/api/app.py:1523-1578`) is a **separate,
+  unrelated** endpoint: an all-instrument OKX ticker table for the instrument
+  browser. It is not macro intelligence and should stay separate.
+- `BTCRegimeService` (`src/daemon/btc_regime_service.py`,
+  `src/market/btc_regime.py`) is OKX-candle-only (EMA trend/impulse/volatility
+  classification). It does not consume macro data and is already a first-class
+  regime input for strategy/position policy per `docs/system-direction.md`.
+  It is a plausible future contributor to the new regime map's "Price &
+  Breadth" pillar, not something to duplicate.
+
+**Removed as part of this audit**: `src/data/market.py` (`MarketData` class) —
+dead code, never imported anywhere in `src/`. It independently re-fetched Fear
+& Greed from alternative.me (no cache) and MVRV from a second, undocumented,
+unofficial source (`charts.bitbo.io`, scraped with spoofed browser headers) —
+exactly the kind of unlicensed scraping `plan.md` §16 forbids, and a second
+inconsistent MVRV number that would have confused any future reader. Deleting
+it resolves the plan's Phase 0 exit criterion on MVRV naming/source ambiguity.
+
+## 2. Verified provider capability matrix
+
+| Provider | Endpoint | Auth | Verified constraints |
+| --- | --- | --- | --- |
+| alternative.me | `GET /fng/` (`?limit=0` for full history) | None | No documented rate limit; attribution required next to any displayed value (currently **not** rendered in the frontend — gap to close). Already used, TTL 300s. |
+| bitcoin-data.com (BGeometrics) | `GET /v1/mvrv-zscore` | None currently | Daily granularity, JSON array `{d, unixTs, mvrvZscore}`, observed gaps (one `NaN` row seen in a spot check). Provider's own marketing page separately advertises a paid API with header-key auth and full 2009+ history for other metrics — the specific free `mvrv-zscore` endpoint in use today is unauthenticated, but this should be re-checked before Phase 1 in case free access narrows. Already used, TTL 3600s. |
+| CoinGecko | `GET /api/v3/global` | None (public tier) | No auth/rate-limit headers observed in a direct fetch; the public tier's documented per-minute limit is unofficial and can tighten without notice — needs explicit backoff added (currently has none beyond TTL cache). Already used, TTL 300s. |
+| DefiLlama | `GET https://stablecoins.llama.fi/stablecoins` (snapshot), `GET /stablecoincharts/all` (history) | None | Confirmed free, unauthenticated, returns per-asset circulating supply/chain breakdown and historical total mcap series. Not yet integrated. |
+| Coin Metrics Community API | `https://community-api.coinmetrics.io/v4` | None | Confirmed key-free, but rate-limited to 10 req/6s/IP with reduced throughput vs. paid tiers. Exact free-tier coverage for MVRV/realized-cap/active-supply metrics was **not** confirmed (catalog query attempts failed with `400`); must be resolved with a proper catalog call before it is relied on for the Holder Behavior pillar. |
+| OKX | existing `OKXClient` | API key (already configured) | No new verification needed; used for price, funding, candles today. Open interest (`GET /api/v5/public/open-interest`) is **not currently fetched anywhere** in the repo — needed for the Derivatives pillar's OI metrics and price/OI regime classification. |
+
+## 3. Initial metric catalog
+
+Provider-independent IDs per `plan.md` §5.1. `status` follows the plan's
+`raw | derived | proxy` plus an implementation state.
+
+### Price, Breadth, and Market Structure
+| metric_id | source_kind | primary_provider | state |
+| --- | --- | --- | --- |
+| `okx_btc_price_usd` / `okx_eth_price_usd` | raw | OKX | live (macro_overview `fetch_prices`) |
+| `global_market_cap_usd` / `global_volume_24h_usd` | raw | CoinGecko | live |
+| `btc_dominance_pct` / `eth_dominance_pct` | raw | CoinGecko | live |
+| `eth_btc_ratio` | derived | OKX (from the two prices above) | planned — trivial derivation, no new provider |
+| `market_breadth_advancing_pct` | derived | CoinGecko markets list or OKX ticker sweep | planned, Phase 2+ |
+
+### Derivatives and Leverage Pressure
+| metric_id | source_kind | primary_provider | state |
+| --- | --- | --- | --- |
+| `okx_btc_funding_rate` | raw | OKX | live |
+| `okx_oi_weighted_funding` | derived | OKX | live (already computed in `fetch_funding_overview`) |
+| `okx_btc_oi_usd` | raw | OKX | **not implemented** — needs new OI ingestion, see matrix above |
+| `okx_funding_annualized` | derived | OKX | planned, Phase 3 |
+| `okx_price_oi_regime` | derived | OKX | planned, Phase 3, blocked on OI ingestion |
+
+### On-Chain Valuation and Cycle Context
+| metric_id | source_kind | primary_provider | state |
+| --- | --- | --- | --- |
+| `btc_mvrv_z` | raw (provider-computed) | bitcoin-data.com | live, no persisted history (memory cache only) |
+| `btc_market_cap_usd` | raw | bitcoin-data.com or CoinGecko coin endpoint | planned — pick one canonical source in Phase 1, do not derive from `global_market_cap_usd * btc_dominance_pct` (compounds two approximations) |
+| `btc_realized_cap_usd` / `btc_realized_price_usd` | raw | bitcoin-data.com (likely has dedicated endpoints alongside `mvrv-zscore`, per its metric list) | planned, Phase 1 endpoint discovery |
+| `btc_mvrv_percentile` | derived | Maybech (from `btc_mvrv_z` history) | planned, Phase 3 — needs persisted history first |
+
+### Holder Behavior
+| metric_id | source_kind | primary_provider | state |
+| --- | --- | --- | --- |
+| `btc_supply_active_180d_pct` (proxy) | proxy | Coin Metrics Community, if catalog confirms | planned, Phase 1 catalog check required before commit |
+| `btc_dormant_supply_180d_proxy_pct` | proxy | Coin Metrics Community, if catalog confirms | planned, same blocker |
+
+No holder-behavior metric ships without a confirmed, documented Coin Metrics
+Community catalog entry. If the community tier does not expose it, this pillar
+stays `unavailable` rather than getting a scraped or invented proxy.
+
+### Liquidity and Capital Availability
+| metric_id | source_kind | primary_provider | state |
+| --- | --- | --- | --- |
+| `stablecoin_total_mcap_usd` | raw | DefiLlama | planned, Phase 2 |
+| `stablecoin_mcap_change_7d_pct` / `_30d` | derived | DefiLlama (`stablecoincharts/all`) | planned, Phase 3 |
+
+### Sentiment and Extremes
+| metric_id | source_kind | primary_provider | state |
+| --- | --- | --- | --- |
+| `crypto_fear_greed` | raw | alternative.me | live, no persisted history, **attribution missing in UI** |
+| `crypto_fear_greed_avg_7d` / `_30d` | derived | Maybech | planned, Phase 3 |
+| `crypto_fear_greed_percentile` | derived | Maybech | planned, Phase 3 |
+| `days_since_fear_greed_extreme` | derived | Maybech | planned, Phase 3 |
+
+## 4. Naming ambiguity resolution
+
+- **MVRV**: exactly one live source now (bitcoin-data.com's `mvrv-zscore`),
+  after removing the bitbo.io duplicate. `btc_mvrv_z` is documented as
+  provider-computed (BGeometrics methodology), not a "MVRV Score." A
+  Maybech-derived `btc_mvrv_percentile` is allowed later only as an explicitly
+  named, separately versioned derived metric.
+- **LTH/STH**: no implementation exists anywhere in the repo today. Any future
+  holder-behavior metric must ship labeled `proxy` (e.g.
+  `btc_supply_active_180d_pct`) until a provider with documented cohort
+  methodology is integrated — matching `plan.md` §4.4/§9.
+- **OI-weighted funding**: already implemented and OKX-scoped
+  (`okx_oi_weighted_funding`); the ID keeps the `okx_` prefix per the plan's
+  rule that venue-scoped derivatives data must not be labeled market-wide.
+
+## 5. Architecture decision
+
+Extend, don't replace. `src/market/macro_overview.py`'s three provider
+functions are the seed for typed provider adapters, not a parallel
+implementation to build around.
+
+```text
+src/market_intelligence/
+  models.py          # MetricDefinition, MetricObservation, DerivedEvidence, RegimeAssessment
+  registry.py         # static code registry (Section 5.1 shape), seeded from the catalog above
+  service.py           # orchestrates providers -> storage -> derived -> regime
+  freshness.py
+  providers/
+    base.py            # timeout/retry/backoff contract (missing from macro_overview.py today)
+    okx.py              # wraps existing OKXClient calls (price, funding, OI once added)
+    alternative_me.py   # migrated from macro_overview.fetch_fear_greed
+    bitcoin_data.py      # migrated from macro_overview.fetch_mvrv_zscore
+    coingecko.py          # migrated from macro_overview.fetch_global_market
+    defillama.py           # new, Phase 2
+  storage/
+    metric_store.py         # market_metric_observations, market_provider_sync_runs
+    migrations.py            # via existing src/trading/sqlite_schema.py helpers
+  derived/                    # Phase 3
+  regime/                      # Phase 4
+```
+
+- The four proposed table names (`market_metric_observations`,
+  `market_provider_sync_runs`, `market_derived_calculations`,
+  `market_regime_assessments`) are free — no collision with any existing
+  `CREATE TABLE` in `src/trading/*.py`.
+- `GET /market/macro-overview` keeps its current URL and response contract
+  through Phase 1/2 so the existing frontend page does not break; it becomes
+  backed by `market_intelligence.service` instead of calling the three
+  provider functions directly. New typed endpoints (`/market/metrics`,
+  `/market/series/{id}`, `/market/regime`, `/market/providers/status`) are
+  additive, per `plan.md` §10.
+- `GET /market/overview` (OKX ticker table) and `BTCRegimeService` are left
+  alone; they solve different problems and already work.
+- This keeps `docs/system-direction.md`'s refactor priorities and the existing
+  `sqlite_schema.py` migration ledger as the storage authority — no new ORM,
+  matching `docs/storage.md`.
+
+## 6. Open items before Phase 1 can close its own exit criteria
+
+1. Confirm Coin Metrics Community catalog coverage for MVRV/realized-cap/
+   active-supply metrics with a working catalog query (the attempted fetch
+   returned `400`; needs a corrected query, not a capability gap necessarily).
+2. Confirm whether bitcoin-data.com's free `mvrv-zscore` endpoint has an
+   undocumented per-IP rate limit before raising ingestion frequency beyond the
+   current 3600s TTL.
+3. Decide the canonical BTC market-cap/realized-cap source (bitcoin-data.com
+   vs. CoinGecko coin endpoint) — do not derive it from two approximations.
+4. Add OKX open-interest ingestion (no existing code fetches it).
+5. Add Fear & Greed attribution text to the frontend per alternative.me's
+   usage terms — currently missing.
+
+None of these block starting Phase 1's domain-model/registry/storage spine;
+items 1-4 block only the specific metrics they name, and Phase 1's freshness
+model already requires marking unresolved metrics `unavailable` rather than
+guessing.
