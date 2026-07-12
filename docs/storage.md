@@ -46,8 +46,13 @@ close order links plus deferred allocation state. Version 6 adds one
 `logical_position_protections` owner record per unit, with unique OKX algo,
 algo-client, and triggered child-order identities plus explicit lifecycle
 state. `audit_events` is at version 2,
-`strategies` is at version 4, `account_risk` is at version 2 after adding the
-default-disabled entry-control singleton, and `trade_store` and
+`strategies` is at version 4, and `account_risk` is at version 4: version 2
+added the default-disabled entry-control singleton, version 3 the
+`allowed_instruments_json` allowlist, and version 4 the
+`max_stop_loss_equity_pct` all-stop loss budget (defaulting to an
+intentionally invalid `'0'` so migrated envelopes stay readable but cannot
+approve entries or pass preflight until the operator sets a real budget).
+`trade_store` and
 `execution_cursors` are at version 1. `instrument_metadata` is at version 1.
 Strategy version 4 adds `execution_delay_seconds` and restart-safe
 `strategy_pending_executions`.

@@ -173,9 +173,16 @@ startup additionally requires `--allow-remote`; a token never replaces TLS.
 
 `GET /risk/limits` returns the singleton SQLite risk envelope. `PUT
 /risk/limits` requires `confirm=true` and replaces it with explicit `enabled`,
-`max_order_notional_usd`, `max_total_exposure_usd`, and `max_leverage` values.
-The order limit cannot exceed the total exposure limit; all numeric limits must
-be positive. Mutations are rejected while strategy entries are enabled and
+`max_order_notional_usd`, `max_total_exposure_usd`, `max_leverage`, and
+`max_stop_loss_equity_pct` values. `max_stop_loss_equity_pct` is the
+envelope's primary invariant: at every entry approval the guard sums the
+mark-to-stop loss of every verified protected unit plus the candidate's
+entry-to-stop loss, and blocks the entry unless that combined all-stop loss
+stays under this percentage of live OKX `totalEq`. Entry approval therefore
+requires the candidate's side and stop-loss price up front, and the approved
+stop price is bound into the approval so submission cannot use a different
+one. The order limit cannot exceed the total exposure limit; all numeric
+limits must be positive, and the stop-loss budget cannot exceed 100. Mutations are rejected while strategy entries are enabled and
 commit a durable `risk.limits_updated` before/after audit atomically with the
 new envelope. Existing envelopes also require an exact `expected_updated_at`;
 the comparison and write run under one immediate SQLite transaction, so a stale

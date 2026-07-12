@@ -115,7 +115,16 @@ Frontends must use `active`; there is no `state` field.
   constraints plus authentication state without claiming distributed SQLite
   write support.
 - `GET/PUT /risk/limits` reads or replaces the singleton SQLite account risk
-  envelope used for live order-notional, gross-exposure, and leverage checks.
+  envelope. Its primary limit is `max_stop_loss_equity_pct`: assuming every
+  open position and the candidate entry hit their stop-losses, the combined
+  loss (mark-to-stop per verified protected unit, entry-to-stop for the
+  candidate) must stay under this percentage of live OKX `totalEq`, or the
+  entry is blocked. Order-notional, gross-exposure, and leverage checks remain
+  as secondary bounds. Every entry approval requires the candidate's stop-loss
+  price up front and binds it into the approval, so a submission with a
+  different stop is rejected; missing equity or mark-price data fails closed.
+  Pre-existing envelopes migrate with a zero budget that cannot validate, so
+  entries and live/demo preflight stay blocked until the operator sets it.
   Replacement requires explicit confirmation, is blocked while strategy
   entries are enabled, rejects a stale `expected_updated_at`, and atomically
   writes before/after audit evidence. Its non-empty `allowed_instruments` is an
