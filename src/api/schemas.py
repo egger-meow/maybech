@@ -581,6 +581,21 @@ class MarketCandlesResponse(BaseModel):
     fetched_at: str
 
 
+class OpenInterestHistoryPointResponse(BaseModel):
+    observed_at: str
+    oi_contracts: float
+    oi_ccy: float
+    oi_usd: float
+
+
+class OpenInterestHistoryResponse(BaseModel):
+    inst_id: str
+    period: str
+    points: list[OpenInterestHistoryPointResponse] = Field(default_factory=list)
+    fetched_at: str
+    unavailable_reason: str | None = None
+
+
 class MarketOverviewTickerResponse(BaseModel):
     inst_id: str
     last_price: str

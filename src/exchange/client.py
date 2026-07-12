@@ -14,6 +14,7 @@ import okx.Account as Account
 import okx.MarketData as MarketData
 import okx.PublicData as PublicData
 import okx.Trade as Trade
+from okx.consts import CONTRACTS_OPEN_INTEREST_HISTORY, GET
 
 from src.config.settings import settings
 
@@ -249,6 +250,39 @@ class OKXClient:
         """Fetch current open interest for a perpetual swap."""
         resp = self.public_api.get_open_interest(instType="SWAP", instId=inst_id)
         return _extract(resp, label="get_open_interest")
+
+    def get_open_interest_history(
+        self, inst_id: str, *, period: str = "1H", limit: str = "100"
+    ) -> list[list]:
+        """Fetch OKX's own historical open-interest series for one instrument.
+
+        Public endpoint, no auth required. Not wrapped by ``python-okx``'s
+        ``PublicAPI`` as a named method (only the current-snapshot endpoint
+        is), so this calls the SDK's own generic ``_request_with_params`` —
+        the same mechanism every other ``PublicAPI`` method uses internally —
+        against the endpoint path the SDK already defines in ``okx.consts``.
+
+        Always queries OKX's production environment (``flag="0"``),
+        regardless of ``self.flag``/``OKX_FLAG``: the ``x-simulated-trading``
+        header this SDK attaches per-flag routes *every* request, including
+        public ones, to OKX's separate Demo Trading environment when
+        ``flag="1"`` — and unlike mark price/funding (which Demo Trading
+        mirrors from production for realistic paper fills), aggregate open
+        interest there reflects unconstrained demo-wide paper positions, not
+        real markets (spot-checked: ~$1.1T reported vs. ~$2B on production
+        for BTC-USDT-SWAP at the same moment). This method exists to show
+        real market context regardless of Maybech's own trading-safety mode,
+        so it deliberately does not follow ``self.public_api``'s flag.
+
+        Returns newest-first rows shaped ``[ts, oi, oiCcy, oiUsd]``
+        (contracts, base-currency, USD).
+        """
+        params = {"instId": inst_id, "period": period, "limit": limit}
+        production_public_api = PublicData.PublicAPI(flag="0")
+        resp = production_public_api._request_with_params(  # noqa: SLF001 - SDK has no public wrapper for this endpoint
+            GET, CONTRACTS_OPEN_INTEREST_HISTORY, params
+        )
+        return _extract(resp, label="get_open_interest_history")
 
     # -- Order History (read-only) -------------------------------------------
 

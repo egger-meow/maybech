@@ -73,10 +73,18 @@ class FakeAccountApi:
 class FakePublicApi:
     def __init__(self):
         self.kwargs = None
+        self.request_args = None
 
     def get_instruments(self, **kwargs):
         self.kwargs = kwargs
         return {"code": "0", "data": [{"instId": kwargs["instId"]}]}
+
+    def _request_with_params(self, method, request_path, params):
+        self.request_args = (method, request_path, params)
+        return {
+            "code": "0",
+            "data": [["1700000000000", "3102346.8", "31023.468", "1984164840.5"]],
+        }
 
 
 def test_okx_client_get_fills_history_paginates_by_bill_id():
@@ -298,6 +306,32 @@ def test_okx_client_get_instruments_uses_public_endpoint():
         "instType": "SWAP",
         "instId": "ETH-USDT-SWAP",
     }
+
+
+def test_okx_client_get_open_interest_history_uses_rubik_endpoint(monkeypatch):
+    fake_api = FakePublicApi()
+    captured_flag = {}
+
+    def _fake_public_api(flag):
+        captured_flag["flag"] = flag
+        return fake_api
+
+    monkeypatch.setattr(client_module.PublicData, "PublicAPI", _fake_public_api)
+    client = object.__new__(OKXClient)
+    client.public_api = FakePublicApi()  # a demo/live-flagged instance the method must NOT use
+    client.flag = "1"
+
+    rows = client.get_open_interest_history("BTC-USDT-SWAP", period="1H", limit="5")
+
+    assert rows == [["1700000000000", "3102346.8", "31023.468", "1984164840.5"]]
+    method, path, params = fake_api.request_args
+    assert method == "GET"
+    assert path == "/api/v5/rubik/stat/contracts/open-interest-history"
+    assert params == {"instId": "BTC-USDT-SWAP", "period": "1H", "limit": "5"}
+    # Always production, regardless of self.flag/OKX_FLAG -- see the method's docstring
+    # for why (the demo/simulated-trading environment's aggregate OI is not real).
+    assert captured_flag["flag"] == "0"
+    assert client.public_api.request_args is None
 
 
 def test_okx_client_fetches_pending_orders_and_leverage():

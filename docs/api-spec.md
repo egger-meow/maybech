@@ -48,6 +48,16 @@ These endpoints currently exist or are already documented in runtime status:
 - `GET /account/exposure-reconciliation`
 - `GET /market/btc-regime`
 - `GET /market/candles`
+- `GET /market/open-interest-history?inst_id=...&period=...&limit=...`:
+  OKX's own historical open-interest series (candle-like: contracts,
+  settlement-currency, and USD per point) for any OKX swap instrument,
+  `period` one of `5m` | `1H` | `1D`, `limit` 1-1440. Always queries OKX's
+  production environment regardless of the runtime's configured
+  `OKX_FLAG`/demo-vs-live credentials — see `OKXClient.get_open_interest_history`
+  for why (OKX's Demo Trading environment reports a separate, unconstrained
+  aggregate open interest unrelated to real markets, unlike mark price/funding
+  which it mirrors from production). Unavailable in simulation mode (no live
+  feed at all, demo or otherwise); `400` for an unsupported `period`.
 - `GET /market/overview`: all-instrument ticker table (last price, 24h change,
   volume, funding), unavailable in simulation mode.
 - `GET /market/macro-overview`: whole-market "vibe" dashboard data: Fear &

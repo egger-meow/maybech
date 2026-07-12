@@ -29,6 +29,7 @@ from src.market.macro_overview import (
     fetch_mvrv_zscore,
     fetch_prices,
 )
+from src.market.open_interest_history import DEFAULT_PERIOD, VALID_PERIODS, fetch_open_interest_history
 from src.market.support_resistance import SupportResistanceService
 from src.market_intelligence.service import MarketIntelligenceService
 from src.daemon.events import RuntimeEvent
@@ -124,6 +125,7 @@ from src.api.schemas import (
     MarketIntelligenceSeriesResponse,
     MarketRegimeResponse,
     MarketOverviewResponse,
+    OpenInterestHistoryResponse,
     MarketOverviewTickerResponse,
     SupportResistanceAnalysisResponse,
     PositionGroupResponse,
@@ -1524,6 +1526,37 @@ def create_app(
             bar=bar,
             candles=_fetch_candle_rows(inst_id, bar=bar, limit=limit, client=market_client()),
             fetched_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    @app.get("/market/open-interest-history", response_model=OpenInterestHistoryResponse)
+    def get_open_interest_history(
+        inst_id: str = Query(min_length=1, max_length=64),
+        period: str = Query(default=DEFAULT_PERIOD),
+        limit: int = Query(default=100, ge=1, le=1440),
+    ) -> OpenInterestHistoryResponse:
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        if period not in VALID_PERIODS:
+            raise HTTPException(
+                status_code=400, detail=f"period must be one of {', '.join(VALID_PERIODS)}"
+            )
+        if runtime_mode() == "simulation":
+            return OpenInterestHistoryResponse(
+                inst_id=inst_id,
+                period=period,
+                fetched_at=fetched_at,
+                unavailable_reason=(
+                    "Simulation mode has no live market feed; switch to demo or live "
+                    "to see open interest history."
+                ),
+            )
+        try:
+            points = fetch_open_interest_history(exchange_client(), inst_id, period=period, limit=limit)
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"Unable to fetch open interest history: {exc}"
+            ) from exc
+        return OpenInterestHistoryResponse(
+            inst_id=inst_id, period=period, points=points, fetched_at=fetched_at
         )
 
     @app.get("/market/overview", response_model=MarketOverviewResponse)

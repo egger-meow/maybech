@@ -1108,6 +1108,52 @@ def test_api_returns_typed_market_candles(monkeypatch):
     assert body["candles"][1]["confirmed"] is False
 
 
+def test_api_returns_typed_open_interest_history(monkeypatch):
+    class FakeOKXClient:
+        def get_open_interest_history(self, inst_id, *, period, limit):
+            assert (inst_id, period, limit) == ("BTC-USDT-SWAP", "1H", "5")
+            return [
+                ["1700000600000", "200", "20.0", "1300000.0"],
+                ["1700000000000", "100", "10.0", "650000.0"],
+            ]
+
+    monkeypatch.setattr("src.api.app.OKXClient", FakeOKXClient)
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.get(
+        "/market/open-interest-history?inst_id=BTC-USDT-SWAP&period=1H&limit=5"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inst_id"] == "BTC-USDT-SWAP"
+    assert body["unavailable_reason"] is None
+    assert [p["oi_contracts"] for p in body["points"]] == [100.0, 200.0]
+
+
+def test_api_open_interest_history_rejects_invalid_period():
+    client = TestClient(create_app(DaemonRunner()))
+
+    response = client.get(
+        "/market/open-interest-history?inst_id=BTC-USDT-SWAP&period=bogus"
+    )
+
+    assert response.status_code == 400
+
+
+def test_api_open_interest_history_unavailable_in_simulation():
+    runner = DaemonRunner()
+    runner.runtime.set_value("runtime.live_preflight", {"execution_mode": "dry_run"})
+    client = TestClient(create_app(runner))
+
+    response = client.get("/market/open-interest-history?inst_id=BTC-USDT-SWAP")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["points"] == []
+    assert "Simulation mode" in body["unavailable_reason"]
+
+
 def test_api_returns_logical_position_chart_overlays(monkeypatch, tmp_path):
     import pandas as pd
 

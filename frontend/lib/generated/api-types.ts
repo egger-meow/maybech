@@ -687,6 +687,21 @@ export type NotificationTestResponse = {
   "error"?: string | null;
 };
 
+export type OpenInterestHistoryPointResponse = {
+  "observed_at": string;
+  "oi_contracts": number;
+  "oi_ccy": number;
+  "oi_usd": number;
+};
+
+export type OpenInterestHistoryResponse = {
+  "inst_id": string;
+  "period": string;
+  "points"?: OpenInterestHistoryPointResponse[];
+  "fetched_at": string;
+  "unavailable_reason"?: string | null;
+};
+
 export type PositionBreakEvenCommand = {
   "confirm": true;
   "condition_id": string;
@@ -1210,6 +1225,8 @@ export type ApiSchemas = {
   "NotificationHealthResponse": NotificationHealthResponse;
   "NotificationTestRequest": NotificationTestRequest;
   "NotificationTestResponse": NotificationTestResponse;
+  "OpenInterestHistoryPointResponse": OpenInterestHistoryPointResponse;
+  "OpenInterestHistoryResponse": OpenInterestHistoryResponse;
   "PositionBreakEvenCommand": PositionBreakEvenCommand;
   "PositionChartOverlayResponse": PositionChartOverlayResponse;
   "PositionGroupResponse": PositionGroupResponse;

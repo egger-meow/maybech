@@ -86,6 +86,15 @@ Frontends must use `active`; there is no `state` field.
   assessed state.
 - `GET /market/candles` returns typed ascending OHLCV candles with exchange
   confirmation state for one instrument and interval.
+- `GET /market/open-interest-history` returns OKX's own historical
+  open-interest series for any OKX swap instrument the operator picks
+  (`frontend/app/analysis/open-interest`), not limited to the BTC/ETH pair
+  the market-intelligence layer tracks. Always reads OKX's production
+  environment regardless of the runtime's `OKX_FLAG` — OKX's Demo Trading
+  environment reports a separate, unconstrained aggregate open interest that
+  is not representative of real markets (unlike mark price/funding, which it
+  mirrors from production), so this endpoint deliberately does not follow
+  the account's configured demo-vs-live credentials.
 - `GET /strategy/decisions` and `GET /position/intents` return empty lists when
   no runtime snapshot is available.
 - `GET /execution/fills/status` returns the latest authenticated OKX SWAP fill

@@ -3958,6 +3958,75 @@
         "title": "NotificationTestResponse",
         "type": "object"
       },
+      "OpenInterestHistoryPointResponse": {
+        "properties": {
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "oi_ccy": {
+            "title": "Oi Ccy",
+            "type": "number"
+          },
+          "oi_contracts": {
+            "title": "Oi Contracts",
+            "type": "number"
+          },
+          "oi_usd": {
+            "title": "Oi Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "observed_at",
+          "oi_contracts",
+          "oi_ccy",
+          "oi_usd"
+        ],
+        "title": "OpenInterestHistoryPointResponse",
+        "type": "object"
+      },
+      "OpenInterestHistoryResponse": {
+        "properties": {
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/OpenInterestHistoryPointResponse"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "inst_id",
+          "period",
+          "fetched_at"
+        ],
+        "title": "OpenInterestHistoryResponse",
+        "type": "object"
+      },
       "PositionBreakEvenCommand": {
         "properties": {
           "condition_id": {
@@ -7624,6 +7693,69 @@
           }
         },
         "summary": "Get Market Intelligence Metric"
+      }
+    },
+    "/market/open-interest-history": {
+      "get": {
+        "operationId": "get_open_interest_history_market_open_interest_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "inst_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Inst Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "1H",
+              "title": "Period",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1440,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenInterestHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Open Interest History"
       }
     },
     "/market/overview": {

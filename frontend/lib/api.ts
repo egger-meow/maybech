@@ -46,6 +46,7 @@ import type {
   MarketIntelligenceSeriesResponse,
   MarketRegimeResponse,
   MarketOverviewResponse,
+  OpenInterestHistoryResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
@@ -126,6 +127,7 @@ export type {
   MarketIntelligenceSeriesResponse,
   MarketRegimeResponse,
   MarketOverviewResponse,
+  OpenInterestHistoryResponse,
   SupportResistanceAnalysisResponse,
   PositionBreakEvenCommand,
   PositionGroupResponse,
@@ -389,6 +391,16 @@ export const getMarketOverview = (
   if (options.instType) params.set("inst_type", options.instType);
   const query = params.toString();
   return fetcher<MarketOverviewResponse>(`/market/overview${query ? `?${query}` : ""}`);
+};
+
+export const getOpenInterestHistory = (
+  instId: string,
+  options: { period?: string; limit?: number } = {},
+): Promise<OpenInterestHistoryResponse> => {
+  const params = new URLSearchParams({ inst_id: instId });
+  if (options.period) params.set("period", options.period);
+  if (options.limit) params.set("limit", String(options.limit));
+  return fetcher<OpenInterestHistoryResponse>(`/market/open-interest-history?${params.toString()}`);
 };
 
 export const getMarketMacroOverview = (): Promise<MarketMacroOverviewResponse> =>
