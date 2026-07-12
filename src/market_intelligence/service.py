@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.market_intelligence import registry
+from src.market_intelligence.derived.base import DerivedCalculator
+from src.market_intelligence.derived.calculators import default_calculators
 from src.market_intelligence.freshness import compute_freshness
-from src.market_intelligence.models import ProviderSyncRun
+from src.market_intelligence.models import MetricObservation, ProviderSyncRun
 from src.market_intelligence.providers.alternative_me import AlternativeMeProvider
 from src.market_intelligence.providers.base import MarketDataProvider
 from src.market_intelligence.providers.bitcoin_data import BitcoinDataMvrvProvider
@@ -44,9 +46,11 @@ class MarketIntelligenceService:
         *,
         store: MetricStore | None = None,
         providers: list[MarketDataProvider] | None = None,
+        calculators: list[DerivedCalculator] | None = None,
     ) -> None:
         self.store = store or MetricStore()
         self.providers = providers if providers is not None else default_providers()
+        self.calculators = calculators if calculators is not None else default_calculators()
 
     def _due(self, provider: MarketDataProvider, *, now: datetime) -> bool:
         last_run = self.store.latest_sync_run(provider.provider_id)
@@ -125,7 +129,39 @@ class MarketIntelligenceService:
         return run
 
     def sync_all(self, *, force: bool = False) -> list[ProviderSyncRun]:
-        return [self.sync_provider(provider, force=force) for provider in self.providers]
+        runs = [self.sync_provider(provider, force=force) for provider in self.providers]
+        self.compute_derived(force=force)
+        return runs
+
+    def _derived_due(self, calculator: DerivedCalculator, *, now: datetime) -> bool:
+        latest = self.store.latest(calculator.metric_id)
+        if latest is None:
+            return True
+        try:
+            observed = datetime.fromisoformat(latest.observed_at)
+        except ValueError:
+            return True
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        return (now - observed).total_seconds() >= calculator.min_refresh_interval_seconds
+
+    def compute_derived(self, *, force: bool = False) -> list[MetricObservation]:
+        """Run every derived calculator; never raises (mirrors sync_provider's isolation)."""
+        now = datetime.now(timezone.utc)
+        stored: list[MetricObservation] = []
+        for calculator in self.calculators:
+            if not force and not self._derived_due(calculator, now=now):
+                continue
+            try:
+                observation = calculator.compute(self.store, now=now)
+            except Exception as exc:  # noqa: BLE001 - calculator isolation boundary
+                logger.warning("derived calculator %s failed: %s", calculator.metric_id, exc)
+                continue
+            if observation is None:
+                continue
+            self.store.insert_observations([observation])
+            stored.append(observation)
+        return stored
 
     def get_metric(self, metric_id: str, *, now: datetime | None = None) -> dict[str, Any]:
         definition = registry.get_definition(metric_id)

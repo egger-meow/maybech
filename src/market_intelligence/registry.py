@@ -267,6 +267,108 @@ _DEFINITIONS: dict[str, MetricDefinition] = {
             methodology_version="defillama_stablecoins_v1",
             caveats="DefiLlama's own aggregation methodology across pegged-USD assets; only accumulates history going forward.",
         ),
+        MetricDefinition(
+            metric_id="okx_funding_annualized",
+            name="OKX Funding Rate (Annualized)",
+            pillar="derivatives",
+            description="OI-weighted OKX BTC/ETH funding rate, annualized assuming OKX's 8-hour funding interval.",
+            unit="rate",
+            scope="okx",
+            source_kind="derived",
+            primary_provider="maybech_derived",
+            provider_metric_or_endpoint="okx_oi_weighted_funding",
+            expected_frequency_seconds=60,
+            freshness_ttl_seconds=300,
+            history_support=False,
+            methodology_version="okx_funding_annualized_v1",
+            caveats=(
+                "Simple annualization (rate x 3 x 365) of the current OI-weighted funding "
+                "rate; assumes today's rate holds for a year, which it won't. OKX-only "
+                "scope, not a market-wide figure. Unavailable in simulation mode."
+            ),
+        ),
+        MetricDefinition(
+            metric_id="btc_mvrv_percentile",
+            name="BTC MVRV Z-Score Percentile",
+            pillar="valuation",
+            description="Percentile rank of the latest BTC MVRV Z-Score within Maybech's own persisted history.",
+            unit="pct",
+            scope="btc",
+            source_kind="derived",
+            primary_provider="maybech_derived",
+            provider_metric_or_endpoint="btc_mvrv_z",
+            expected_frequency_seconds=3600,
+            freshness_ttl_seconds=10800,
+            history_support=False,
+            methodology_version="btc_mvrv_percentile_v1",
+            caveats=(
+                "Percentile is computed only against observations Maybech has itself "
+                "persisted since ingestion started, not the full multi-year BTC MVRV "
+                "cycle history. Grows more meaningful over time; treat early readings "
+                "as low-confidence."
+            ),
+        ),
+        MetricDefinition(
+            metric_id="stablecoin_mcap_change_7d_pct",
+            name="Stablecoin Market Cap Change (7d)",
+            pillar="liquidity",
+            description="Percent change in total stablecoin market cap vs. ~7 days ago.",
+            unit="pct",
+            scope="market_wide",
+            source_kind="derived",
+            primary_provider="maybech_derived",
+            provider_metric_or_endpoint="stablecoin_total_mcap_usd",
+            expected_frequency_seconds=1800,
+            freshness_ttl_seconds=7200,
+            history_support=False,
+            methodology_version="stablecoin_mcap_change_7d_pct_v1",
+            caveats=(
+                "Compares against the closest observation Maybech has persisted at or "
+                "before the 7-day cutoff; unavailable until at least 7 days of history "
+                "have accumulated since ingestion started."
+            ),
+        ),
+        MetricDefinition(
+            metric_id="stablecoin_mcap_change_30d_pct",
+            name="Stablecoin Market Cap Change (30d)",
+            pillar="liquidity",
+            description="Percent change in total stablecoin market cap vs. ~30 days ago.",
+            unit="pct",
+            scope="market_wide",
+            source_kind="derived",
+            primary_provider="maybech_derived",
+            provider_metric_or_endpoint="stablecoin_total_mcap_usd",
+            expected_frequency_seconds=1800,
+            freshness_ttl_seconds=7200,
+            history_support=False,
+            methodology_version="stablecoin_mcap_change_30d_pct_v1",
+            caveats=(
+                "Compares against the closest observation Maybech has persisted at or "
+                "before the 30-day cutoff; unavailable until at least 30 days of "
+                "history have accumulated since ingestion started."
+            ),
+        ),
+        MetricDefinition(
+            metric_id="okx_price_oi_regime",
+            name="OKX BTC Price/OI Regime",
+            pillar="derivatives",
+            description="Four-quadrant classification of BTC price vs. open-interest movement over 24h.",
+            unit="regime_code",
+            scope="okx_btc",
+            source_kind="derived",
+            primary_provider="maybech_derived",
+            provider_metric_or_endpoint="okx_btc_price_usd+okx_btc_oi_usd",
+            expected_frequency_seconds=300,
+            freshness_ttl_seconds=900,
+            history_support=False,
+            methodology_version="okx_price_oi_regime_v1",
+            caveats=(
+                "Standard price/open-interest quadrant read (new longs, short covering, "
+                "new shorts, long liquidation) over a 24h lookback with a 0.5% deadband; "
+                "not a composite regime score and not a trading signal. OKX-only scope. "
+                "Unavailable in simulation mode or with under 24h of accumulated history."
+            ),
+        ),
     ]
 }
 

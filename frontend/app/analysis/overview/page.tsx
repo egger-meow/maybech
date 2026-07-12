@@ -35,9 +35,19 @@ const compactUsd = (value: number): string =>
 
 const ratePct = (value: number): string => `${(value * 100).toFixed(4)}%`;
 const plainPct = (value: number): string => `${value.toFixed(2)}%`;
+const signedPct = (value: number): string => `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 const zScore = (value: number): string => value.toFixed(2);
 const mvrvRatio = (value: number): string => `${value.toFixed(2)}x`;
 const index0to100 = (value: number): string => Math.round(value).toString();
+
+const PRICE_OI_REGIME_LABELS: Record<number, string> = {
+  0: "盤整 / 無明顯訊號",
+  1: "價漲＋OI增（新多單）",
+  2: "價漲＋OI減（空頭回補）",
+  3: "價跌＋OI增（新空單）",
+  4: "價跌＋OI減（多頭平倉）",
+};
+const priceOiRegime = (value: number): string => PRICE_OI_REGIME_LABELS[Math.round(value)] ?? "未知";
 
 const METRIC_DISPLAY: Record<string, MetricDisplay> = {
   crypto_fear_greed: { label: "恐懼與貪婪指數", format: index0to100 },
@@ -54,7 +64,12 @@ const METRIC_DISPLAY: Record<string, MetricDisplay> = {
   okx_btc_oi_usd: { label: "OKX BTC 未平倉", format: compactUsd },
   okx_eth_oi_usd: { label: "OKX ETH 未平倉", format: compactUsd },
   okx_oi_weighted_funding: { label: "OI 加權平均資金費率", format: ratePct },
+  okx_funding_annualized: { label: "資金費率（年化）", format: ratePct },
+  okx_price_oi_regime: { label: "價格／未平倉部位型態", format: priceOiRegime },
+  btc_mvrv_percentile: { label: "BTC MVRV 分位數（站內資料）", format: plainPct },
   stablecoin_total_mcap_usd: { label: "穩定幣總市值", format: compactUsd },
+  stablecoin_mcap_change_7d_pct: { label: "穩定幣市值變化（7 天）", format: signedPct },
+  stablecoin_mcap_change_30d_pct: { label: "穩定幣市值變化（30 天）", format: signedPct },
 };
 
 type Pillar = { id: string; label: string; icon: typeof Globe2; metricIds: string[]; wide: boolean };
@@ -84,11 +99,25 @@ const PILLARS: Pillar[] = [
       "okx_eth_funding_rate",
       "okx_btc_oi_usd",
       "okx_eth_oi_usd",
+      "okx_funding_annualized",
+      "okx_price_oi_regime",
     ],
     wide: true,
   },
-  { id: "valuation", label: "鏈上估值與週期", icon: Bitcoin, metricIds: ["btc_mvrv_z", "btc_mvrv"], wide: false },
-  { id: "liquidity", label: "流動性與資金量能", icon: Droplets, metricIds: ["stablecoin_total_mcap_usd"], wide: false },
+  {
+    id: "valuation",
+    label: "鏈上估值與週期",
+    icon: Bitcoin,
+    metricIds: ["btc_mvrv_z", "btc_mvrv", "btc_mvrv_percentile"],
+    wide: false,
+  },
+  {
+    id: "liquidity",
+    label: "流動性與資金量能",
+    icon: Droplets,
+    metricIds: ["stablecoin_total_mcap_usd", "stablecoin_mcap_change_7d_pct", "stablecoin_mcap_change_30d_pct"],
+    wide: false,
+  },
   { id: "sentiment", label: "市場情緒與極端值", icon: Gauge, metricIds: ["crypto_fear_greed"], wide: false },
   { id: "holder_behavior", label: "持有者行為", icon: ShieldQuestion, metricIds: [], wide: false },
 ];

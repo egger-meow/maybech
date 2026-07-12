@@ -72,9 +72,9 @@ Provider-independent IDs per `plan.md` §5.1. `status` follows the plan's
 | --- | --- | --- | --- |
 | `okx_btc_funding_rate` | raw | OKX | live |
 | `okx_oi_weighted_funding` | derived | OKX | live (already computed in `fetch_funding_overview`) |
-| `okx_btc_oi_usd` | raw | OKX | **not implemented** — needs new OI ingestion, see matrix above |
-| `okx_funding_annualized` | derived | OKX | planned, Phase 3 |
-| `okx_price_oi_regime` | derived | OKX | planned, Phase 3, blocked on OI ingestion |
+| `okx_btc_oi_usd` | raw | OKX | live, persisted (Phase 2) |
+| `okx_funding_annualized` | derived | Maybech (from `okx_oi_weighted_funding`) | live, persisted (Phase 3) |
+| `okx_price_oi_regime` | derived | Maybech (from `okx_btc_price_usd` + `okx_btc_oi_usd`) | live, persisted (Phase 3) |
 
 ### On-Chain Valuation and Cycle Context
 | metric_id | source_kind | primary_provider | state |
@@ -83,7 +83,7 @@ Provider-independent IDs per `plan.md` §5.1. `status` follows the plan's
 | `btc_mvrv` | raw (provider-computed) | bitcoin-data.com | live, persisted (added post-Phase 2 — same source, sibling `/v1/mvrv` endpoint, `>1.0`/`<1.0` reads as aggregate holder profit/loss) |
 | `btc_market_cap_usd` | raw | bitcoin-data.com or CoinGecko coin endpoint | planned — pick one canonical source in Phase 1, do not derive from `global_market_cap_usd * btc_dominance_pct` (compounds two approximations) |
 | `btc_realized_cap_usd` / `btc_realized_price_usd` | raw | bitcoin-data.com (likely has dedicated endpoints alongside `mvrv-zscore`, per its metric list) | planned, Phase 1 endpoint discovery |
-| `btc_mvrv_percentile` | derived | Maybech (from `btc_mvrv_z` history) | planned, Phase 3 — needs persisted history first |
+| `btc_mvrv_percentile` | derived | Maybech (from `btc_mvrv_z` history) | live, persisted (Phase 3) |
 
 ### Holder Behavior
 | metric_id | source_kind | primary_provider | state |
@@ -98,8 +98,8 @@ stays `unavailable` rather than getting a scraped or invented proxy.
 ### Liquidity and Capital Availability
 | metric_id | source_kind | primary_provider | state |
 | --- | --- | --- | --- |
-| `stablecoin_total_mcap_usd` | raw | DefiLlama | planned, Phase 2 |
-| `stablecoin_mcap_change_7d_pct` / `_30d` | derived | DefiLlama (`stablecoincharts/all`) | planned, Phase 3 |
+| `stablecoin_total_mcap_usd` | raw | DefiLlama | live, persisted (Phase 2) |
+| `stablecoin_mcap_change_7d_pct` / `_30d` | derived | Maybech (from `stablecoin_total_mcap_usd` history) | live, persisted (Phase 3) |
 
 ### Sentiment and Extremes
 | metric_id | source_kind | primary_provider | state |
@@ -282,11 +282,12 @@ DefiLlama data: real BTC/ETH prices, funding rates, open interest, and a
 $311B total stablecoin figure were ingested and served correctly through
 `GET /market/metrics` and `GET /market/providers/status` in the same run.
 
-Registry now has 15 metrics across `sentiment`, `valuation`, `price_breadth`,
+Registry now has 20 metrics across `sentiment`, `valuation`, `price_breadth`,
 `derivatives`, and `liquidity` pillars — `holder_behavior` remains
 unregistered pending the Coin Metrics Community catalog confirmation from
 Phase 0 §6. (`btc_mvrv`, the raw MVRV ratio alongside `btc_mvrv_z`, was added
-after this section was first written — see §10.)
+after this section was first written — see §10; five derived-evidence
+metrics were added in Phase 3 — see §11.)
 
 Still open for Phase 2 to be "done" per `plan.md` §13: the Market Overview UI
 redesign around regime pillars, historical charts with timeframe controls,
@@ -386,3 +387,68 @@ the provider in a standalone script proved the parser itself was correct
 before chasing the real cause. With the correct env var, a fresh demo run
 showed `btc_mvrv_z=0.3854` and `btc_mvrv=1.214` for the same day, both
 `fresh`, both live.
+
+## 11. Phase 3: Derived evidence — delivered
+
+Added `src/market_intelligence/derived/` per the Section 5 architecture:
+`base.py` (`DerivedCalculator` ABC — a `compute(store, now)` that returns
+`None`, never raises, when its inputs are insufficient) and
+`calculators.py`, covering the four items named in `toImprove.md`'s Phase 3
+scope:
+
+- `okx_funding_annualized` — `okx_oi_weighted_funding * 3 * 365` (OKX's 8h
+  funding interval), recomputed every 60s alongside the base metric.
+- `btc_mvrv_percentile` — percentile rank of the latest `btc_mvrv_z` within
+  Maybech's **own persisted history** (minimum 10 samples before it reports
+  anything). Explicitly not a full multi-year BTC cycle percentile — the
+  registry caveat says so, and the naming-ambiguity rule from Section 4
+  applies: this is a separately versioned, clearly-labeled Maybech-derived
+  metric, not a repackaged provider number.
+- `stablecoin_mcap_change_7d_pct` / `_30d` — percent change of
+  `stablecoin_total_mcap_usd` vs. the closest observation Maybech has
+  persisted at or before the 7/30-day cutoff. Unavailable until that much
+  history has actually accumulated since ingestion started — no
+  interpolation, no synthetic backfill.
+- `okx_price_oi_regime` — a four-quadrant classification of 24h BTC
+  price-vs-open-interest movement (new longs / short covering / new shorts /
+  long liquidation, with a 0.5% deadband for "flat"), a standard
+  derivatives-analysis read, not an invented composite score and not the
+  Phase 4 regime-assessment engine.
+
+Architecturally, calculators are pure functions over already-persisted
+`market_metric_observations` — no network calls, no new external dependency.
+`MarketIntelligenceService.compute_derived()` runs after `sync_all()`'s
+provider loop, gated per-calculator by its own `min_refresh_interval_seconds`
+(mirroring `sync_provider`'s per-provider due-check), and isolates one
+calculator's exception from the rest exactly like provider sync isolation.
+Every new metric flows through the existing generic `/market/metrics`,
+`/market/series/{id}` endpoints and the frontend's `METRIC_DISPLAY`/pillar
+config with **no API schema changes** — `npm run contract` confirmed no
+generated-type drift.
+
+Deliberately out of scope for this pass (still `planned, Phase 3` in the
+Section 3 catalog, not committed by `toImprove.md`'s Phase 3 line): the
+Fear & Greed rolling-average/percentile/days-since-extreme metrics and
+`eth_btc_ratio`. Can follow up as a small addendum the same way the raw MVRV
+ratio was added post-Phase-2, if requested.
+
+Live-verified end to end in demo mode against a fresh throwaway database
+(not just unit tests): `okx_funding_annualized` and `btc_mvrv_percentile`
+populated on the very first sync tick (funding annualization needs only the
+latest snapshot; MVRV percentile had 179 backfilled `btc_mvrv_z` days to rank
+against, reporting `21.23` for the day's `0.3854` reading). The two
+window-dependent metrics — `stablecoin_mcap_change_7d_pct`/`_30d` and
+`okx_price_oi_regime` — correctly reported `unavailable`/"無資料" on the
+fresh database rather than a fabricated value, exactly the honest-degradation
+behavior the plan requires; they will populate once real accumulated history
+passes their respective windows. Confirmed in the browser: all five new
+tiles render in their pillar cards with correct freshness badges, no console
+errors, and no layout regressions in the derivatives/valuation/liquidity
+pillar cards.
+
+`npm run contract`, `npm run lint`, `npm run typecheck`, `npm run build`, and
+the full backend `pytest` suite (62 market-intelligence tests, including 11
+new derived-calculator tests) all pass — the only failure is the
+pre-existing, unrelated `test_env_example_exactly_covers_runtime_env_vars`
+(stale `MAYBECH_NGROK_DOMAIN` key), present before this phase and out of
+scope.

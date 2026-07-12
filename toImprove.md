@@ -46,17 +46,20 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 1. Market Intelligence Layer (operator-activated build phase, see
    `docs/market-intelligence.md` for the full feasibility audit and metric
-   catalog). Phases 0-2 are complete: 15 metrics across five pillars,
+   catalog). Phases 0-3 are complete: 20 metrics across five pillars,
    persisted with freshness/provider-health tracking, exposed through typed
    endpoints, and rendered on a redesigned Market Overview page (pillar
    cards, freshness badges, timeframe-controlled charts with hover tooltips,
-   honest empty states). Live-verified end to end in the browser against
-   real providers. Phase 3 (derived evidence: funding annualization, MVRV
-   percentile, stablecoin 7d/30d change, price/OI regime) is next.
-   Acceptance gates for each phase are listed in `docs/market-intelligence.md`
-   and the phase list is only complete once every phase's exit criteria in
-   that plan are met — do not silently return this to the backlog after a
-   partial milestone.
+   honest empty states). Phase 3 added derived evidence (funding
+   annualization, MVRV percentile within Maybech's own history, stablecoin
+   7d/30d change, price/OI regime), computed locally from already-persisted
+   history with no new external dependency. Live-verified end to end in the
+   browser against real providers, including honest `unavailable` states for
+   window-dependent derived metrics on a fresh database. Regime assessment
+   (Phase 4) is next. Acceptance gates for each phase are listed in
+   `docs/market-intelligence.md` and the phase list is only complete once
+   every phase's exit criteria in that plan are met — do not silently return
+   this to the backlog after a partial milestone.
 
 The Position Management / Strategy Management visual pass (motion,
 list-selection rail, collapsible break-even/trailing/audit panels) is
