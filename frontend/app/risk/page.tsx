@@ -18,6 +18,7 @@ import {
 
 type FormState = {
   enabled: boolean;
+  stopLossBudget: string;
   maxOrder: string;
   maxExposure: string;
   maxLeverage: string;
@@ -26,6 +27,7 @@ type FormState = {
 
 const emptyForm: FormState = {
   enabled: false,
+  stopLossBudget: "",
   maxOrder: "",
   maxExposure: "",
   maxLeverage: "",
@@ -34,6 +36,7 @@ const emptyForm: FormState = {
 
 const fromLimits = (limits: AccountRiskLimitsResponse): FormState => ({
   enabled: limits.enabled,
+  stopLossBudget: String(limits.max_stop_loss_equity_pct),
   maxOrder: String(limits.max_order_notional_usd),
   maxExposure: String(limits.max_total_exposure_usd),
   maxLeverage: String(limits.max_leverage),
@@ -109,12 +112,14 @@ export default function RiskLimitsPage() {
   }, [form, saved]);
 
   const validation = useMemo(() => {
+    const stopBudget = Number(form.stopLossBudget);
     const order = Number(form.maxOrder);
     const exposure = Number(form.maxExposure);
     const leverage = Number(form.maxLeverage);
-    if (![order, exposure, leverage].every((value) => Number.isFinite(value) && value > 0)) {
-      return "三個數值都必須是大於 0 的有效數字。";
+    if (![stopBudget, order, exposure, leverage].every((value) => Number.isFinite(value) && value > 0)) {
+      return "四個數值都必須是大於 0 的有效數字。";
     }
+    if (stopBudget > 100) return "全部停損最大虧損不可高於權益的 100%。";
     if (order > exposure) return "單筆委託上限不可高於帳戶總曝險上限。";
     if (leverage > 125) return "最大槓桿不可高於 125 倍。";
     if (form.enabled && form.allowedInstruments.length === 0) return "啟用風險信封前，至少選擇一個允許進場的 SWAP。";
@@ -134,6 +139,7 @@ export default function RiskLimitsPage() {
         max_order_notional_usd: Number(form.maxOrder),
         max_total_exposure_usd: Number(form.maxExposure),
         max_leverage: Number(form.maxLeverage),
+        max_stop_loss_equity_pct: Number(form.stopLossBudget),
         allowed_instruments: form.allowedInstruments,
       });
       setSaved(next);
@@ -164,7 +170,7 @@ export default function RiskLimitsPage() {
   return (
     <div className="page-stack">
       <header className="page-header">
-        <div><h1>帳戶風險上限</h1><p>設定每筆委託、總曝險與槓桿的硬上限。這些值只限制新進場，不會自行武裝或啟用策略。</p></div>
+        <div><h1>帳戶風險上限</h1><p>安全信封的核心：假設所有持倉同時觸發停損，總虧損必須低於權益的指定百分比。委託、曝險與槓桿上限是輔助邊界。這些值只限制新進場，不會自行武裝或啟用策略。</p></div>
         <button className="btn btn-outline" onClick={() => void load()} disabled={loading || saving}><RefreshCw size={17} />重新讀取</button>
       </header>
 
@@ -181,6 +187,7 @@ export default function RiskLimitsPage() {
           <div className="panel-heading"><div><h2>安全信封</h2><p>提高任何數值都可能放大真實資金曝險；儲存前必須先停用進場並逐項確認。</p></div><span className={dirty ? "dirty-note" : "saved-note"}>{dirty ? "有未儲存變更" : saved ? "已與後端同步" : "尚未建立"}</span></div>
 
           <div className="risk-limit-grid">
+            <label className="field"><span>全部停損最大虧損（核心上限）</span><span className="risk-input"><input inputMode="decimal" value={form.stopLossBudget} onChange={(event) => setForm({ ...form, stopLossBudget: event.target.value })} placeholder="例如 5" /><b>% 權益</b></span><small>假設現有每個部位與新進場都觸發停損（每筆進場都必須先有停損才會被核准），合計虧損不得超過權益的此百分比。賺可以很多次，虧一次就可以破產——只允許小賠，杜絕大賠。</small></label>
             <label className="field"><span>單筆委託名目上限</span><span className="risk-input"><input inputMode="decimal" value={form.maxOrder} onChange={(event) => setForm({ ...form, maxOrder: event.target.value })} placeholder="例如 100" /><b>USDT</b></span><small>每一次新進場最多可使用的估算名目金額。</small></label>
             <label className="field"><span>帳戶總曝險上限</span><span className="risk-input"><input inputMode="decimal" value={form.maxExposure} onChange={(event) => setForm({ ...form, maxExposure: event.target.value })} placeholder="例如 500" /><b>USDT</b></span><small>現有部位、未成交進場與新委託合計不得超過此值。</small></label>
             <label className="field"><span>最大 Cross 槓桿</span><span className="risk-input"><input inputMode="decimal" value={form.maxLeverage} onChange={(event) => setForm({ ...form, maxLeverage: event.target.value })} placeholder="例如 5" /><b>倍</b></span><small>OKX 回報槓桿高於此值時，新進場會被封鎖。</small></label>
@@ -207,7 +214,7 @@ export default function RiskLimitsPage() {
           <div className="risk-confirm-zone">
             <AlertTriangle size={22} />
             <div><strong>這是高風險設定變更</strong><p>確認數值、單位與槓桿後再儲存。後端會原子寫入新值與 before／after 稽核。</p></div>
-            <label className="confirm-check"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />我已檢查三個上限，確認要覆寫後端設定</label>
+            <label className="confirm-check"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />我已檢查四個上限，確認要覆寫後端設定</label>
             <button className="btn btn-danger" onClick={() => void save()} disabled={!dirty || Boolean(validation) || !confirmed || entriesEnabled !== false || saving}><Save size={17} />{saving ? "正在儲存…" : "確認並儲存風險上限"}</button>
           </div>
         </section>
