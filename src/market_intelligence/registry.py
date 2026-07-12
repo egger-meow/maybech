@@ -369,6 +369,86 @@ _DEFINITIONS: dict[str, MetricDefinition] = {
                 "Unavailable in simulation mode or with under 24h of accumulated history."
             ),
         ),
+        MetricDefinition(
+            metric_id="crypto_fear_greed_avg_7d",
+            name="Fear & Greed Index (7d Average)",
+            pillar="sentiment",
+            description="Mean of Fear & Greed Index observations Maybech has persisted over the trailing 7 days.",
+            unit="index_0_100",
+            scope="market_wide",
+            source_kind="derived",
+            primary_provider="maybech_derived",
+            provider_metric_or_endpoint="crypto_fear_greed",
+            expected_frequency_seconds=1800,
+            freshness_ttl_seconds=7200,
+            history_support=False,
+            methodology_version="crypto_fear_greed_avg_7d_v1",
+            caveats=(
+                "Averaged only over observations Maybech has itself persisted since "
+                "ingestion started; the window is not backfilled from a longer external "
+                "history. Sample size shrinks toward the true 7d average as history accumulates."
+            ),
+        ),
+        MetricDefinition(
+            metric_id="crypto_fear_greed_avg_30d",
+            name="Fear & Greed Index (30d Average)",
+            pillar="sentiment",
+            description="Mean of Fear & Greed Index observations Maybech has persisted over the trailing 30 days.",
+            unit="index_0_100",
+            scope="market_wide",
+            source_kind="derived",
+            primary_provider="maybech_derived",
+            provider_metric_or_endpoint="crypto_fear_greed",
+            expected_frequency_seconds=1800,
+            freshness_ttl_seconds=7200,
+            history_support=False,
+            methodology_version="crypto_fear_greed_avg_30d_v1",
+            caveats=(
+                "Averaged only over observations Maybech has itself persisted since "
+                "ingestion started; the window is not backfilled from a longer external "
+                "history. Sample size shrinks toward the true 30d average as history accumulates."
+            ),
+        ),
+        MetricDefinition(
+            metric_id="crypto_fear_greed_percentile",
+            name="Fear & Greed Index Percentile",
+            pillar="sentiment",
+            description="Percentile rank of the latest Fear & Greed reading within Maybech's own persisted history.",
+            unit="pct",
+            scope="market_wide",
+            source_kind="derived",
+            primary_provider="maybech_derived",
+            provider_metric_or_endpoint="crypto_fear_greed",
+            expected_frequency_seconds=3600,
+            freshness_ttl_seconds=10800,
+            history_support=False,
+            methodology_version="crypto_fear_greed_percentile_v1",
+            caveats=(
+                "Percentile is computed only against observations Maybech has itself "
+                "persisted since ingestion started, not a longer external history. "
+                "Grows more meaningful over time; treat early readings as low-confidence."
+            ),
+        ),
+        MetricDefinition(
+            metric_id="days_since_fear_greed_extreme",
+            name="Days Since Fear & Greed Extreme",
+            pillar="sentiment",
+            description="Days since the most recent Fear & Greed reading <=20 or >=80 in Maybech's persisted history.",
+            unit="days",
+            scope="market_wide",
+            source_kind="derived",
+            primary_provider="maybech_derived",
+            provider_metric_or_endpoint="crypto_fear_greed",
+            expected_frequency_seconds=3600,
+            freshness_ttl_seconds=10800,
+            history_support=False,
+            methodology_version="days_since_fear_greed_extreme_v1",
+            caveats=(
+                "Only counts extremes Maybech has itself observed since ingestion started; "
+                "unavailable until an extreme reading (<=20 or >=80) has actually been "
+                "recorded, not backfilled from external history before that point."
+            ),
+        ),
     ]
 }
 

@@ -50,9 +50,14 @@ const PRICE_OI_REGIME_LABELS: Record<number, string> = {
   4: "價跌＋OI減（多頭平倉）",
 };
 const priceOiRegime = (value: number): string => PRICE_OI_REGIME_LABELS[Math.round(value)] ?? "未知";
+const daysCount = (value: number): string => `${Math.round(value)} 天`;
 
 const METRIC_DISPLAY: Record<string, MetricDisplay> = {
   crypto_fear_greed: { label: "恐懼與貪婪指數", format: index0to100 },
+  crypto_fear_greed_avg_7d: { label: "恐懼貪婪指數（7 天均值）", format: index0to100 },
+  crypto_fear_greed_avg_30d: { label: "恐懼貪婪指數（30 天均值）", format: index0to100 },
+  crypto_fear_greed_percentile: { label: "恐懼貪婪指數分位數（站內資料）", format: plainPct },
+  days_since_fear_greed_extreme: { label: "距上次極端情緒天數", format: daysCount },
   btc_mvrv_z: { label: "BTC MVRV Z-Score", format: zScore },
   btc_mvrv: { label: "BTC MVRV 比值", format: mvrvRatio },
   global_market_cap_usd: { label: "全球總市值", format: compactUsd },
@@ -120,7 +125,19 @@ const PILLARS: Pillar[] = [
     metricIds: ["stablecoin_total_mcap_usd", "stablecoin_mcap_change_7d_pct", "stablecoin_mcap_change_30d_pct"],
     wide: false,
   },
-  { id: "sentiment", label: "市場情緒與極端值", icon: Gauge, metricIds: ["crypto_fear_greed"], wide: false },
+  {
+    id: "sentiment",
+    label: "市場情緒與極端值",
+    icon: Gauge,
+    metricIds: [
+      "crypto_fear_greed",
+      "crypto_fear_greed_avg_7d",
+      "crypto_fear_greed_avg_30d",
+      "crypto_fear_greed_percentile",
+      "days_since_fear_greed_extreme",
+    ],
+    wide: false,
+  },
   { id: "holder_behavior", label: "持有者行為", icon: ShieldQuestion, metricIds: [], wide: false },
 ];
 

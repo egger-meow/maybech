@@ -126,7 +126,18 @@ def assess_sentiment(store: MetricStore, *, at: datetime) -> RegimeAssessment:
     confidence, evidence = _evidence_for(store, "crypto_fear_greed", at=at)
     observation = store.latest_at_or_before("crypto_fear_greed", at)
     state, summary = rules.classify_sentiment(observation.value if observation else None)
-    return _build("sentiment", state, confidence, summary, [evidence], at=at)
+
+    percentile_obs = store.latest_at_or_before("crypto_fear_greed_percentile", at)
+    percentile_evidence = (
+        {
+            "metric_id": "crypto_fear_greed_percentile",
+            "value": percentile_obs.value,
+            "observed_at": percentile_obs.observed_at,
+        }
+        if percentile_obs is not None
+        else None
+    )
+    return _build("sentiment", state, confidence, summary, [evidence, percentile_evidence], at=at)
 
 
 def _unassessed(pillar: str, reason: str, *, at: datetime) -> RegimeAssessment:

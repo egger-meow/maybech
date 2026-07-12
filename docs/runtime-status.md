@@ -61,10 +61,11 @@ Frontends must use `active`; there is no `state` field.
   `GET /market/regime?at=` expose the persisted market-intelligence layer
   (`docs/market-intelligence.md`): Fear & Greed, BTC MVRV ratio + Z-Score,
   CoinGecko global market/dominance, OKX BTC/ETH price/funding/open-interest/
-  OI-weighted-funding, total stablecoin market cap (DefiLlama), and five
+  OI-weighted-funding, total stablecoin market cap (DefiLlama), five
   Maybech-derived evidence metrics (annualized OKX funding, BTC MVRV
   percentile within Maybech's own history, stablecoin mcap 7d/30d change, BTC
-  price/OI regime code) — 20 metrics, ingested by
+  price/OI regime code), and four Fear & Greed rolling-context metrics (7d/30d
+  average, percentile, days since last extreme) — 24 metrics, ingested by
   `MarketIntelligenceSyncService` (always-on, every runtime mode, not in
   `required_services`) and stored in SQLite (`market_intelligence` schema
   component, version `1`) so history survives restart. Each provider gates

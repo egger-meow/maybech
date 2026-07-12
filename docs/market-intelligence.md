@@ -282,7 +282,7 @@ DefiLlama data: real BTC/ETH prices, funding rates, open interest, and a
 $311B total stablecoin figure were ingested and served correctly through
 `GET /market/metrics` and `GET /market/providers/status` in the same run.
 
-Registry now has 20 metrics across `sentiment`, `valuation`, `price_breadth`,
+Registry now has 24 metrics across `sentiment`, `valuation`, `price_breadth`,
 `derivatives`, and `liquidity` pillars — `holder_behavior` remains
 unregistered pending the Coin Metrics Community catalog confirmation from
 Phase 0 §6. (`btc_mvrv`, the raw MVRV ratio alongside `btc_mvrv_z`, was added
@@ -562,3 +562,44 @@ explanation references concrete evidence (the `evidence[]` array, not a
 bare label). Historical replay integration into research modules and rule
 calibration against replayed history remain future work once a concrete
 consumer exists.
+
+## 13. Post-Phase-4 addendum: Fear & Greed rolling context
+
+Closes one of the two `Non-Blocking / Later` gaps flagged after Phase 4:
+the Fear & Greed rolling-average/percentile/days-since-extreme metrics
+catalogued in Section 3 since Phase 0 but deliberately deferred out of
+Phase 3's scope. Four new metrics, all `src/market_intelligence/derived/`
+calculators reading only already-persisted `crypto_fear_greed`
+observations — no new provider, no new external dependency:
+
+- `crypto_fear_greed_avg_7d` / `_avg_30d` — mean of persisted observations
+  within the trailing window (`RollingAverageCalculator`, a new generic
+  calculator parameterized by source metric/window, reused by both).
+- `crypto_fear_greed_percentile` — percentile rank of the latest reading
+  within Maybech's own persisted history, same honest caveat as
+  `btc_mvrv_percentile` (not a full external history). The percentile logic
+  shared by both was extracted into a `_percentile_observation` helper
+  during this pass — `MvrvPercentileCalculator`'s public behavior is
+  unchanged, its existing tests pass without modification.
+- `days_since_fear_greed_extreme` — days since the most recent persisted
+  reading `<=20` or `>=80`; `unavailable` until Maybech has actually
+  observed an extreme, never backfilled from external history.
+
+`assess_sentiment` in the regime assessor now attaches
+`crypto_fear_greed_percentile` as supplementary evidence, mirroring how
+`assess_valuation` already attaches `btc_mvrv_percentile`.
+
+Registry is now 24 metrics. Live-verified in a fresh demo-mode database:
+after the first sync tick, `crypto_fear_greed_avg_7d=24`,
+`crypto_fear_greed_avg_30d=19.3`, `crypto_fear_greed_percentile=96.67`
+(current reading of 26 is high within a mostly-fearful backfilled window),
+and `days_since_fear_greed_extreme=4.4` all populated correctly from real
+alternative.me data and rendered in the sentiment pillar card with no
+console errors. `npm run contract`, `npm run lint`, `npm run typecheck`,
+`npm run build`, and the full backend `pytest` suite all pass (same
+pre-existing, unrelated `test_env_example_exactly_covers_runtime_env_vars`
+failure).
+
+The other flagged gap, `market_breadth_advancing_pct` (would unblock the
+`price_breadth` regime pillar), is addressed next in this same session —
+see Section 14 once landed.

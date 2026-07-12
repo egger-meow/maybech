@@ -85,11 +85,10 @@ broken operator control, unexpected state, or hidden safety threats.
   notification reliability becomes an explicit priority.
 - Market Intelligence Layer Phase 5 (optional premium/cross-exchange
   expansion — CoinGlass/Glassnode/CryptoQuant-style liquidations, ETF flows,
-  true LTH/STH cohorts, options skew; see `docs/market-intelligence.md`
-  §13/plan.md) requires paid provider credentials and explicit operator
-  activation before it becomes a priority item. Also still open, independent
-  of Phase 5: `market_breadth_advancing_pct` (would unblock the
-  `price_breadth` regime pillar) and Fear & Greed rolling-average/percentile
-  derived metrics, both catalogued in `docs/market-intelligence.md` Section 3
-  but never activated.
+  true LTH/STH cohorts, options skew; see plan.md §13) requires paid
+  provider credentials and explicit operator activation before it becomes a
+  priority item.
+- `market_breadth_advancing_pct` (would unblock the `price_breadth` regime
+  pillar), catalogued in `docs/market-intelligence.md` Section 3 but not yet
+  implemented.
 
