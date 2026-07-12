@@ -66,6 +66,14 @@ def test_classify_sentiment_bands():
     assert rules.classify_sentiment(90)[0] == "stressed"
 
 
+def test_classify_price_breadth_bands():
+    assert rules.classify_price_breadth(None)[0] == "unavailable"
+    assert rules.classify_price_breadth(70.0)[0] == "supportive"
+    assert rules.classify_price_breadth(50.0)[0] == "neutral"
+    assert rules.classify_price_breadth(30.0)[0] == "cautious"
+    assert rules.classify_price_breadth(10.0)[0] == "stressed"
+
+
 # --- assessor.py: reads the store, bounded by `at` --------------------------
 
 
@@ -89,14 +97,25 @@ def test_assess_all_reports_unavailable_with_zero_confidence_when_empty(tmp_path
         assert assessment.evidence == []
 
 
-def test_price_breadth_and_holder_behavior_are_always_unavailable(tmp_path):
+def test_holder_behavior_is_always_unavailable(tmp_path):
     store = MetricStore(str(tmp_path / "trades.db"))
     store.insert_observations([_obs("okx_funding_annualized", 0.01, _NOW.isoformat(), unit="rate")])
 
     assessments = {a.pillar: a for a in assess_all(store, at=_NOW)}
 
-    assert assessments["price_breadth"].state == "unavailable"
     assert assessments["holder_behavior"].state == "unavailable"
+
+
+def test_price_breadth_becomes_available_once_metric_is_ingested(tmp_path):
+    store = MetricStore(str(tmp_path / "trades.db"))
+    store.insert_observations(
+        [_obs("market_breadth_advancing_pct", 70.0, _NOW.isoformat(), unit="pct")]
+    )
+
+    assessments = {a.pillar: a for a in assess_all(store, at=_NOW)}
+
+    assert assessments["price_breadth"].state == "supportive"
+    assert assessments["price_breadth"].confidence == 1.0
 
 
 def test_assess_derivatives_uses_latest_funding_and_includes_regime_evidence(tmp_path):

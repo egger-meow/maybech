@@ -77,6 +77,7 @@ const METRIC_DISPLAY: Record<string, MetricDisplay> = {
   stablecoin_total_mcap_usd: { label: "穩定幣總市值", format: compactUsd },
   stablecoin_mcap_change_7d_pct: { label: "穩定幣市值變化（7 天）", format: signedPct },
   stablecoin_mcap_change_30d_pct: { label: "穩定幣市值變化（30 天）", format: signedPct },
+  market_breadth_advancing_pct: { label: "市場廣度（前 100 大上漲比例）", format: plainPct },
 };
 
 type Pillar = { id: string; label: string; icon: typeof Globe2; metricIds: string[]; wide: boolean };
@@ -93,6 +94,7 @@ const PILLARS: Pillar[] = [
       "eth_dominance_pct",
       "okx_btc_price_usd",
       "okx_eth_price_usd",
+      "market_breadth_advancing_pct",
     ],
     wide: true,
   },

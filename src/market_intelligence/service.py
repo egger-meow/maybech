@@ -14,6 +14,7 @@ from src.market_intelligence.providers.alternative_me import AlternativeMeProvid
 from src.market_intelligence.providers.base import MarketDataProvider
 from src.market_intelligence.providers.bitcoin_data import BitcoinDataMvrvProvider
 from src.market_intelligence.providers.coingecko import CoinGeckoGlobalProvider
+from src.market_intelligence.providers.coingecko_breadth import CoinGeckoBreadthProvider
 from src.market_intelligence.providers.defillama import DefiLlamaStablecoinProvider
 from src.market_intelligence.providers.okx import OKXMarketProvider
 from src.market_intelligence.regime.assessor import assess_all
@@ -36,6 +37,7 @@ def default_providers(*, exchange_client: Any | None = None) -> list[MarketDataP
         AlternativeMeProvider(),
         BitcoinDataMvrvProvider(),
         CoinGeckoGlobalProvider(),
+        CoinGeckoBreadthProvider(),
         DefiLlamaStablecoinProvider(),
         OKXMarketProvider(exchange_client),
     ]

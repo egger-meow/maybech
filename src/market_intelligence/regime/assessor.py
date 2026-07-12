@@ -36,10 +36,6 @@ _METHODOLOGY_VERSION = "market_regime_v1"
 # catalog): honestly unavailable rather than guessed, same principle already
 # applied to the holder_behavior pillar's metric tiles since Phase 2.
 _UNASSESSED_PILLARS = {
-    "price_breadth": (
-        "No market-wide breadth metric registered yet "
-        "(market_breadth_advancing_pct is catalogued but not implemented)."
-    ),
     "holder_behavior": (
         "No holder-behavior metric registered yet "
         "(blocked on Coin Metrics Community catalog confirmation)."
@@ -97,6 +93,13 @@ def assess_derivatives(store: MetricStore, *, at: datetime) -> RegimeAssessment:
     return _build("derivatives", state, confidence, summary, [evidence, regime_evidence], at=at)
 
 
+def assess_price_breadth(store: MetricStore, *, at: datetime) -> RegimeAssessment:
+    confidence, evidence = _evidence_for(store, "market_breadth_advancing_pct", at=at)
+    observation = store.latest_at_or_before("market_breadth_advancing_pct", at)
+    state, summary = rules.classify_price_breadth(observation.value if observation else None)
+    return _build("price_breadth", state, confidence, summary, [evidence], at=at)
+
+
 def assess_valuation(store: MetricStore, *, at: datetime) -> RegimeAssessment:
     confidence, evidence = _evidence_for(store, "btc_mvrv_z", at=at)
     observation = store.latest_at_or_before("btc_mvrv_z", at)
@@ -151,7 +154,7 @@ def assess_all(store: MetricStore, *, at: datetime | None = None) -> list[Regime
     return [
         assess_derivatives(store, at=resolved_at),
         assess_valuation(store, at=resolved_at),
-        _unassessed("price_breadth", _UNASSESSED_PILLARS["price_breadth"], at=resolved_at),
+        assess_price_breadth(store, at=resolved_at),
         _unassessed("holder_behavior", _UNASSESSED_PILLARS["holder_behavior"], at=resolved_at),
         assess_liquidity(store, at=resolved_at),
         assess_sentiment(store, at=resolved_at),

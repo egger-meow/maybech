@@ -87,8 +87,9 @@ broken operator control, unexpected state, or hidden safety threats.
   expansion — CoinGlass/Glassnode/CryptoQuant-style liquidations, ETF flows,
   true LTH/STH cohorts, options skew; see plan.md §13) requires paid
   provider credentials and explicit operator activation before it becomes a
-  priority item.
-- `market_breadth_advancing_pct` (would unblock the `price_breadth` regime
-  pillar), catalogued in `docs/market-intelligence.md` Section 3 but not yet
-  implemented.
+  priority item. With `market_breadth_advancing_pct` landed
+  (`docs/market-intelligence.md` Section 14), every pillar except
+  `holder_behavior` now has an assessed regime state; `holder_behavior`
+  remains blocked on the Coin Metrics Community catalog confirmation from
+  Phase 0.
 

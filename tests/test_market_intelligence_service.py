@@ -208,6 +208,7 @@ def test_default_providers_always_includes_okx_and_defillama_regardless_of_clien
         "alternative_me",
         "bitcoin_data_mvrv",
         "coingecko_global",
+        "coingecko_breadth",
         "defillama_stablecoins",
         "okx_market",
     }

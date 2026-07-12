@@ -1,7 +1,7 @@
 import requests
 import pytest
 
-from src.market_intelligence.providers import alternative_me, bitcoin_data, coingecko, defillama, okx
+from src.market_intelligence.providers import alternative_me, bitcoin_data, coingecko, coingecko_breadth, defillama, okx
 from src.market_intelligence.providers.base import ProviderError, request_with_retry
 
 
@@ -294,3 +294,56 @@ def test_okx_provider_raises_when_everything_fails():
 
     with pytest.raises(ValueError):
         okx.OKXMarketProvider(client).fetch_observations()
+
+
+def _coin(pct_change):
+    return {"id": "x", "price_change_percentage_24h": pct_change}
+
+
+def test_coingecko_breadth_provider_computes_advancing_pct(monkeypatch):
+    payload = [_coin(1.0), _coin(-1.0), _coin(2.0), _coin(-0.5)]
+    monkeypatch.setattr(coingecko_breadth.requests, "get", lambda *a, **k: _FakeResponse(payload))
+
+    observations = coingecko_breadth.CoinGeckoBreadthProvider().fetch_observations()
+
+    assert len(observations) == 1
+    obs = observations[0]
+    assert obs.metric_id == "market_breadth_advancing_pct"
+    assert obs.value == 50.0
+    assert obs.metadata == {"tracked_count": 4, "advancing_count": 2}
+
+
+def test_coingecko_breadth_provider_zero_change_does_not_count_as_advancing(monkeypatch):
+    payload = [_coin(0.0), _coin(0.0), _coin(5.0)]
+    monkeypatch.setattr(coingecko_breadth.requests, "get", lambda *a, **k: _FakeResponse(payload))
+
+    observations = coingecko_breadth.CoinGeckoBreadthProvider().fetch_observations()
+
+    assert observations[0].value == pytest.approx(100.0 / 3.0)
+
+
+def test_coingecko_breadth_provider_skips_coins_with_missing_change(monkeypatch):
+    payload = [_coin(1.0), {"id": "y", "price_change_percentage_24h": None}]
+    monkeypatch.setattr(coingecko_breadth.requests, "get", lambda *a, **k: _FakeResponse(payload))
+
+    observations = coingecko_breadth.CoinGeckoBreadthProvider().fetch_observations()
+
+    assert observations[0].metadata["tracked_count"] == 1
+    assert observations[0].value == 100.0
+
+
+def test_coingecko_breadth_provider_raises_on_unexpected_shape(monkeypatch):
+    monkeypatch.setattr(coingecko_breadth.requests, "get", lambda *a, **k: _FakeResponse({"unexpected": True}))
+
+    with pytest.raises(ValueError):
+        coingecko_breadth.CoinGeckoBreadthProvider().fetch_observations()
+
+
+def test_coingecko_breadth_provider_raises_on_total_failure(monkeypatch):
+    def _raise(*_args, **_kwargs):
+        raise requests.ConnectionError("boom")
+
+    monkeypatch.setattr(coingecko_breadth.requests, "get", _raise)
+
+    with pytest.raises(ProviderError):
+        coingecko_breadth.CoinGeckoBreadthProvider().fetch_observations()

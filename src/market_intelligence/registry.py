@@ -140,6 +140,28 @@ _DEFINITIONS: dict[str, MetricDefinition] = {
             caveats="CoinGecko's own aggregation methodology; only accumulates history going forward, no backfill endpoint wired yet.",
         ),
         MetricDefinition(
+            metric_id="market_breadth_advancing_pct",
+            name="Market Breadth (Top 100 Advancing %)",
+            pillar="price_breadth",
+            description=(
+                "Percentage of CoinGecko's top 100 coins by market cap with a positive 24h price change."
+            ),
+            unit="pct",
+            scope="market_wide_top100",
+            source_kind="derived",
+            primary_provider="coingecko_breadth",
+            provider_metric_or_endpoint="https://api.coingecko.com/api/v3/coins/markets",
+            expected_frequency_seconds=900,
+            freshness_ttl_seconds=2700,
+            history_support=False,
+            methodology_version="coingecko_breadth_top100_v1",
+            caveats=(
+                "Breadth proxy limited to CoinGecko's top 100 coins by market cap, not the "
+                "full market; a coin with exactly 0.0% change does not count as advancing. "
+                "Only accumulates history going forward, no backfill endpoint wired yet."
+            ),
+        ),
+        MetricDefinition(
             metric_id="okx_btc_price_usd",
             name="OKX BTC-USDT-SWAP Price",
             pillar="price_breadth",

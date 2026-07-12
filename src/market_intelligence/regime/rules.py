@@ -64,6 +64,31 @@ def classify_liquidity(change_7d_pct: float | None) -> tuple[str, str]:
     )
 
 
+def classify_price_breadth(advancing_pct: float | None) -> tuple[str, str]:
+    if advancing_pct is None:
+        return "unavailable", "No market breadth observation available."
+    if advancing_pct >= 60:
+        return (
+            "supportive",
+            f"{advancing_pct:.0f}% of tracked top-100 coins advancing over 24h; broad-based strength.",
+        )
+    if advancing_pct >= 40:
+        return (
+            "neutral",
+            f"{advancing_pct:.0f}% of tracked top-100 coins advancing over 24h; breadth roughly balanced.",
+        )
+    if advancing_pct >= 25:
+        return (
+            "cautious",
+            f"{advancing_pct:.0f}% of tracked top-100 coins advancing over 24h; breadth narrowing.",
+        )
+    return (
+        "stressed",
+        f"{advancing_pct:.0f}% of tracked top-100 coins advancing over 24h; "
+        "breadth has collapsed, strength highly concentrated.",
+    )
+
+
 def classify_sentiment(fear_greed: float | None) -> tuple[str, str]:
     if fear_greed is None:
         return "unavailable", "No Fear & Greed Index observation available."

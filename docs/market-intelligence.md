@@ -600,6 +600,49 @@ console errors. `npm run contract`, `npm run lint`, `npm run typecheck`,
 pre-existing, unrelated `test_env_example_exactly_covers_runtime_env_vars`
 failure).
 
-The other flagged gap, `market_breadth_advancing_pct` (would unblock the
-`price_breadth` regime pillar), is addressed next in this same session —
-see Section 14 once landed.
+The other flagged gap, `market_breadth_advancing_pct`, is addressed next —
+see Section 14.
+
+## 14. Post-Phase-4 addendum: market breadth, unblocking the price_breadth pillar
+
+Closes the second `Non-Blocking / Later` gap: no metric answered "is
+strength broad or concentrated" (plan.md 4.1's actual purpose for this
+pillar), so `price_breadth` had been permanently `unavailable` in the
+regime map since Phase 4.
+
+Verified `GET https://api.coingecko.com/api/v3/coins/markets` live before
+implementing (per this doc's own established practice, not assumed):
+free, unauthenticated, `price_change_percentage_24h` populated for all 100
+requested coins in a spot check.
+
+`providers/coingecko_breadth.py` (`CoinGeckoBreadthProvider`) — kept
+separate from `providers/coingecko.py` (which wraps `/global`) since it's a
+different endpoint with a different payload shape and should fail
+independently. Fetches the top 100 coins by market cap and computes the
+percentage with a positive 24h change into `market_breadth_advancing_pct`
+(`source_kind=derived`, since Maybech computes the percentage — CoinGecko
+doesn't return it directly — same convention already used for
+`okx_oi_weighted_funding`). A coin with exactly `0.0%` change does not
+count as advancing.
+
+`regime/rules.py` gained `classify_price_breadth` (≥60% supportive, 40–60%
+neutral, 25–40% cautious, <25% stressed) and `assessor.py`'s
+`assess_price_breadth` replaces the pillar's previous hardcoded
+`_unassessed(...)` call — same freshness-derived-confidence pattern as
+every other assessed pillar, nothing regime-specific needed changing.
+
+Live-verified end to end in a fresh demo-mode database against real
+CoinGecko data: `market_breadth_advancing_pct=33.0` (33 of 100 tracked
+coins advancing), provider-health strip correctly moved from 5/5 to 6/6,
+and the `price_breadth` regime pillar changed from permanently
+`unavailable` to `cautious` (confidence 100%) with the correct
+evidence-referencing summary — confirmed in the browser with no console
+errors. `npm run contract`, `npm run lint`, `npm run typecheck`,
+`npm run build`, and the full backend `pytest` suite all pass (same
+pre-existing, unrelated `test_env_example_exactly_covers_runtime_env_vars`
+failure).
+
+Registry is now 25 metrics. With this, every pillar except
+`holder_behavior` (blocked on the Coin Metrics Community catalog
+confirmation from Phase 0 §6) has at least one assessed regime state —
+`holder_behavior` remains the layer's one honestly-unavailable pillar.

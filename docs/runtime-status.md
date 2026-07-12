@@ -61,11 +61,12 @@ Frontends must use `active`; there is no `state` field.
   `GET /market/regime?at=` expose the persisted market-intelligence layer
   (`docs/market-intelligence.md`): Fear & Greed, BTC MVRV ratio + Z-Score,
   CoinGecko global market/dominance, OKX BTC/ETH price/funding/open-interest/
-  OI-weighted-funding, total stablecoin market cap (DefiLlama), five
-  Maybech-derived evidence metrics (annualized OKX funding, BTC MVRV
-  percentile within Maybech's own history, stablecoin mcap 7d/30d change, BTC
-  price/OI regime code), and four Fear & Greed rolling-context metrics (7d/30d
-  average, percentile, days since last extreme) — 24 metrics, ingested by
+  OI-weighted-funding, total stablecoin market cap (DefiLlama), CoinGecko
+  market breadth (top-100 advancing %), five Maybech-derived evidence metrics
+  (annualized OKX funding, BTC MVRV percentile within Maybech's own history,
+  stablecoin mcap 7d/30d change, BTC price/OI regime code), and four Fear &
+  Greed rolling-context metrics (7d/30d average, percentile, days since last
+  extreme) — 25 metrics, ingested by
   `MarketIntelligenceSyncService` (always-on, every runtime mode, not in
   `required_services`) and stored in SQLite (`market_intelligence` schema
   component, version `1`) so history survives restart. Each provider gates
@@ -79,9 +80,10 @@ Frontends must use `active`; there is no `state` field.
   client itself. `GET /market/regime` computes a six-pillar
   supportive/neutral/cautious/stressed/unavailable map on demand from
   persisted observations bounded by `at` — never a stored snapshot, never a
-  single composite score, and `price_breadth`/`holder_behavior` (and
-  `liquidity` until 7+ days of history accumulate) honestly report
-  `unavailable` rather than a guessed state.
+  single composite score. `holder_behavior` (and `liquidity` until 7+ days
+  of history accumulate) honestly report `unavailable` rather than a
+  guessed state; every other pillar, including `price_breadth`, now has an
+  assessed state.
 - `GET /market/candles` returns typed ascending OHLCV candles with exchange
   confirmation state for one instrument and interval.
 - `GET /strategy/decisions` and `GET /position/intents` return empty lists when
