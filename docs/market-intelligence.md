@@ -1,10 +1,11 @@
-# Market Intelligence Layer — Phase 0 Feasibility Audit
+# Market Intelligence Layer
 
 Tracks the market-regime workspace initiative from `plan.md` (operator-provided
-strategic plan, 2026-07-12). This document is the Phase 0 deliverable: a
-repository-grounded feasibility report and initial metric catalog. Update it as
-later phases land; do not let it drift into a changelog (see `toImprove.md`
-priority rules for the same discipline).
+strategic plan, 2026-07-12). Sections 1-6 are the Phase 0 deliverable: a
+repository-grounded feasibility report and initial metric catalog. Section 7
+records what Phase 1 built. Update this doc as later phases land; do not let
+it drift into a changelog (see `toImprove.md` priority rules for the same
+discipline).
 
 ## 1. What already exists
 
@@ -182,3 +183,49 @@ None of these block starting Phase 1's domain-model/registry/storage spine;
 items 1-4 block only the specific metrics they name, and Phase 1's freshness
 model already requires marking unresolved metrics `unavailable` rather than
 guessing.
+
+## 7. Phase 1: Market Intelligence Foundation — delivered
+
+Built `src/market_intelligence/`: `models.py` (`MetricDefinition`,
+`MetricObservation`, `ProviderSyncRun`), `registry.py` (static catalog for the
+six metrics with a live provider — see below), `freshness.py`
+(`fresh`/`stale`/`very_stale`/`unavailable`, stale beyond 1x TTL, very_stale
+beyond 3x TTL), `providers/base.py` (retry/backoff contract, classified
+`ProviderError`), three provider adapters migrated from
+`src/market/macro_overview.py` (`providers/alternative_me.py`,
+`providers/bitcoin_data.py`, `providers/coingecko.py`), `storage/metric_store.py`
+(SQLite, schema component `market_intelligence` v1: `market_metric_observations`
+with a `(metric_id, source_provider, observed_at)` uniqueness constraint so a
+conflicting re-insert is ignored rather than overwriting prior data, and
+`market_provider_sync_runs` for provider-health history), and `service.py`
+(`MarketIntelligenceService`: per-provider due-check against its own
+`min_refresh_interval_seconds`, isolates one provider's failure from every
+other provider and from API responses, computes freshness on read).
+
+`MarketIntelligenceSyncService` (`src/daemon/market_intelligence_service.py`)
+registers in `create_default_runner` alongside `BTCRegimeService` — it has no
+exchange dependency, so it runs in every mode including simulation, and is
+deliberately **not** in `required_services`: a setup/tick failure degrades its
+own metrics, never blocks runtime startup.
+
+Four new read-only endpoints (`GET /market/metrics`,
+`GET /market/metrics/{metric_id}`, `GET /market/series/{metric_id}`,
+`GET /market/providers/status`) are typed, exported through OpenAPI, and
+consumed via the generated frontend types (`npm run contract` passes). They do
+not replace `GET /market/macro-overview`, which keeps its existing contract
+per the Phase 0 architecture decision.
+
+Verified end-to-end against the real providers (not just fixtures): a
+simulation-mode server run ingested live Fear & Greed (30-day history),
+BTC MVRV Z-Score, and CoinGecko global/dominance data, served it through all
+four endpoints with correct freshness, and a full process restart against the
+same SQLite path preserved the ingested history — the exact Phase 1 exit
+criteria in `plan.md` §13.
+
+Deliberately out of scope for Phase 1 (deferred to Phase 2+): OKX open
+interest ingestion, DefiLlama/Coin Metrics providers, derived metrics
+(annualized funding, percentiles, rolling averages), regime assessment, and
+any Market Overview UI change. `GET /market/macro-overview`'s in-memory-only
+cache is untouched — a future phase may rewire it onto
+`MarketIntelligenceService` once the UI is ready to consume typed metrics
+directly, per the Phase 0 architecture decision in Section 5.

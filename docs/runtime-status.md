@@ -56,6 +56,16 @@ Frontends must use `active`; there is no `state` field.
   `total_equity`, `available_equity`, and optional `unrealized_pnl`.
 - `GET /market/btc-regime` returns the latest BTC regime. `direction`,
   `strength`, and `impulse` are categorical strings, not guaranteed numbers.
+- `GET /market/metrics`, `GET /market/metrics/{metric_id}`,
+  `GET /market/series/{metric_id}`, and `GET /market/providers/status` expose
+  the persisted market-intelligence layer (`docs/market-intelligence.md`):
+  Fear & Greed, BTC MVRV Z-Score, and CoinGecko global market/dominance,
+  ingested by `MarketIntelligenceSyncService` (always-on, every runtime mode,
+  not in `required_services`) and stored in SQLite (`market_intelligence`
+  schema component, version `1`) so history survives restart. Each provider
+  gates its own HTTP calls against a registered minimum refresh interval; a
+  provider outage marks only its own metrics `stale`/`very_stale` rather than
+  failing these endpoints.
 - `GET /market/candles` returns typed ascending OHLCV candles with exchange
   confirmation state for one instrument and interval.
 - `GET /strategy/decisions` and `GET /position/intents` return empty lists when

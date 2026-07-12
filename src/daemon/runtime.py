@@ -9,6 +9,7 @@ from src.daemon.account_service import AccountSnapshotService
 from src.daemon.btc_regime_service import BTCRegimeService
 from src.daemon.execution_fill_service import ExecutionFillService
 from src.daemon.lifecycle_notification_service import LifecycleNotificationService
+from src.daemon.market_intelligence_service import MarketIntelligenceSyncService
 from src.daemon.position_intent_service import PositionIntentService
 from src.daemon.position_manager_service import PositionManagerService
 from src.daemon.service import DaemonRunner
@@ -106,6 +107,10 @@ def create_default_runner(
         if not simulation:
             runner.register(AccountSnapshotService(position_store=LogicalPositionStore(store.db_path)))
         runner.register(BTCRegimeService(client=simulation_client))
+        # External-provider only (no OKX dependency), so it runs in every mode
+        # including simulation and is never in required_services: a provider
+        # outage degrades its own metrics, not runtime startup.
+        runner.register(MarketIntelligenceSyncService())
         runner.register(PositionIntentService())
         if not live_safe:
             runner.register(

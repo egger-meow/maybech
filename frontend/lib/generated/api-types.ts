@@ -543,6 +543,52 @@ export type MarketCandlesResponse = {
   "fetched_at": string;
 };
 
+export type MarketIntelligenceMetricListResponse = {
+  "metrics"?: MarketIntelligenceMetricResponse[];
+};
+
+export type MarketIntelligenceMetricResponse = {
+  "metric_id": string;
+  "name"?: string | null;
+  "pillar"?: string | null;
+  "unit"?: string | null;
+  "scope"?: string | null;
+  "source_kind"?: string | null;
+  "value"?: number | null;
+  "observed_at"?: string | null;
+  "source_provider"?: string | null;
+  "freshness"?: string | null;
+  "is_estimated"?: boolean;
+  "methodology_version"?: string | null;
+  "caveats"?: string | null;
+  "unavailable_reason"?: string | null;
+};
+
+export type MarketIntelligenceProviderStatusListResponse = {
+  "providers"?: MarketIntelligenceProviderStatusResponse[];
+};
+
+export type MarketIntelligenceProviderStatusResponse = {
+  "provider_id": string;
+  "metrics"?: string[];
+  "last_attempt_at"?: string | null;
+  "last_success_at"?: string | null;
+  "last_error_category"?: string | null;
+  "consecutive_failures"?: number;
+};
+
+export type MarketIntelligenceSeriesPointResponse = {
+  "observed_at": string;
+  "value": number;
+};
+
+export type MarketIntelligenceSeriesResponse = {
+  "metric_id": string;
+  "unit": string;
+  "points"?: MarketIntelligenceSeriesPointResponse[];
+  "unavailable_reason"?: string | null;
+};
+
 export type MarketMacroOverviewResponse = {
   "fetched_at": string;
   "prices"?: MacroPricePointResponse[];
@@ -1129,6 +1175,12 @@ export type ApiSchemas = {
   "MarketAnalysisFreshnessResponse": MarketAnalysisFreshnessResponse;
   "MarketAnalysisQualityResponse": MarketAnalysisQualityResponse;
   "MarketCandlesResponse": MarketCandlesResponse;
+  "MarketIntelligenceMetricListResponse": MarketIntelligenceMetricListResponse;
+  "MarketIntelligenceMetricResponse": MarketIntelligenceMetricResponse;
+  "MarketIntelligenceProviderStatusListResponse": MarketIntelligenceProviderStatusListResponse;
+  "MarketIntelligenceProviderStatusResponse": MarketIntelligenceProviderStatusResponse;
+  "MarketIntelligenceSeriesPointResponse": MarketIntelligenceSeriesPointResponse;
+  "MarketIntelligenceSeriesResponse": MarketIntelligenceSeriesResponse;
   "MarketMacroOverviewResponse": MarketMacroOverviewResponse;
   "MarketOverviewResponse": MarketOverviewResponse;
   "MarketOverviewTickerResponse": MarketOverviewTickerResponse;

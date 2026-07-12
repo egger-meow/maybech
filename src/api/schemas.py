@@ -668,6 +668,56 @@ class MarketMacroOverviewResponse(BaseModel):
     funding: FundingOverviewResponse
 
 
+# ---------------------------------------------------------------------------
+# Market Intelligence Layer (docs/market-intelligence.md)
+# ---------------------------------------------------------------------------
+
+class MarketIntelligenceMetricResponse(BaseModel):
+    metric_id: str
+    name: str | None = None
+    pillar: str | None = None
+    unit: str | None = None
+    scope: str | None = None
+    source_kind: str | None = None
+    value: float | None = None
+    observed_at: str | None = None
+    source_provider: str | None = None
+    freshness: str | None = None
+    is_estimated: bool = False
+    methodology_version: str | None = None
+    caveats: str | None = None
+    unavailable_reason: str | None = None
+
+
+class MarketIntelligenceMetricListResponse(BaseModel):
+    metrics: list[MarketIntelligenceMetricResponse] = Field(default_factory=list)
+
+
+class MarketIntelligenceSeriesPointResponse(BaseModel):
+    observed_at: str
+    value: float
+
+
+class MarketIntelligenceSeriesResponse(BaseModel):
+    metric_id: str
+    unit: str
+    points: list[MarketIntelligenceSeriesPointResponse] = Field(default_factory=list)
+    unavailable_reason: str | None = None
+
+
+class MarketIntelligenceProviderStatusResponse(BaseModel):
+    provider_id: str
+    metrics: list[str] = Field(default_factory=list)
+    last_attempt_at: str | None = None
+    last_success_at: str | None = None
+    last_error_category: str | None = None
+    consecutive_failures: int = 0
+
+
+class MarketIntelligenceProviderStatusListResponse(BaseModel):
+    providers: list[MarketIntelligenceProviderStatusResponse] = Field(default_factory=list)
+
+
 class MarketAnalysisFreshnessResponse(BaseModel):
     evaluated_at: str
     latest_candle_at: str | None = None

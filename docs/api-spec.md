@@ -56,6 +56,21 @@ These endpoints currently exist or are already documented in runtime status:
   connectivity), plus BTC/ETH price and an open-interest-weighted funding rate
   (OKX-derived, unavailable in simulation mode like `/market/overview`).
 - `GET /market/analysis/support-resistance`
+- `GET /market/metrics`: registered market-intelligence metric definitions
+  merged with each metric's latest stored observation and computed freshness
+  (`fresh` | `stale` | `very_stale` | `unavailable`). External-provider only;
+  works in every runtime mode including simulation, since it does not depend
+  on exchange connectivity. See `docs/market-intelligence.md`.
+- `GET /market/metrics/{metric_id}`: single metric detail; `404` for an
+  unregistered `metric_id`.
+- `GET /market/series/{metric_id}`: bounded historical observations for one
+  metric (`start`, `end`, `limit` up to 2000 points). `404` for an
+  unregistered `metric_id`; an empty result for a registered metric with no
+  ingested history yet reports `unavailable_reason` rather than a bare list.
+- `GET /market/providers/status`: per-provider last attempt/success time,
+  last error category, and consecutive-failure count from persisted sync-run
+  history. A failing provider degrades only its own metrics' freshness; it
+  never breaks these endpoints or any other provider's status.
 - `GET /strategy/decisions`
 - `GET /strategies/{strategy_id}/decisions`
 - `GET /position/intents`

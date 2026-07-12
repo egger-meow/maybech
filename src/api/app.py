@@ -30,6 +30,7 @@ from src.market.macro_overview import (
     fetch_prices,
 )
 from src.market.support_resistance import SupportResistanceService
+from src.market_intelligence.service import MarketIntelligenceService
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
 from src.exchange.client import OKXClient, entry_order_placement_enabled
@@ -117,6 +118,10 @@ from src.api.schemas import (
     MutationStatusResponse,
     MarketCandlesResponse,
     MarketMacroOverviewResponse,
+    MarketIntelligenceMetricListResponse,
+    MarketIntelligenceMetricResponse,
+    MarketIntelligenceProviderStatusListResponse,
+    MarketIntelligenceSeriesResponse,
     MarketOverviewResponse,
     MarketOverviewTickerResponse,
     SupportResistanceAnalysisResponse,
@@ -1655,6 +1660,35 @@ def create_app(
                 "unavailable_reason": funding.get("unavailable_reason"),
             },
         ).model_dump()
+
+    @app.get("/market/metrics", response_model=MarketIntelligenceMetricListResponse)
+    def get_market_intelligence_metrics() -> MarketIntelligenceMetricListResponse:
+        metrics = MarketIntelligenceService().get_all_metrics()
+        return MarketIntelligenceMetricListResponse(metrics=metrics)
+
+    @app.get("/market/metrics/{metric_id}", response_model=MarketIntelligenceMetricResponse)
+    def get_market_intelligence_metric(metric_id: str) -> MarketIntelligenceMetricResponse:
+        metric = MarketIntelligenceService().get_metric(metric_id)
+        if metric.get("unavailable_reason") == "unknown metric_id":
+            raise HTTPException(status_code=404, detail=f"Unknown metric_id '{metric_id}'")
+        return MarketIntelligenceMetricResponse(**metric)
+
+    @app.get("/market/series/{metric_id}", response_model=MarketIntelligenceSeriesResponse)
+    def get_market_intelligence_series(
+        metric_id: str,
+        start: Optional[str] = Query(default=None),
+        end: Optional[str] = Query(default=None),
+        limit: int = Query(default=500, ge=1, le=2000),
+    ) -> MarketIntelligenceSeriesResponse:
+        series = MarketIntelligenceService().get_series(metric_id, start=start, end=end, limit=limit)
+        if series.get("unavailable_reason") == "unknown metric_id":
+            raise HTTPException(status_code=404, detail=f"Unknown metric_id '{metric_id}'")
+        return MarketIntelligenceSeriesResponse(**series)
+
+    @app.get("/market/providers/status", response_model=MarketIntelligenceProviderStatusListResponse)
+    def get_market_intelligence_provider_status() -> MarketIntelligenceProviderStatusListResponse:
+        providers = MarketIntelligenceService().get_provider_status()
+        return MarketIntelligenceProviderStatusListResponse(providers=providers)
 
     @app.get(
         "/market/analysis/support-resistance",
