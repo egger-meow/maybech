@@ -18,6 +18,7 @@ from src.data.simulation_market import SimulationMarketClient
 from src.data.candles import CandleManager
 from src.trading.executor import Executor
 from src.exchange.client import (
+    OKXClient,
     arm_order_placement,
     disarm_order_placement,
 )
@@ -107,10 +108,14 @@ def create_default_runner(
         if not simulation:
             runner.register(AccountSnapshotService(position_store=LogicalPositionStore(store.db_path)))
         runner.register(BTCRegimeService(client=simulation_client))
-        # External-provider only (no OKX dependency), so it runs in every mode
-        # including simulation and is never in required_services: a provider
-        # outage degrades its own metrics, not runtime startup.
-        runner.register(MarketIntelligenceSyncService())
+        # Registered in every mode including simulation and never in
+        # required_services: a provider outage degrades its own metrics, not
+        # runtime startup. Its OKX-scoped sub-provider gets no client in
+        # simulation (matching /market/overview's "no live feed" gating) and
+        # reports itself unconfigured rather than failing every tick.
+        runner.register(
+            MarketIntelligenceSyncService(exchange_client=None if simulation else OKXClient())
+        )
         runner.register(PositionIntentService())
         if not live_safe:
             runner.register(

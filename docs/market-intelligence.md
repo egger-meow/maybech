@@ -229,3 +229,65 @@ any Market Overview UI change. `GET /market/macro-overview`'s in-memory-only
 cache is untouched — a future phase may rewire it onto
 `MarketIntelligenceService` once the UI is ready to consume typed metrics
 directly, per the Phase 0 architecture decision in Section 5.
+
+## 8. Phase 2: Useful Overview MVP — backend delivered, UI next
+
+Added two more providers, reusing existing tested code where it already
+existed:
+
+- `providers/okx.py` (`OKXMarketProvider`): wraps the *existing*
+  `src/market/macro_overview.py` `fetch_prices`/`fetch_funding_overview`
+  functions (open interest was already being fetched there via
+  `client.get_open_interest` — the Phase 0 audit's claim that OI ingestion
+  was missing was wrong) into 7 metrics: `okx_btc_price_usd`,
+  `okx_eth_price_usd`, `okx_btc_funding_rate`, `okx_eth_funding_rate`,
+  `okx_btc_oi_usd`, `okx_eth_oi_usd`, `okx_oi_weighted_funding` (the last one
+  `source_kind=derived`, reusing the already-tested weighting math). All are
+  OKX-only (`scope` prefixed `okx_`/`okx`), unit `usd` for OI (settlement
+  currency ≈ USDT for these instruments).
+- `providers/defillama.py` (`DefiLlamaStablecoinProvider`): sums
+  `circulating.peggedUSD` across every entry in `GET
+  https://stablecoins.llama.fi/stablecoins`'s `peggedAssets` array into
+  `stablecoin_total_mcap_usd`. Confirmed free/unauthenticated in Phase 0;
+  confirmed correct field names (`peggedAssets`, `circulating.peggedUSD`) by
+  fetching the live schema before writing the parser rather than guessing.
+
+`OKXMarketProvider` needs a live exchange client and has no feed in
+simulation mode (same as `GET /market/overview` and the price/funding section
+of `GET /market/macro-overview`). Rather than skip registering it in
+simulation, it is always registered with `client=None` there and reports
+`is_configured() == False`; `MarketIntelligenceService.sync_provider` checks
+`is_configured()` before the due-check and records a `skipped` run with
+`error_category="not_configured"` instead of a permanent `failed` run every
+tick. `create_default_runner` passes a real `OKXClient()` whenever the
+resolved mode is not simulation.
+
+**Bug caught and fixed during live verification, not just unit tests**: the
+first implementation had `GET /market/providers/status`'s `enabled` field
+call `provider.is_configured()` on the *instance serving that one API
+request* — which is always a fresh `MarketIntelligenceService()` with no
+exchange client, so it always reported `okx_market` as disabled regardless of
+whether the long-running daemon's instance was actually configured and
+successfully syncing. A live demo-mode run against real OKX credentials
+surfaced this (`enabled: false` while `last_success_at` was populated with a
+real timestamp). Fixed by deriving `enabled` from the most recent *persisted*
+sync run's `error_category` instead of any single instance's live state,
+since the SQLite history is the one thing every process shares. Verified
+fixed against the same live server afterward.
+
+Live-verified end to end in demo mode against real OKX credentials and real
+DefiLlama data: real BTC/ETH prices, funding rates, open interest, and a
+$311B total stablecoin figure were ingested and served correctly through
+`GET /market/metrics` and `GET /market/providers/status` in the same run.
+
+Registry now has 14 metrics across `sentiment`, `valuation`, `price_breadth`,
+`derivatives`, and `liquidity` pillars — `holder_behavior` remains
+unregistered pending the Coin Metrics Community catalog confirmation from
+Phase 0 §6.
+
+Still open for Phase 2 to be "done" per `plan.md` §13: the Market Overview UI
+redesign around regime pillars, historical charts with timeframe controls,
+per-metric freshness/source/caveat display, and removing the current page's
+misleading global "auto-refreshes" wording. `GET /market/macro-overview` and
+its frontend page (`frontend/app/analysis/overview/page.tsx`) are still
+untouched as of this section.

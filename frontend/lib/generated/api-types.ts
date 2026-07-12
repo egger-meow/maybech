@@ -571,6 +571,7 @@ export type MarketIntelligenceProviderStatusListResponse = {
 export type MarketIntelligenceProviderStatusResponse = {
   "provider_id": string;
   "metrics"?: string[];
+  "enabled"?: boolean;
   "last_attempt_at"?: string | null;
   "last_success_at"?: string | null;
   "last_error_category"?: string | null;

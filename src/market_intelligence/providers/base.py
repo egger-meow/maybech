@@ -74,6 +74,17 @@ class MarketDataProvider(ABC):
     min_refresh_interval_seconds: float = 300.0
     metric_ids: tuple[str, ...] = ()
 
+    def is_configured(self) -> bool:
+        """Whether this instance can actually fetch (e.g. has a live client).
+
+        A provider that always returns True here (the default) is expected to
+        work from process start. Providers that depend on optional runtime
+        wiring (an exchange client not available in every mode) override this
+        so the service layer can skip them quietly instead of recording a
+        permanent "failed" run every cycle.
+        """
+        return True
+
     @abstractmethod
     def fetch_observations(self) -> list[MetricObservation]:
         """Fetch current observations for this provider's metrics.

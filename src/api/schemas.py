@@ -708,6 +708,7 @@ class MarketIntelligenceSeriesResponse(BaseModel):
 class MarketIntelligenceProviderStatusResponse(BaseModel):
     provider_id: str
     metrics: list[str] = Field(default_factory=list)
+    enabled: bool = True
     last_attempt_at: str | None = None
     last_success_at: str | None = None
     last_error_category: str | None = None

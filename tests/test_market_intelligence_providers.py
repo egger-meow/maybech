@@ -1,7 +1,7 @@
 import requests
 import pytest
 
-from src.market_intelligence.providers import alternative_me, bitcoin_data, coingecko
+from src.market_intelligence.providers import alternative_me, bitcoin_data, coingecko, defillama, okx
 from src.market_intelligence.providers.base import ProviderError, request_with_retry
 
 
@@ -157,3 +157,101 @@ def test_coingecko_provider_skips_missing_fields_and_raises_if_all_missing(monke
 
     with pytest.raises(ValueError):
         coingecko.CoinGeckoGlobalProvider().fetch_observations()
+
+
+def test_defillama_provider_sums_circulating_peggedusd(monkeypatch):
+    payload = {
+        "peggedAssets": [
+            {"symbol": "USDT", "circulating": {"peggedUSD": 100.0}},
+            {"symbol": "USDC", "circulating": {"peggedUSD": 50.0}},
+            {"symbol": "BROKEN", "circulating": {}},
+            {"symbol": "NOT_A_DICT", "circulating": "oops"},
+        ]
+    }
+    monkeypatch.setattr(defillama.requests, "get", lambda *a, **k: _FakeResponse(payload))
+
+    observations = defillama.DefiLlamaStablecoinProvider().fetch_observations()
+
+    assert len(observations) == 1
+    assert observations[0].metric_id == "stablecoin_total_mcap_usd"
+    assert observations[0].value == 150.0
+    assert observations[0].metadata["assets_counted"] == 2
+
+
+def test_defillama_provider_raises_on_unexpected_shape(monkeypatch):
+    monkeypatch.setattr(defillama.requests, "get", lambda *a, **k: _FakeResponse({"unexpected": True}))
+
+    with pytest.raises(ValueError):
+        defillama.DefiLlamaStablecoinProvider().fetch_observations()
+
+
+def test_defillama_provider_raises_when_nothing_countable(monkeypatch):
+    monkeypatch.setattr(
+        defillama.requests, "get", lambda *a, **k: _FakeResponse({"peggedAssets": [{"symbol": "X"}]})
+    )
+
+    with pytest.raises(ValueError):
+        defillama.DefiLlamaStablecoinProvider().fetch_observations()
+
+
+class _FakeOKXClient:
+    def __init__(self, tickers=None, funding=None, open_interest=None):
+        self._tickers = tickers or {}
+        self._funding = funding or {}
+        self._open_interest = open_interest or {}
+
+    def get_ticker(self, inst_id):
+        return self._tickers.get(inst_id, [])
+
+    def get_funding_rate(self, inst_id):
+        return self._funding.get(inst_id, [])
+
+    def get_open_interest(self, inst_id):
+        return self._open_interest.get(inst_id, [])
+
+
+def test_okx_provider_is_unconfigured_without_a_client():
+    provider = okx.OKXMarketProvider(None)
+
+    assert provider.is_configured() is False
+    with pytest.raises(ProviderError) as exc_info:
+        provider.fetch_observations()
+    assert exc_info.value.category == "not_configured"
+
+
+def test_okx_provider_parses_price_funding_and_oi():
+    client = _FakeOKXClient(
+        tickers={
+            "BTC-USDT-SWAP": [{"last": "65000", "open24h": "64000"}],
+            "ETH-USDT-SWAP": [{"last": "3200", "open24h": "3100"}],
+        },
+        funding={
+            "BTC-USDT-SWAP": [{"fundingRate": "0.0002"}],
+            "ETH-USDT-SWAP": [{"fundingRate": "0.0001"}],
+        },
+        open_interest={
+            "BTC-USDT-SWAP": [{"oiCcy": "300"}],
+            "ETH-USDT-SWAP": [{"oiCcy": "100"}],
+        },
+    )
+    provider = okx.OKXMarketProvider(client)
+
+    assert provider.is_configured() is True
+    observations = provider.fetch_observations()
+
+    by_metric = {obs.metric_id: obs.value for obs in observations}
+    assert by_metric["okx_btc_price_usd"] == 65000.0
+    assert by_metric["okx_eth_price_usd"] == 3200.0
+    assert by_metric["okx_btc_funding_rate"] == 0.0002
+    assert by_metric["okx_eth_funding_rate"] == 0.0001
+    assert by_metric["okx_btc_oi_usd"] == 300.0
+    assert by_metric["okx_eth_oi_usd"] == 100.0
+    expected_weighted = (0.0002 * 300 + 0.0001 * 100) / 400
+    assert round(by_metric["okx_oi_weighted_funding"], 8) == round(expected_weighted, 8)
+
+
+def test_okx_provider_raises_when_everything_fails():
+    client = _FakeOKXClient()  # empty responses for every symbol
+
+    with pytest.raises(ValueError):
+        okx.OKXMarketProvider(client).fetch_observations()

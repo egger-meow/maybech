@@ -12,14 +12,30 @@ from src.market_intelligence.providers.alternative_me import AlternativeMeProvid
 from src.market_intelligence.providers.base import MarketDataProvider
 from src.market_intelligence.providers.bitcoin_data import BitcoinDataMvrvProvider
 from src.market_intelligence.providers.coingecko import CoinGeckoGlobalProvider
+from src.market_intelligence.providers.defillama import DefiLlamaStablecoinProvider
+from src.market_intelligence.providers.okx import OKXMarketProvider
 from src.market_intelligence.storage.metric_store import MetricStore
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
 
-def default_providers() -> list[MarketDataProvider]:
-    return [AlternativeMeProvider(), BitcoinDataMvrvProvider(), CoinGeckoGlobalProvider()]
+def default_providers(*, exchange_client: Any | None = None) -> list[MarketDataProvider]:
+    """The full canonical provider set.
+
+    ``OKXMarketProvider`` is always included, with or without a live client,
+    so provider-status reporting is complete regardless of which process
+    constructed this service; an unconfigured client just means
+    ``is_configured()`` is False and the service skips actually syncing it
+    (see MarketIntelligenceService.sync_provider).
+    """
+    return [
+        AlternativeMeProvider(),
+        BitcoinDataMvrvProvider(),
+        CoinGeckoGlobalProvider(),
+        DefiLlamaStablecoinProvider(),
+        OKXMarketProvider(exchange_client),
+    ]
 
 
 class MarketIntelligenceService:
@@ -53,6 +69,18 @@ class MarketIntelligenceService:
         """
         now = datetime.now(timezone.utc)
         started_at = now.isoformat()
+        if not provider.is_configured():
+            run = ProviderSyncRun(
+                provider_id=provider.provider_id,
+                started_at=started_at,
+                completed_at=started_at,
+                status="skipped",
+                records_fetched=0,
+                records_stored=0,
+                error_category="not_configured",
+            )
+            self.store.record_sync_run(run)
+            return run
         if not force and not self._due(provider, now=now):
             run = ProviderSyncRun(
                 provider_id=provider.provider_id,
@@ -150,15 +178,27 @@ class MarketIntelligenceService:
         }
 
     def get_provider_status(self) -> list[dict[str, Any]]:
+        """Report each registered provider's health from persisted sync history.
+
+        ``enabled`` deliberately reads the most recent *persisted* run rather
+        than calling ``provider.is_configured()`` on this instance: API
+        requests construct a throwaway ``MarketIntelligenceService()`` with no
+        exchange client, which would always report OKX-scoped providers as
+        disabled regardless of whether the long-running daemon instance is
+        actually configured and syncing them. The shared SQLite history is
+        the one source of truth both instances agree on.
+        """
         statuses: list[dict[str, Any]] = []
         for provider in self.providers:
             recent = self.store.recent_sync_runs(provider.provider_id, limit=20)
             last_success = next((run for run in recent if run.status == "success"), None)
             last_attempt = next((run for run in recent if run.status != "skipped"), None)
+            not_configured = bool(recent) and recent[0].error_category == "not_configured"
             statuses.append(
                 {
                     "provider_id": provider.provider_id,
                     "metrics": list(provider.metric_ids),
+                    "enabled": not not_configured,
                     "last_attempt_at": last_attempt.started_at if last_attempt else None,
                     "last_success_at": last_success.completed_at if last_success else None,
                     "last_error_category": (

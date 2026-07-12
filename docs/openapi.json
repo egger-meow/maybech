@@ -3321,6 +3321,11 @@
             "title": "Consecutive Failures",
             "type": "integer"
           },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
           "last_attempt_at": {
             "anyOf": [
               {

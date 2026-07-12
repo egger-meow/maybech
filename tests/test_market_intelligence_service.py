@@ -4,7 +4,7 @@ import pytest
 
 from src.market_intelligence.models import MetricObservation
 from src.market_intelligence.providers.base import MarketDataProvider, ProviderError
-from src.market_intelligence.service import MarketIntelligenceService
+from src.market_intelligence.service import MarketIntelligenceService, default_providers
 from src.market_intelligence.storage.metric_store import MetricStore
 
 
@@ -13,10 +13,14 @@ class _FakeProvider(MarketDataProvider):
     min_refresh_interval_seconds = 300.0
     metric_ids = ("crypto_fear_greed",)
 
-    def __init__(self, *, observations=None, error=None):
+    def __init__(self, *, observations=None, error=None, configured=True):
         self._observations = observations or []
         self._error = error
+        self._configured = configured
         self.call_count = 0
+
+    def is_configured(self):
+        return self._configured
 
     def fetch_observations(self):
         self.call_count += 1
@@ -164,5 +168,50 @@ def test_get_provider_status_reflects_recent_runs(tmp_path):
 
     assert len(statuses) == 1
     assert statuses[0]["provider_id"] == "fake_provider"
+    assert statuses[0]["enabled"] is True
     assert statuses[0]["last_success_at"] is not None
     assert statuses[0]["consecutive_failures"] == 0
+
+
+def test_sync_provider_skips_unconfigured_provider_without_recording_failure(tmp_path):
+    store = MetricStore(str(tmp_path / "trades.db"))
+    provider = _FakeProvider(configured=False)
+    service = MarketIntelligenceService(store=store, providers=[provider])
+
+    run = service.sync_provider(provider)
+
+    assert run.status == "skipped"
+    assert run.error_category == "not_configured"
+    assert provider.call_count == 0
+    assert service.store.consecutive_failures("fake_provider") == 0
+
+
+def test_get_provider_status_reports_enabled_false_for_unconfigured_provider(tmp_path):
+    store = MetricStore(str(tmp_path / "trades.db"))
+    provider = _FakeProvider(configured=False)
+    service = MarketIntelligenceService(store=store, providers=[provider])
+
+    service.sync_provider(provider)
+    statuses = service.get_provider_status()
+
+    assert statuses[0]["enabled"] is False
+    assert statuses[0]["last_attempt_at"] is None  # a skip is not counted as an attempt
+
+
+def test_default_providers_always_includes_okx_and_defillama_regardless_of_client():
+    without_client = default_providers()
+    with_client = default_providers(exchange_client=object())
+
+    ids_without = {p.provider_id for p in without_client}
+    ids_with = {p.provider_id for p in with_client}
+    assert ids_without == ids_with == {
+        "alternative_me",
+        "bitcoin_data_mvrv",
+        "coingecko_global",
+        "defillama_stablecoins",
+        "okx_market",
+    }
+    okx_provider = next(p for p in without_client if p.provider_id == "okx_market")
+    assert okx_provider.is_configured() is False
+    okx_provider_configured = next(p for p in with_client if p.provider_id == "okx_market")
+    assert okx_provider_configured.is_configured() is True

@@ -46,17 +46,17 @@ An item is necessary only if leaving it unfixed could cause one or more of:
 
 1. Market Intelligence Layer (operator-activated build phase, see
    `docs/market-intelligence.md` for the full feasibility audit and metric
-   catalog). Phase 0 (feasibility audit, metric catalog, provider capability
-   matrix, dead-code cleanup) and Phase 1 (domain models, metric registry,
-   provider base contract, SQLite persistence, freshness/provider-health
-   tracking, typed `/market/metrics`/`/market/series`/`/market/providers/status`
-   endpoints, deterministic tests, verified end-to-end including restart
-   persistence) are complete. Phase 2 (Useful Overview MVP: OKX open interest,
-   DefiLlama stablecoin provider, `/market/overview` regime-pillar UI redesign,
-   historical charts) is next. Acceptance gates for each phase are listed in
-   `docs/market-intelligence.md` and the phase list is only complete once every
-   phase's exit criteria in that plan are met — do not silently return this to
-   the backlog after a partial milestone.
+   catalog). Phase 0 and Phase 1 are complete. Phase 2 backend is complete
+   (OKX price/funding/open-interest provider, DefiLlama stablecoin provider,
+   14 registered metrics total, live-verified against real providers).
+   Remaining for Phase 2: redesign `frontend/app/analysis/overview/page.tsx`
+   around regime pillars using the typed `/market/metrics`/`/market/series`
+   endpoints, add historical charts with timeframe controls, show
+   freshness/source/caveats per metric, and remove the page's current
+   misleading global "auto-refreshes" wording. Acceptance gates for each
+   phase are listed in `docs/market-intelligence.md` and the phase list is
+   only complete once every phase's exit criteria in that plan are met — do
+   not silently return this to the backlog after a partial milestone.
 
 The Position Management / Strategy Management visual pass (motion,
 list-selection rail, collapsible break-even/trailing/audit panels) is
