@@ -183,6 +183,7 @@ def test_manual_open_rejects_instrument_outside_account_allowlist(monkeypatch, t
         max_order_notional_usd=1000,
         max_total_exposure_usd=5000,
         max_leverage=5,
+        max_stop_loss_equity_pct=10,
         allowed_instruments=("BTC-USDT-SWAP",),
     ))
     monkeypatch.setattr("src.api.app.TradeStore", lambda: trade_store)

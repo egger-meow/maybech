@@ -33,6 +33,9 @@ class FakeClient:
     def get_pending_orders(self, **kwargs):
         return []
 
+    def get_balance(self):
+        return [{"totalEq": "1000"}]
+
     def place_limit_order(self, **kwargs):
         self.entry = kwargs
         return {"ordId": "entry-a"}
@@ -89,6 +92,7 @@ def _live_executor(client, tmp_path):
             max_order_notional_usd=Decimal("1000"),
             max_total_exposure_usd=Decimal("10000"),
             max_leverage=Decimal("5"),
+            max_stop_loss_equity_pct=Decimal("10"),
             allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
         )
     )
@@ -116,8 +120,10 @@ def test_live_entry_normalizes_size_and_price_from_okx_metadata(tmp_path):
     executor = _live_executor(client, tmp_path)
     approval = executor.approve_entry(
         inst_id="ETH-USDT-SWAP",
+        side="long",
         requested_size="0.3",
         entry_price=2000.126,
+        stop_loss_price=1900.124,
     )
 
     result = executor.execute(
@@ -180,8 +186,10 @@ def test_live_entry_rejects_missing_or_mismatched_risk_approval(tmp_path):
     executor = _live_executor(client, tmp_path)
     approval = executor.approve_entry(
         inst_id="ETH-USDT-SWAP",
+        side="long",
         requested_size="0.3",
         entry_price=2000,
+        stop_loss_price=1900,
     )
 
     assert executor.execute(
@@ -196,13 +204,38 @@ def test_live_entry_rejects_missing_or_mismatched_risk_approval(tmp_path):
     assert client.entry is None
 
 
+def test_live_entry_rejects_stop_loss_changed_after_approval(tmp_path):
+    client = FakeClient()
+    executor = _live_executor(client, tmp_path)
+    approval = executor.approve_entry(
+        inst_id="ETH-USDT-SWAP",
+        side="long",
+        requested_size="0.3",
+        entry_price=2000,
+        stop_loss_price=1900,
+    )
+
+    assert executor.execute(
+        inst_id="ETH-USDT-SWAP",
+        position_side="long",
+        entry_price=2000,
+        requested_size="0.3",
+        stop_loss_price=1800,
+        client_order_id="entryclient9",
+        risk_approval=approval,
+    ) == {}
+    assert client.entry is None
+
+
 def test_live_entry_risk_approval_is_single_use(tmp_path):
     client = FakeClient()
     executor = _live_executor(client, tmp_path)
     approval = executor.approve_entry(
         inst_id="ETH-USDT-SWAP",
+        side="long",
         requested_size="0.3",
         entry_price=2000,
+        stop_loss_price=1900,
     )
     payload = {
         "inst_id": "ETH-USDT-SWAP",
@@ -224,8 +257,10 @@ def test_live_entry_rejects_approval_from_another_executor(tmp_path):
     other = _live_executor(client, tmp_path)
     approval = other.approve_entry(
         inst_id="ETH-USDT-SWAP",
+        side="long",
         requested_size="0.3",
         entry_price=2000,
+        stop_loss_price=1900,
     )
 
     assert executor.execute(
@@ -246,8 +281,10 @@ def test_live_filled_entry_kills_future_entries_when_active_protection_fails(tmp
     executor = _live_executor(client, tmp_path)
     approval = executor.approve_entry(
         inst_id="ETH-USDT-SWAP",
+        side="long",
         requested_size="0.3",
         entry_price=2000,
+        stop_loss_price=1900,
     )
 
     result = executor.execute(
@@ -277,8 +314,10 @@ def test_fok_partial_fill_cancels_remainder_and_kills_future_entries(tmp_path):
     executor = _live_executor(client, tmp_path)
     approval = executor.approve_entry(
         inst_id="ETH-USDT-SWAP",
+        side="long",
         requested_size="0.3",
         entry_price=2000,
+        stop_loss_price=1900,
     )
 
     result = executor.execute(

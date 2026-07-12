@@ -89,6 +89,10 @@
             "title": "Max Order Notional Usd",
             "type": "number"
           },
+          "max_stop_loss_equity_pct": {
+            "title": "Max Stop Loss Equity Pct",
+            "type": "number"
+          },
           "max_total_exposure_usd": {
             "title": "Max Total Exposure Usd",
             "type": "number"
@@ -103,6 +107,7 @@
           "max_order_notional_usd",
           "max_total_exposure_usd",
           "max_leverage",
+          "max_stop_loss_equity_pct",
           "created_at",
           "updated_at"
         ],
@@ -149,6 +154,12 @@
             "title": "Max Order Notional Usd",
             "type": "number"
           },
+          "max_stop_loss_equity_pct": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "Max Stop Loss Equity Pct",
+            "type": "number"
+          },
           "max_total_exposure_usd": {
             "exclusiveMinimum": 0.0,
             "title": "Max Total Exposure Usd",
@@ -160,7 +171,8 @@
           "enabled",
           "max_order_notional_usd",
           "max_total_exposure_usd",
-          "max_leverage"
+          "max_leverage",
+          "max_stop_loss_equity_pct"
         ],
         "title": "AccountRiskLimitsUpdate",
         "type": "object"

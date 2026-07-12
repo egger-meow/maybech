@@ -1222,6 +1222,9 @@ def create_app(
                     max_order_notional_usd=Decimal(str(payload.max_order_notional_usd)),
                     max_total_exposure_usd=Decimal(str(payload.max_total_exposure_usd)),
                     max_leverage=Decimal(str(payload.max_leverage)),
+                    max_stop_loss_equity_pct=Decimal(
+                        str(payload.max_stop_loss_equity_pct)
+                    ),
                     allowed_instruments=tuple(payload.allowed_instruments),
                 ),
                 connection=connection,
@@ -2683,8 +2686,10 @@ def create_app(
             try:
                 risk_approval = executor.approve_entry(
                     inst_id=metadata.inst_id,
+                    side=payload.side,
                     requested_size=quote.api_quantity_contracts,
                     entry_price=entry_price,
+                    stop_loss_price=float(stop_loss),
                 )
             except Exception as exc:
                 trade_store.mark_trade_failed(

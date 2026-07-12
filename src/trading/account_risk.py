@@ -1,4 +1,14 @@
-"""Persisted account risk limits and fail-closed live entry approval."""
+"""Persisted account risk limits and fail-closed live entry approval.
+
+The envelope's primary invariant is the all-stop loss budget
+(``max_stop_loss_equity_pct``): assuming every open position and the candidate
+entry hit their stop-losses, the combined loss must stay under that percentage
+of current account equity (OKX ``totalEq``). Per-order notional, total
+exposure, and leverage caps remain as secondary bounds, but the budget is what
+rules out any single catastrophic loss — many small losses are survivable, one
+uncapped one is not. The budget excludes fees and stop-market slippage past
+the trigger price, so it should be set with slack for both.
+"""
 
 from __future__ import annotations
 
@@ -26,7 +36,7 @@ from src.trading.sqlite_schema import (
 
 
 _SCHEMA_COMPONENT = "account_risk"
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS account_risk_limits (
     id                         TEXT PRIMARY KEY CHECK (id = 'account'),
@@ -50,6 +60,13 @@ CREATE TABLE IF NOT EXISTS entry_control (
 _SCHEMA_V3 = """
 ALTER TABLE account_risk_limits
 ADD COLUMN allowed_instruments_json TEXT NOT NULL DEFAULT '[]';
+"""
+
+# '0' is deliberately invalid: a pre-v4 envelope stays readable but cannot
+# approve entries or pass preflight until the operator sets a real budget.
+_SCHEMA_V4 = """
+ALTER TABLE account_risk_limits
+ADD COLUMN max_stop_loss_equity_pct TEXT NOT NULL DEFAULT '0';
 """
 
 
@@ -84,6 +101,7 @@ class AccountRiskLimits:
     max_order_notional_usd: Decimal
     max_total_exposure_usd: Decimal
     max_leverage: Decimal
+    max_stop_loss_equity_pct: Decimal
     allowed_instruments: tuple[str, ...] = ()
     entries_enabled: bool = False
     created_at: str = ""
@@ -97,12 +115,17 @@ class AccountRiskLimits:
             self.max_total_exposure_usd, field="max_total_exposure_usd"
         )
         leverage = _decimal(self.max_leverage, field="max_leverage")
+        stop_loss_budget = _decimal(
+            self.max_stop_loss_equity_pct, field="max_stop_loss_equity_pct"
+        )
         if order_limit > total_limit:
             raise ValueError(
                 "max_order_notional_usd cannot exceed max_total_exposure_usd"
             )
         if leverage > Decimal("125"):
             raise ValueError("max_leverage cannot exceed 125")
+        if stop_loss_budget > Decimal("100"):
+            raise ValueError("max_stop_loss_equity_pct cannot exceed 100")
         instruments = tuple(dict.fromkeys(self.allowed_instruments))
         if self.enabled and not instruments:
             raise ValueError("allowed_instruments must not be empty when enabled")
@@ -116,6 +139,7 @@ class AccountRiskLimits:
             "max_order_notional_usd": float(self.max_order_notional_usd),
             "max_total_exposure_usd": float(self.max_total_exposure_usd),
             "max_leverage": float(self.max_leverage),
+            "max_stop_loss_equity_pct": float(self.max_stop_loss_equity_pct),
             "allowed_instruments": list(self.allowed_instruments),
             "entries_enabled": self.entries_enabled,
             "created_at": self.created_at,
@@ -158,6 +182,10 @@ class AccountRiskStore:
             if 3 not in versions:
                 conn.executescript(_SCHEMA_V3)
                 record_schema_version(conn, component=_SCHEMA_COMPONENT, version=3)
+            versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
+            if 4 not in versions:
+                conn.executescript(_SCHEMA_V4)
+                record_schema_version(conn, component=_SCHEMA_COMPONENT, version=4)
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -211,6 +239,13 @@ class AccountRiskStore:
                 row["max_total_exposure_usd"], field="max_total_exposure_usd"
             ),
             max_leverage=_decimal(row["max_leverage"], field="max_leverage"),
+            # allow_zero: a pre-v4 row must stay readable; validate() still
+            # rejects it so entries and preflight remain blocked until set.
+            max_stop_loss_equity_pct=_decimal(
+                row["max_stop_loss_equity_pct"],
+                field="max_stop_loss_equity_pct",
+                allow_zero=True,
+            ),
             allowed_instruments=tuple(json.loads(row["allowed_instruments_json"])),
             entries_enabled=bool(control["entries_enabled"]) if control else False,
             created_at=str(row["created_at"]),
@@ -240,14 +275,15 @@ class AccountRiskStore:
             conn.execute(
                 """INSERT INTO account_risk_limits
                    (id, enabled, max_order_notional_usd,
-                    max_total_exposure_usd, max_leverage, allowed_instruments_json,
-                    created_at, updated_at)
-                   VALUES ('account', ?, ?, ?, ?, ?, ?, ?)
+                    max_total_exposure_usd, max_leverage, max_stop_loss_equity_pct,
+                    allowed_instruments_json, created_at, updated_at)
+                   VALUES ('account', ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                     enabled = excluded.enabled,
                     max_order_notional_usd = excluded.max_order_notional_usd,
                     max_total_exposure_usd = excluded.max_total_exposure_usd,
                     max_leverage = excluded.max_leverage,
+                    max_stop_loss_equity_pct = excluded.max_stop_loss_equity_pct,
                     allowed_instruments_json = excluded.allowed_instruments_json,
                     updated_at = excluded.updated_at""",
                 (
@@ -255,6 +291,7 @@ class AccountRiskStore:
                     str(limits.max_order_notional_usd),
                     str(limits.max_total_exposure_usd),
                     str(limits.max_leverage),
+                    str(limits.max_stop_loss_equity_pct),
                     json.dumps(list(dict.fromkeys(limits.allowed_instruments))),
                     created_at,
                     now,
@@ -277,6 +314,11 @@ class AccountRiskStore:
                     row["max_total_exposure_usd"], field="max_total_exposure_usd"
                 ),
                 max_leverage=_decimal(row["max_leverage"], field="max_leverage"),
+                max_stop_loss_equity_pct=_decimal(
+                    row["max_stop_loss_equity_pct"],
+                    field="max_stop_loss_equity_pct",
+                    allow_zero=True,
+                ),
                 allowed_instruments=tuple(json.loads(row["allowed_instruments_json"])),
                 entries_enabled=bool(control["entries_enabled"]) if control else False,
                 created_at=str(row["created_at"]),
@@ -322,9 +364,14 @@ class EntryRiskApproval:
     inst_id: str
     requested_size: Decimal
     entry_price: Decimal
+    stop_loss_price: Decimal
     order_notional_usd: Decimal
     existing_exposure_usd: Decimal
     projected_exposure_usd: Decimal
+    worst_case_loss_usd: Decimal
+    existing_worst_case_loss_usd: Decimal
+    projected_worst_case_loss_usd: Decimal
+    equity_usd: Decimal
     leverage: Decimal
     approved_at: str
     dry_run: bool = False
@@ -336,11 +383,20 @@ class EntryRiskApproval:
                 payload[key] = float(value)
         return payload
 
-    def matches(self, *, inst_id: str, requested_size: object, entry_price: object) -> bool:
+    def matches(
+        self,
+        *,
+        inst_id: str,
+        requested_size: object,
+        entry_price: object,
+        stop_loss_price: object,
+    ) -> bool:
         return (
             self.inst_id == inst_id
             and self.requested_size == _decimal(requested_size, field="requested_size")
             and self.entry_price == _decimal(entry_price, field="entry_price")
+            and self.stop_loss_price
+            == _decimal(stop_loss_price, field="stop_loss_price")
         )
 
 
@@ -362,8 +418,10 @@ class AccountRiskGuard:
         self,
         *,
         inst_id: str,
+        side: str,
         requested_size: object,
         entry_price: object,
+        stop_loss_price: object,
     ) -> EntryRiskApproval:
         limits = self.store.get()
         if limits is None:
@@ -381,7 +439,21 @@ class AccountRiskGuard:
 
         size = _decimal(requested_size, field="requested_size")
         price = _decimal(entry_price, field="entry_price")
+        normalized_side = str(side).lower()
+        if normalized_side not in {"long", "short"}:
+            raise EntryRiskBlocked("entry side must be 'long' or 'short'")
+        stop_price = _decimal(stop_loss_price, field="stop_loss_price")
+        if normalized_side == "long" and stop_price >= price:
+            raise EntryRiskBlocked(
+                "entry requires a stop loss below the long entry price"
+            )
+        if normalized_side == "short" and stop_price <= price:
+            raise EntryRiskBlocked(
+                "entry requires a stop loss above the short entry price"
+            )
         instrument = self._instrument(inst_id)
+        contract_value = _decimal(instrument.get("ctVal"), field="ctVal")
+        worst_case_loss = abs(price - stop_price) * size * contract_value
         order_notional = self._contract_notional(
             instrument=instrument,
             contracts=size,
@@ -410,7 +482,22 @@ class AccountRiskGuard:
                 "OKX exposure does not reconcile to logical positions: "
                 f"{reconciliation.state}"
             )
-        self._verify_owned_protection(logical_positions)
+        existing_worst_case_loss = self._verify_owned_protection(
+            logical_positions,
+            mark_prices=self._mark_prices(exchange_positions),
+        )
+
+        # The primary envelope invariant: if every stop (existing units plus
+        # this candidate) fires, the combined loss must fit the equity budget.
+        equity = self._account_equity()
+        projected_worst_case_loss = existing_worst_case_loss + worst_case_loss
+        loss_budget = equity * limits.max_stop_loss_equity_pct / Decimal("100")
+        if projected_worst_case_loss > loss_budget:
+            raise EntryRiskBlocked(
+                f"projected all-stop loss {projected_worst_case_loss} USD exceeds "
+                f"{limits.max_stop_loss_equity_pct}% of equity {equity} USD "
+                f"(budget {loss_budget} USD)"
+            )
 
         existing_exposure = (
             self._position_exposure(exchange_positions)
@@ -428,15 +515,28 @@ class AccountRiskGuard:
             inst_id=inst_id,
             requested_size=size,
             entry_price=price,
+            stop_loss_price=stop_price,
             order_notional_usd=order_notional,
             existing_exposure_usd=existing_exposure,
             projected_exposure_usd=projected_exposure,
+            worst_case_loss_usd=worst_case_loss,
+            existing_worst_case_loss_usd=existing_worst_case_loss,
+            projected_worst_case_loss_usd=projected_worst_case_loss,
+            equity_usd=equity,
             leverage=leverage,
             approved_at=datetime.now(timezone.utc).isoformat(),
         )
 
-    def _verify_owned_protection(self, positions: list[Any]) -> None:
+    def _verify_owned_protection(
+        self,
+        positions: list[Any],
+        *,
+        mark_prices: dict[str, Decimal],
+    ) -> Decimal:
+        """Verify every open unit's exchange stop and return their combined
+        worst-case loss in USD (mark price to stop trigger, per unit)."""
         pending_by_instrument: dict[str, list[dict[str, Any]]] = {}
+        worst_case_loss = Decimal("0")
         for position in positions:
             remaining = position.remaining_quantity or position.opened_quantity or 0.0
             if remaining <= 0:
@@ -487,6 +587,47 @@ class AccountRiskGuard:
                 raise EntryRiskBlocked(
                     f"exchange protection is not active for logical position {position.id}"
                 )
+            mark = mark_prices.get(position.inst_id)
+            if mark is None:
+                raise EntryRiskBlocked(
+                    f"OKX reported no mark price for {position.inst_id}; "
+                    "cannot bound the all-stop loss"
+                )
+            stop = _decimal(protection.stop_loss, field="protection stop_loss")
+            quantity = _decimal(remaining, field="remaining quantity")
+            unit_contract_value = _decimal(
+                self._instrument(position.inst_id).get("ctVal"), field="ctVal"
+            )
+            signed_distance = (
+                mark - stop if position.side == "long" else stop - mark
+            )
+            # A stop already past the mark (about to trigger, or locking in
+            # profit) contributes no further loss — but never a credit that
+            # could offset another unit's risk.
+            worst_case_loss += (
+                max(Decimal("0"), signed_distance) * quantity * unit_contract_value
+            )
+        return worst_case_loss
+
+    def _account_equity(self) -> Decimal:
+        rows = self.client.get_balance()
+        if not rows:
+            raise EntryRiskBlocked("OKX returned no account balance")
+        try:
+            return _decimal(rows[0].get("totalEq"), field="account totalEq")
+        except ValueError as exc:
+            raise EntryRiskBlocked(str(exc)) from exc
+
+    @staticmethod
+    def _mark_prices(positions: list[dict[str, Any]]) -> dict[str, Decimal]:
+        marks: dict[str, Decimal] = {}
+        for position in positions:
+            inst_id = str(position.get("instId") or "")
+            value = position.get("markPx")
+            if not inst_id or value in (None, ""):
+                continue
+            marks[inst_id] = _decimal(value, field=f"{inst_id} markPx")
+        return marks
 
     @staticmethod
     def _protection_matches(

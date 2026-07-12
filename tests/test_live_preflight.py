@@ -132,6 +132,7 @@ def _valid_risk(db_path):
             max_order_notional_usd=Decimal("100"),
             max_total_exposure_usd=Decimal("1000"),
             max_leverage=Decimal("5"),
+            max_stop_loss_equity_pct=Decimal("10"),
             allowed_instruments=("ETH-USDT-SWAP",),
         )
     )
@@ -412,6 +413,7 @@ def test_live_preflight_rejects_strategy_target_outside_account_allowlist(
             max_order_notional_usd=Decimal("100"),
             max_total_exposure_usd=Decimal("1000"),
             max_leverage=Decimal("5"),
+            max_stop_loss_equity_pct=Decimal("10"),
             allowed_instruments=("BTC-USDT-SWAP",),
         )
     )

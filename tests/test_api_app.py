@@ -253,6 +253,7 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "max_stop_loss_equity_pct": 10,
             "allowed_instruments": [],
         },
     )
@@ -266,6 +267,7 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "max_stop_loss_equity_pct": 10,
             "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
@@ -277,6 +279,7 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "max_stop_loss_equity_pct": 10,
             "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
@@ -300,6 +303,7 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
             "max_order_notional_usd": 200,
             "max_total_exposure_usd": 1000,
             "max_leverage": 10,
+            "max_stop_loss_equity_pct": 10,
             "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
@@ -316,6 +320,7 @@ def test_api_configures_and_reads_account_risk_limits(monkeypatch, tmp_path):
             "max_order_notional_usd": 150,
             "max_total_exposure_usd": 750,
             "max_leverage": 6,
+            "max_stop_loss_equity_pct": 10,
             "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
@@ -337,6 +342,7 @@ def test_api_requires_confirmation_for_entry_enable_and_kill(monkeypatch, tmp_pa
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "max_stop_loss_equity_pct": 10,
             "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
@@ -376,6 +382,7 @@ def test_risk_limit_update_rolls_back_when_audit_write_fails(monkeypatch, tmp_pa
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "max_stop_loss_equity_pct": 10,
             "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
@@ -392,6 +399,7 @@ def test_risk_limit_update_requires_entries_disabled(monkeypatch, tmp_path):
             max_order_notional_usd=100,
             max_total_exposure_usd=500,
             max_leverage=5,
+            max_stop_loss_equity_pct=10,
             allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
         )
     )
@@ -407,6 +415,7 @@ def test_risk_limit_update_requires_entries_disabled(monkeypatch, tmp_path):
             "max_order_notional_usd": 200,
             "max_total_exposure_usd": 1000,
             "max_leverage": 10,
+            "max_stop_loss_equity_pct": 10,
             "allowed_instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
         },
     )
@@ -423,6 +432,7 @@ def test_risk_limit_update_cannot_orphan_enabled_strategy_target(monkeypatch, tm
             max_order_notional_usd=100,
             max_total_exposure_usd=500,
             max_leverage=5,
+            max_stop_loss_equity_pct=10,
             allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
         )
     )
@@ -444,6 +454,7 @@ def test_risk_limit_update_cannot_orphan_enabled_strategy_target(monkeypatch, tm
             "max_order_notional_usd": 100,
             "max_total_exposure_usd": 500,
             "max_leverage": 5,
+            "max_stop_loss_equity_pct": 10,
             "allowed_instruments": ["BTC-USDT-SWAP"],
         },
     )
@@ -1753,6 +1764,7 @@ def test_api_rejects_strategy_enable_outside_account_allowlist(monkeypatch, tmp_
             max_order_notional_usd=100,
             max_total_exposure_usd=500,
             max_leverage=5,
+            max_stop_loss_equity_pct=10,
             allowed_instruments=("BTC-USDT-SWAP",),
         )
     )

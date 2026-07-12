@@ -87,6 +87,7 @@ def test_simulation_api_market_reads_and_exchange_mutations_never_construct_okx(
         "max_order_notional_usd": 1000,
         "max_total_exposure_usd": 5000,
         "max_leverage": 5,
+        "max_stop_loss_equity_pct": 10,
         "allowed_instruments": ["BTC-USDT-SWAP"],
     })
     strategy = client.post("/strategies", json={

@@ -52,15 +52,19 @@ class Executor:
         self,
         *,
         inst_id: str,
+        side: str,
         requested_size: object,
         entry_price: object,
+        stop_loss_price: object,
     ) -> EntryRiskApproval:
         """Return the approval that a live execute call must present unchanged."""
         if not self.dry_run:
             approval = self.risk_guard.approve_entry(
                 inst_id=inst_id,
+                side=side,
                 requested_size=requested_size,
                 entry_price=entry_price,
+                stop_loss_price=stop_loss_price,
             )
             self._issued_risk_approvals.add(approval.approval_id)
             return approval
@@ -69,9 +73,14 @@ class Executor:
             inst_id=inst_id,
             requested_size=Decimal(str(requested_size)),
             entry_price=Decimal(str(entry_price)),
+            stop_loss_price=Decimal(str(stop_loss_price)),
             order_notional_usd=Decimal("0"),
             existing_exposure_usd=Decimal("0"),
             projected_exposure_usd=Decimal("0"),
+            worst_case_loss_usd=Decimal("0"),
+            existing_worst_case_loss_usd=Decimal("0"),
+            projected_worst_case_loss_usd=Decimal("0"),
+            equity_usd=Decimal("0"),
             leverage=Decimal("0"),
             approved_at=datetime.now(timezone.utc).isoformat(),
             dry_run=True,
@@ -81,20 +90,26 @@ class Executor:
         self,
         *,
         inst_id: str,
+        side: str,
         requested_size: object,
         entry_price: object,
+        stop_loss_price: object,
     ) -> EntryRiskApproval:
         """Run current entry risk checks without issuing a submission approval."""
         if not self.dry_run:
             return self.risk_guard.approve_entry(
                 inst_id=inst_id,
+                side=side,
                 requested_size=requested_size,
                 entry_price=entry_price,
+                stop_loss_price=stop_loss_price,
             )
         return self.approve_entry(
             inst_id=inst_id,
+            side=side,
             requested_size=requested_size,
             entry_price=entry_price,
+            stop_loss_price=stop_loss_price,
         )
 
     def execute(
@@ -142,6 +157,7 @@ class Executor:
                 inst_id=inst_id,
                 requested_size=requested_size,
                 entry_price=entry_price,
+                stop_loss_price=stop_loss_price,
             ):
                 raise PermissionError(
                     "live entry requires a matching fresh account risk approval"

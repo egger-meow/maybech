@@ -249,6 +249,7 @@ def run(db_path: str, *, environment: str = "demo") -> dict:
             max_order_notional_usd=Decimal("25"),
             max_total_exposure_usd=Decimal("25"),
             max_leverage=Decimal("3"),
+            max_stop_loss_equity_pct=Decimal("5"),
             allowed_instruments=(INSTRUMENT,),
         )
     )
@@ -315,8 +316,10 @@ def run(db_path: str, *, environment: str = "demo") -> dict:
         amended_stop = constraints.normalize_price(ask * Decimal("0.94"))
         approval = executor.approve_entry(
             inst_id=INSTRUMENT,
+            side="long",
             requested_size=str(OPEN_SIZE),
             entry_price=limit_price,
+            stop_loss_price=stop_price,
         )
         trade_store.save_trade(
             TradeRecord(

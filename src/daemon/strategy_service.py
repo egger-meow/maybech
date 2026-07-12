@@ -285,10 +285,19 @@ class StrategyService(DaemonService):
             return
         try:
             check_risk = getattr(self.executor, "check_entry_risk")
+            provisional_price = entry_limit_price(strategy, entry_price)
+            provisional_stop, _ = exchange_protection_prices(
+                strategy,
+                self.strategy_store,
+                pair,
+                entry_price=provisional_price,
+            )
             check_risk(
                 inst_id=pair,
+                side=side,
                 requested_size=order_size(strategy, pair) or "",
-                entry_price=entry_limit_price(strategy, entry_price),
+                entry_price=provisional_price,
+                stop_loss_price=provisional_stop,
             )
         except Exception as exc:
             self._audit_delay_block(
@@ -567,10 +576,18 @@ class StrategyService(DaemonService):
 
         try:
             order_price = entry_limit_price(strategy, entry_price)
+            stop_loss_price, take_profit_price = exchange_protection_prices(
+                strategy,
+                self.strategy_store,
+                pair,
+                entry_price=order_price,
+            )
             risk_approval = self.executor.approve_entry(
                 inst_id=pair,
+                side=side,
                 requested_size=requested_size,
                 entry_price=order_price,
+                stop_loss_price=stop_loss_price,
             )
         except Exception as exc:
             decision_entry.update(
@@ -591,13 +608,6 @@ class StrategyService(DaemonService):
 
         decision_entry["risk_approval"] = risk_approval.to_dict()
         decision_entry["order_price"] = order_price
-
-        stop_loss_price, take_profit_price = exchange_protection_prices(
-            strategy,
-            self.strategy_store,
-            pair,
-            entry_price=order_price,
-        )
         try:
             trade, position = self._prepare_open_unit(
                 strategy=strategy,

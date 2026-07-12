@@ -19,7 +19,15 @@ from src.trading.sqlite_schema import configure_connection, initialize_schema, r
 
 class RiskClient:
     def __init__(self):
-        self.positions = [{"instId": "BTC-USDT-SWAP", "pos": "-1", "notionalUsd": "100"}]
+        self.total_equity = "1000"
+        self.positions = [
+            {
+                "instId": "BTC-USDT-SWAP",
+                "pos": "-1",
+                "notionalUsd": "100",
+                "markPx": "100",
+            }
+        ]
         self.pending = [
             {
                 "instId": "ETH-USDT-SWAP",
@@ -68,6 +76,9 @@ class RiskClient:
     def get_leverage(self, *, inst_id, mgn_mode):
         return [{"instId": inst_id, "mgnMode": mgn_mode, "lever": self.leverage}]
 
+    def get_balance(self):
+        return [{"totalEq": self.total_equity}]
+
     def get_positions(self, *, inst_type):
         return self.positions
 
@@ -78,7 +89,15 @@ class RiskClient:
         return [item for item in self.pending_algos if item["instId"] == inst_id]
 
 
-def _store(tmp_path, *, order="50", total="200", leverage="10", enabled=True):
+def _store(
+    tmp_path,
+    *,
+    order="50",
+    total="200",
+    leverage="10",
+    stop_budget="10",
+    enabled=True,
+):
     store = AccountRiskStore(str(tmp_path / "trades.db"))
     store.save(
         AccountRiskLimits(
@@ -86,6 +105,7 @@ def _store(tmp_path, *, order="50", total="200", leverage="10", enabled=True):
             max_order_notional_usd=Decimal(order),
             max_total_exposure_usd=Decimal(total),
             max_leverage=Decimal(leverage),
+            max_stop_loss_equity_pct=Decimal(stop_budget),
             allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
         )
     )
@@ -124,9 +144,10 @@ def test_account_risk_store_persists_one_versioned_envelope(tmp_path):
     assert limits.max_order_notional_usd == Decimal("50")
     assert limits.max_total_exposure_usd == Decimal("200")
     assert limits.max_leverage == Decimal("10")
+    assert limits.max_stop_loss_equity_pct == Decimal("10")
     assert limits.allowed_instruments == ("BTC-USDT-SWAP", "ETH-USDT-SWAP")
     assert limits.entries_enabled is True
-    assert store.applied_schema_versions() == [1, 2, 3]
+    assert store.applied_schema_versions() == [1, 2, 3, 4]
 
 
 def test_account_risk_store_migrates_v2_envelope_to_instrument_allowlist(tmp_path):
@@ -170,9 +191,14 @@ def test_account_risk_store_migrates_v2_envelope_to_instrument_allowlist(tmp_pat
     store = AccountRiskStore(db_path)
     migrated = store.get()
 
-    assert store.applied_schema_versions() == [1, 2, 3]
+    assert store.applied_schema_versions() == [1, 2, 3, 4]
     assert migrated is not None
     assert migrated.allowed_instruments == ()
+    # Migrated rows stay readable but the zero stop-loss budget must not
+    # validate, so entries and preflight remain blocked until it is set.
+    assert migrated.max_stop_loss_equity_pct == Decimal("0")
+    with pytest.raises(ValueError, match="max_stop_loss_equity_pct"):
+        migrated.validate()
 
 
 def test_entry_approval_blocks_instrument_outside_account_allowlist(tmp_path):
@@ -186,6 +212,7 @@ def test_entry_approval_blocks_instrument_outside_account_allowlist(tmp_path):
             max_order_notional_usd=current.max_order_notional_usd,
             max_total_exposure_usd=current.max_total_exposure_usd,
             max_leverage=current.max_leverage,
+            max_stop_loss_equity_pct=current.max_stop_loss_equity_pct,
             allowed_instruments=("BTC-USDT-SWAP",),
         )
     )
@@ -194,22 +221,33 @@ def test_entry_approval_blocks_instrument_outside_account_allowlist(tmp_path):
     with pytest.raises(EntryRiskBlocked, match="outside the account risk allowlist"):
         AccountRiskGuard(RiskClient(), store).approve_entry(
             inst_id="ETH-USDT-SWAP",
+            side="long",
             requested_size="1",
             entry_price="2000",
+            stop_loss_price="1900",
         )
 
 
 def test_entry_approval_counts_positions_pending_entries_and_requested_order(tmp_path):
     approval = AccountRiskGuard(RiskClient(), _store(tmp_path)).approve_entry(
         inst_id="ETH-USDT-SWAP",
+        side="long",
         requested_size="2",
         entry_price="2000",
+        stop_loss_price="1900",
     )
 
     assert approval.order_notional_usd == Decimal("40.00")
     assert approval.existing_exposure_usd == Decimal("138.00")
     assert approval.projected_exposure_usd == Decimal("178.00")
     assert approval.leverage == Decimal("5")
+    # Candidate: |2000-1900| x 2 contracts x 0.01 ctVal = 2 USD.
+    # Existing short unit: stop 110 vs mark 100 x 1 contract x 0.01 = 0.1 USD.
+    assert approval.stop_loss_price == Decimal("1900")
+    assert approval.worst_case_loss_usd == Decimal("2")
+    assert approval.existing_worst_case_loss_usd == Decimal("0.1")
+    assert approval.projected_worst_case_loss_usd == Decimal("2.1")
+    assert approval.equity_usd == Decimal("1000")
 
 
 @pytest.mark.parametrize(
@@ -218,6 +256,9 @@ def test_entry_approval_counts_positions_pending_entries_and_requested_order(tmp
         ({"order": "30"}, None, "order notional"),
         ({"total": "170"}, None, "projected exposure"),
         ({"leverage": "4"}, ("leverage", "5"), "configured leverage"),
+        # Projected all-stop loss is 2.1 USD; 0.2% of 1000 equity = 2 USD.
+        ({"stop_budget": "0.2"}, None, "all-stop loss"),
+        ({}, ("total_equity", "20"), "all-stop loss"),
         ({"enabled": False}, None, "limits are disabled"),
     ],
 )
@@ -231,20 +272,31 @@ def test_entry_approval_blocks_every_risk_limit(
     with pytest.raises(EntryRiskBlocked, match=expected):
         AccountRiskGuard(client, _store(tmp_path, **store_kwargs)).approve_entry(
             inst_id="ETH-USDT-SWAP",
+            side="long",
             requested_size="2",
             entry_price="2000",
+            stop_loss_price="1900",
         )
 
 
 def test_entry_approval_fails_closed_when_exchange_exposure_is_incomplete(tmp_path):
     client = RiskClient()
-    client.positions = [{"instId": "BTC-USDT-SWAP", "pos": "-1", "notionalUsd": ""}]
+    client.positions = [
+        {
+            "instId": "BTC-USDT-SWAP",
+            "pos": "-1",
+            "notionalUsd": "",
+            "markPx": "100",
+        }
+    ]
 
     with pytest.raises(EntryRiskBlocked, match="has no notionalUsd"):
         AccountRiskGuard(client, _store(tmp_path)).approve_entry(
             inst_id="ETH-USDT-SWAP",
+            side="long",
             requested_size="1",
             entry_price="2000",
+            stop_loss_price="1900",
         )
 
 
@@ -257,8 +309,10 @@ def test_entry_approval_blocks_unexplained_exchange_exposure(tmp_path):
     with pytest.raises(EntryRiskBlocked, match="does not reconcile"):
         AccountRiskGuard(client, _store(tmp_path)).approve_entry(
             inst_id="ETH-USDT-SWAP",
+            side="long",
             requested_size="1",
             entry_price="2000",
+            stop_loss_price="1900",
         )
 
 
@@ -269,6 +323,7 @@ def test_entry_approval_rechecks_owned_stop_on_okx(tmp_path):
             "instId": "BTC-USDT-SWAP",
             "pos": "-1",
             "notionalUsd": "100",
+            "markPx": "100",
         }
     ]
     client.pending_algos = []
@@ -277,8 +332,10 @@ def test_entry_approval_rechecks_owned_stop_on_okx(tmp_path):
     with pytest.raises(EntryRiskBlocked, match="protection is not active"):
         AccountRiskGuard(client, store).approve_entry(
             inst_id="ETH-USDT-SWAP",
+            side="long",
             requested_size="1",
             entry_price="2000",
+            stop_loss_price="1900",
         )
 
     client.pending_algos = [
@@ -298,8 +355,10 @@ def test_entry_approval_rechecks_owned_stop_on_okx(tmp_path):
     ]
     approval = AccountRiskGuard(client, store).approve_entry(
         inst_id="ETH-USDT-SWAP",
+        side="long",
         requested_size="1",
         entry_price="2000",
+        stop_loss_price="1900",
     )
     assert approval.inst_id == "ETH-USDT-SWAP"
 
@@ -311,6 +370,7 @@ def test_entry_approval_rejects_protection_quantity_stale_from_logical_unit(tmp_
             "instId": "BTC-USDT-SWAP",
             "pos": "-1",
             "notionalUsd": "100",
+            "markPx": "100",
         }
     ]
     client.pending_algos = [
@@ -337,8 +397,10 @@ def test_entry_approval_rejects_protection_quantity_stale_from_logical_unit(tmp_
     with pytest.raises(EntryRiskBlocked, match="quantity does not match"):
         AccountRiskGuard(client, store).approve_entry(
             inst_id="ETH-USDT-SWAP",
+            side="long",
             requested_size="1",
             entry_price="2000",
+            stop_loss_price="1900",
         )
 
 
@@ -350,6 +412,7 @@ def test_entry_approval_is_disabled_by_default_and_survives_restart(tmp_path):
             max_order_notional_usd=Decimal("50"),
             max_total_exposure_usd=Decimal("200"),
             max_leverage=Decimal("10"),
+            max_stop_loss_equity_pct=Decimal("10"),
             allowed_instruments=("BTC-USDT-SWAP", "ETH-USDT-SWAP"),
         )
     )
@@ -357,6 +420,80 @@ def test_entry_approval_is_disabled_by_default_and_survives_restart(tmp_path):
     with pytest.raises(EntryRiskBlocked, match="disabled by the operator"):
         AccountRiskGuard(RiskClient(), AccountRiskStore(store.db_path)).approve_entry(
             inst_id="ETH-USDT-SWAP",
+            side="long",
             requested_size="1",
             entry_price="2000",
+            stop_loss_price="1900",
+        )
+
+
+@pytest.mark.parametrize(
+    ("side", "stop", "expected"),
+    [
+        ("long", "2000", "stop loss below the long entry price"),
+        ("long", "2100", "stop loss below the long entry price"),
+        ("short", "2000", "stop loss above the short entry price"),
+        ("short", "1900", "stop loss above the short entry price"),
+        ("hold", "1900", "side must be 'long' or 'short'"),
+    ],
+)
+def test_entry_approval_requires_side_consistent_stop_loss(
+    tmp_path, side, stop, expected
+):
+    with pytest.raises(EntryRiskBlocked, match=expected):
+        AccountRiskGuard(RiskClient(), _store(tmp_path)).approve_entry(
+            inst_id="ETH-USDT-SWAP",
+            side=side,
+            requested_size="1",
+            entry_price="2000",
+            stop_loss_price=stop,
+        )
+
+
+def test_entry_approval_fails_closed_without_account_equity(tmp_path):
+    client = RiskClient()
+    client.total_equity = ""
+
+    with pytest.raises(EntryRiskBlocked, match="totalEq"):
+        AccountRiskGuard(client, _store(tmp_path)).approve_entry(
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            requested_size="1",
+            entry_price="2000",
+            stop_loss_price="1900",
+        )
+
+
+def test_entry_approval_fails_closed_without_mark_price_for_open_unit(tmp_path):
+    client = RiskClient()
+    client.positions = [
+        {"instId": "BTC-USDT-SWAP", "pos": "-1", "notionalUsd": "100"}
+    ]
+
+    with pytest.raises(EntryRiskBlocked, match="no mark price"):
+        AccountRiskGuard(client, _store(tmp_path)).approve_entry(
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            requested_size="1",
+            entry_price="2000",
+            stop_loss_price="1900",
+        )
+
+
+def test_stop_already_past_mark_never_offsets_other_units_risk(tmp_path):
+    # The BTC short's stop trigger (110) is below the mark (120), i.e. the
+    # stop is already breached and firing: its remaining loss contribution is
+    # clamped to zero, never a credit. The candidate's own 2 USD loss must
+    # still exhaust a 0.15% x 1000 = 1.5 USD budget and stay blocked.
+    client = RiskClient()
+    client.positions[0]["markPx"] = "120"
+
+    guard = AccountRiskGuard(client, _store(tmp_path, stop_budget="0.15"))
+    with pytest.raises(EntryRiskBlocked, match="all-stop loss"):
+        guard.approve_entry(
+            inst_id="ETH-USDT-SWAP",
+            side="long",
+            requested_size="2",
+            entry_price="2000",
+            stop_loss_price="1900",
         )

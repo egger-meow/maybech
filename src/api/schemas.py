@@ -104,6 +104,7 @@ class AccountRiskLimitsUpdate(BaseModel):
     max_order_notional_usd: float = Field(gt=0)
     max_total_exposure_usd: float = Field(gt=0)
     max_leverage: float = Field(gt=0, le=125)
+    max_stop_loss_equity_pct: float = Field(gt=0, le=100)
     allowed_instruments: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -126,6 +127,7 @@ class AccountRiskLimitsResponse(BaseModel):
     max_order_notional_usd: float
     max_total_exposure_usd: float
     max_leverage: float
+    max_stop_loss_equity_pct: float
     allowed_instruments: list[str] = Field(default_factory=list)
     entries_enabled: bool = False
     created_at: str
