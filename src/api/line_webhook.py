@@ -83,10 +83,19 @@ class LineWebhookHandler:
                 return await self._strategies_reply()
             if parsed.name in {"enable", "disable"}:
                 return await self._toggle_strategy(parsed.arg, enable=parsed.name == "enable")
+            if parsed.name == "mute":
+                return self._mute_last_repeat_reply()
         except Exception:
             logger.exception("LINE bot command failed: %s", parsed.name)
             return GENERIC_FAILURE_REPLY
         return HELP_TEXT
+
+    def _mute_last_repeat_reply(self) -> str:
+        muted = self.line.mute_last_repeat()
+        if not muted:
+            return "目前沒有重複通知可以停止。"
+        self._record_audit_event("line_bot.repeat_muted", {})
+        return "已停止這則通知重複發送；換內容的話還是會通知你。"
 
     async def _call(
         self, method: str, path: str, json_body: dict[str, Any] | None = None

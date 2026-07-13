@@ -8,10 +8,10 @@ Configure in .env — leave EMAIL_SENDER blank to disable.
 import logging
 import re
 import smtplib
-import time
 from email.mime.text import MIMEText
 
 from src.config.settings import settings
+from src.notifications.repeat_cooldown import RepeatCooldownTracker
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +21,8 @@ class EmailNotifier:
 
     def __init__(self) -> None:
         self.last_error = ""
-        self.cooldown_seconds = max(0, settings.NOTIFICATION_COOLDOWN_SECONDS)
-        self._sent_at: dict[str, float] = {}
+        self.suppressed_by_cooldown = False
+        self._cooldown = RepeatCooldownTracker(max(0, settings.NOTIFICATION_COOLDOWN_SECONDS))
         self.enabled = bool(
             settings.EMAIL_SENDER
             and settings.EMAIL_PASSWORD
@@ -34,6 +34,7 @@ class EmailNotifier:
 
         Does nothing if email credentials are not configured.
         """
+        self.suppressed_by_cooldown = False
         if not self.enabled:
             return False
         fingerprint = re.sub(
@@ -41,10 +42,9 @@ class EmailNotifier:
             " ",
             f"{subject}\n{body}".strip(),
         ).casefold()
-        now = time.monotonic()
-        last_sent = self._sent_at.get(fingerprint)
-        if last_sent is not None and now - last_sent < self.cooldown_seconds:
+        if not self._cooldown.ready(fingerprint):
             logger.info("Equivalent email notification suppressed by cooldown.")
+            self.suppressed_by_cooldown = True
             return False
         message = MIMEText(body, _charset="utf-8")
         message["Subject"] = subject
@@ -63,7 +63,7 @@ class EmailNotifier:
                     [settings.EMAIL_RECEIVER],
                     message.as_string(),
                 )
-            self._sent_at[fingerprint] = now
+            self._cooldown.record_sent(fingerprint)
             self.last_error = ""
             logger.info("Email notification sent successfully.")
             return True

@@ -342,3 +342,32 @@ def test_email_notifier_sends_once_with_equivalent_message_cooldown():
     assert first is True
     assert duplicate is False
     smtp.sendmail.assert_called_once()
+
+
+def test_email_notifier_escalates_gap_for_a_persistently_repeating_message():
+    with patch("src.notifications.email_alert.settings") as mocked_settings:
+        mocked_settings.NOTIFICATION_COOLDOWN_SECONDS = 100
+        mocked_settings.EMAIL_SENDER = "sender@example.com"
+        mocked_settings.EMAIL_PASSWORD = "app-password"
+        mocked_settings.EMAIL_RECEIVER = "receiver@example.com"
+        mocked_settings.EMAIL_SMTP_HOST = "smtp.example.com"
+        mocked_settings.EMAIL_SMTP_PORT = 587
+        smtp = MagicMock()
+        smtp.__enter__.return_value = smtp
+        clock = {"t": 0.0}
+        with patch("src.notifications.email_alert.smtplib.SMTP", return_value=smtp), patch(
+            "src.notifications.repeat_cooldown.time.monotonic",
+            side_effect=lambda: clock["t"],
+        ):
+            notifier = EmailNotifier()
+            for clock["t"] in (0, 100, 200):
+                assert notifier.send("Maybech｜執行環境／安全失敗", "錯誤：OKX timeout") is True
+
+            # A 4th identical alert right at the plain 100s cooldown is still
+            # suppressed; the gap has escalated to 200s (100 * 2) by now.
+            clock["t"] = 300
+            assert notifier.send("Maybech｜執行環境／安全失敗", "錯誤：OKX timeout") is False
+            clock["t"] = 400
+            assert notifier.send("Maybech｜執行環境／安全失敗", "錯誤：OKX timeout") is True
+
+    assert smtp.sendmail.call_count == 4

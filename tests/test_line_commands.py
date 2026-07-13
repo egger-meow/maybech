@@ -21,3 +21,11 @@ def test_parse_unrecognized_text_returns_none():
     assert parse_command("hello there") is None
     assert parse_command("") is None
     assert parse_command("   ") is None
+
+
+def test_parse_mute_command_and_its_aliases():
+    assert parse_command("mute") == ParsedCommand("mute")
+    assert parse_command("閉嘴") == ParsedCommand("mute")
+    assert parse_command("幹你娘閉嘴") == ParsedCommand("mute")
+    assert parse_command("SHUTUP") == ParsedCommand("mute")
+    assert parse_command("stfu") == ParsedCommand("mute")

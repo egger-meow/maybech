@@ -16,11 +16,19 @@ pytestmark = pytest.mark.asyncio
 
 
 class FakeLineNotifier:
-    def __init__(self) -> None:
+    def __init__(self, *, has_repeat_to_mute: bool = False) -> None:
         self.replies: list[tuple[str, str]] = []
+        self._has_repeat_to_mute = has_repeat_to_mute
+        self.muted = False
 
     def reply(self, reply_token: str, message: str) -> bool:
         self.replies.append((reply_token, message))
+        return True
+
+    def mute_last_repeat(self) -> bool:
+        if not self._has_repeat_to_mute:
+            return False
+        self.muted = True
         return True
 
 
@@ -44,7 +52,7 @@ def _text_event(*, user_id: str, text: str, reply_token: str = "reply-token") ->
     )
 
 
-def _make_handler(tmp_path, monkeypatch):
+def _make_handler(tmp_path, monkeypatch, *, has_repeat_to_mute: bool = False):
     db_path = str(tmp_path / "trades.db")
     # app.py resolves each store with no args (settings.MAYBECH_DB_PATH default),
     # which would otherwise hit whatever real trades.db the developer has
@@ -63,7 +71,7 @@ def _make_handler(tmp_path, monkeypatch):
     )
     app = create_app(DaemonRunner(), api_token="")
     audit_store = AuditEventStore(db_path)
-    line = FakeLineNotifier()
+    line = FakeLineNotifier(has_repeat_to_mute=has_repeat_to_mute)
     handler = LineWebhookHandler(
         app=app,
         api_token="",
@@ -186,3 +194,23 @@ async def test_enable_command_without_argument_asks_for_id(tmp_path, monkeypatch
     await handler.handle_event(_text_event(user_id="U_AUTH", text="enable"))
 
     assert "請提供策略 ID" in line.replies[0][1]
+
+
+async def test_mute_command_mutes_the_last_repeat_and_is_audited(tmp_path, monkeypatch):
+    handler, line, audit_store, _ = _make_handler(tmp_path, monkeypatch, has_repeat_to_mute=True)
+
+    await handler.handle_event(_text_event(user_id="U_AUTH", text="幹你娘閉嘴"))
+
+    assert line.muted is True
+    assert "已停止" in line.replies[0][1]
+    assert len(audit_store.list(event_type="line_bot.repeat_muted")) == 1
+
+
+async def test_mute_command_with_nothing_to_mute_replies_accordingly(tmp_path, monkeypatch):
+    handler, line, audit_store, _ = _make_handler(tmp_path, monkeypatch, has_repeat_to_mute=False)
+
+    await handler.handle_event(_text_event(user_id="U_AUTH", text="mute"))
+
+    assert line.muted is False
+    assert "目前沒有重複通知" in line.replies[0][1]
+    assert audit_store.list(event_type="line_bot.repeat_muted") == []

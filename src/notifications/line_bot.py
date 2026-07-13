@@ -34,7 +34,6 @@ No webhook server is needed for push-only notifications.
 
 import logging
 import re
-import time
 from linebot.v3.messaging import (
     MessagingApi,
     ApiClient,
@@ -45,6 +44,7 @@ from linebot.v3.messaging import (
 )
 
 from src.config.settings import settings
+from src.notifications.repeat_cooldown import RepeatCooldownTracker
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +54,9 @@ class LineBotNotifier:
 
     def __init__(self) -> None:
         self.last_error = ""
-        self.cooldown_seconds = max(0, settings.NOTIFICATION_COOLDOWN_SECONDS)
-        self._sent_at: dict[str, float] = {}
+        self.suppressed_by_cooldown = False
+        self._cooldown = RepeatCooldownTracker(max(0, settings.NOTIFICATION_COOLDOWN_SECONDS))
+        self._last_fingerprint: str | None = None
         self.enabled = bool(
             settings.LINE_CHANNEL_ACCESS_TOKEN
             and settings.LINE_CHANNEL_SECRET
@@ -79,14 +80,14 @@ class LineBotNotifier:
 
         Returns True on success, False otherwise.
         """
+        self.suppressed_by_cooldown = False
         if not self.enabled:
             return False
 
         fingerprint = re.sub(r"\s+", " ", message.strip()).casefold()
-        now = time.monotonic()
-        last_sent = self._sent_at.get(fingerprint)
-        if last_sent is not None and now - last_sent < self.cooldown_seconds:
+        if not self._cooldown.ready(fingerprint):
             logger.info("Equivalent LINE notification suppressed by cooldown.")
+            self.suppressed_by_cooldown = True
             return False
 
         try:
@@ -95,7 +96,8 @@ class LineBotNotifier:
                 messages=[TextMessage(text=message)]
             )
             self._api.push_message(request)
-            self._sent_at[fingerprint] = now
+            self._cooldown.record_sent(fingerprint)
+            self._last_fingerprint = fingerprint
             self.last_error = ""
             logger.info("LINE message sent successfully.")
             return True
@@ -104,6 +106,18 @@ class LineBotNotifier:
             logger.error(f"Failed to send LINE message: {e}")
             self.last_error = type(e).__name__
             return False
+
+    def mute_last_repeat(self) -> bool:
+        """Stop the most recently delivered message from repeating again.
+
+        Scoped to the exact message content (not the whole channel), so an
+        unrelated later alert still comes through normally. Returns False if
+        nothing has been sent yet this process to mute.
+        """
+        if self._last_fingerprint is None:
+            return False
+        self._cooldown.mute(self._last_fingerprint)
+        return True
 
     def reply(self, reply_token: str, message: str) -> bool:
         """Reply to an inbound message using its reply token (valid ~1 minute).
