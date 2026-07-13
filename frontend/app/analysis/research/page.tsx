@@ -1,18 +1,27 @@
 "use client";
 
-import { AlertTriangle, BarChart3, Database, ShieldAlert } from "lucide-react";
+import { AlertTriangle, BarChart3, Clock, Database, ShieldAlert } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
 import InstrumentSelector from "@/components/InstrumentSelector";
 import KlineChart, { type KlineChartOverlay } from "@/components/KlineChart";
-import { getMarketCandles, getRiskLimits, getSupportResistanceAnalysis, listInstruments, listLogicalPositions, listStrategies, promotePositionRiskStop, promoteStrategyRiskStop, quoteInstrumentRisk, type InstrumentRiskQuoteRequest, type SupportResistanceAnalysisResponse } from "@/lib/api";
+import LineChart, { fullDateTime, shortDate, type ChartPoint } from "@/components/LineChart";
+import { getMarketCandles, getOpenInterestHistory, getRiskLimits, getSupportResistanceAnalysis, listInstruments, listLogicalPositions, listStrategies, promotePositionRiskStop, promoteStrategyRiskStop, quoteInstrumentRisk, type InstrumentRiskQuoteRequest, type SupportResistanceAnalysisResponse } from "@/lib/api";
 import { DEFAULT_ENTRY_FEE_PERCENT, DEFAULT_EXIT_FEE_PERCENT } from "@/lib/fee-defaults";
 import { formatPrice } from "@/lib/price-format";
 
 const bars = ["1m", "5m", "15m", "1H", "4H", "1D"];
+const OI_PERIODS: { key: string; label: string }[] = [
+  { key: "5m", label: "5 分鐘" },
+  { key: "1H", label: "1 小時" },
+  { key: "1D", label: "1 天" },
+];
+const OI_HISTORY_LIMIT = 200;
 const format = (value: number | null | undefined, digits = 2) => value == null || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("zh-TW", { maximumFractionDigits: digits }).format(value);
+const compactUsd = (value: number): string => new Intl.NumberFormat("zh-TW", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 }).format(value);
+const compactNumber = (value: number): string => new Intl.NumberFormat("zh-TW", { notation: "compact", maximumFractionDigits: 2 }).format(value);
 const evidenceNumber = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
 const researchStateLabel = (s?: string | null) => ({
   proposed: "建議",
@@ -83,6 +92,11 @@ function useSessionNumberState(key: string, fallback: number | null) {
     }
   }, [key, value]);
   return [value, setValue] as const;
+}
+
+function useSessionBooleanState(key: string, fallback: boolean) {
+  const [value, setValue] = useSessionChoiceState(key, fallback ? "on" : "off", ["on", "off"] as const);
+  return [value === "on", (next: boolean) => setValue(next ? "on" : "off")] as const;
 }
 
 function RiskSizing({ instrument, bar, latestPrice, selectedStop, selectedLevel, analysisState, evaluatedAt, entryFeePct, exitFeePct, slippagePct, pricePrecision, onPreview }: { instrument: string; bar: string; latestPrice?: number | null; selectedStop?: number | null; selectedLevel?: ResearchLevel | null; analysisState: string; evaluatedAt?: string; entryFeePct: string; exitFeePct: string; slippagePct: string; pricePrecision?: number | null; onPreview?: (preview: { entry: number; stop: number } | null) => void }) {
@@ -181,24 +195,34 @@ function AnalysisResearchContent() {
   const [exitFeePct, setExitFeePct] = useSessionTextState("maybech.analysis.exitFeePct", DEFAULT_EXIT_FEE_PERCENT);
   const [slippagePct, setSlippagePct] = useSessionTextState("maybech.analysis.slippagePct", "0.05");
   const [riskPreview, setRiskPreview] = useState<{ entry: number; stop: number } | null>(null);
+  const [showLevels, setShowLevels] = useSessionBooleanState("maybech.analysis.showLevels", true);
+  const [showOI, setShowOI] = useSessionBooleanState("maybech.analysis.showOI", false);
+  const [oiPeriod, setOiPeriod] = useSessionChoiceState("maybech.analysis.oiPeriod", "1H", OI_PERIODS.map((p) => p.key));
   const limit = 200;
   const catalog = useSWR("instrument-metadata", listInstruments);
   const risk = useSWR("risk-limits", getRiskLimits);
   const analysis = useSWR(["support-resistance", instrument, bar], () => getSupportResistanceAnalysis(instrument, { bar, limit }), { refreshInterval: 30_000 });
   const candles = useSWR(["analysis-candles", instrument, bar], () => getMarketCandles(instrument, { bar, limit }), { refreshInterval: 30_000 });
+  const oiHistory = useSWR(showOI && instrument ? ["open-interest-history", instrument, oiPeriod] : null, () => getOpenInterestHistory(instrument, { period: oiPeriod, limit: OI_HISTORY_LIMIT }), { refreshInterval: 60_000 });
+  const oiPoints = oiHistory.data?.points ?? [];
+  const latestOi = oiPoints[oiPoints.length - 1];
+  const oiChartPoints: ChartPoint[] = oiPoints.map((point) => ({ value: point.oi_usd, shortLabel: shortDate(point.observed_at), fullLabel: fullDateTime(point.observed_at) }));
   const sortedLevels = useMemo(() => [...(analysis.data?.levels ?? [])].sort((a, b) => b.score - a.score), [analysis.data?.levels]);
   const selectedLevel = sortedLevels.find((level) => level.price === selectedStop) ?? null;
   const submit = (event: FormEvent) => { event.preventDefault(); const next = draft.trim().toUpperCase(); if (next) { setInstrument(next); setSelectedStop(null); setRiskPreview(null); } };
   const stateClass = analysis.data?.freshness.stale ? "stale" : analysis.data?.status ?? "unavailable";
   const chartOverlays = useMemo(() => {
-    const topLevels = sortedLevels.slice(0, 6);
-    const shown = selectedLevel && !topLevels.some((level) => level.price === selectedLevel.price) ? [...topLevels, selectedLevel] : topLevels;
-    const overlays: KlineChartOverlay[] = shown.map((level) => ({
-      kind: level.price === selectedStop ? "selected_level" : level.kind,
-      price: level.price,
-      label: `${level.kind === "support" ? "支撐" : "壓力"} ${format(level.score * 100, 0)}%`,
-      evidenceScore: level.score,
-    }));
+    const overlays: KlineChartOverlay[] = [];
+    if (showLevels) {
+      const topLevels = sortedLevels.slice(0, 6);
+      const shown = selectedLevel && !topLevels.some((level) => level.price === selectedLevel.price) ? [...topLevels, selectedLevel] : topLevels;
+      overlays.push(...shown.map((level) => ({
+        kind: level.price === selectedStop ? "selected_level" : level.kind,
+        price: level.price,
+        label: `${level.kind === "support" ? "支撐" : "壓力"} ${format(level.score * 100, 0)}%`,
+        evidenceScore: level.score,
+      })));
+    }
     if (analysis.data?.latest_price != null) {
       overlays.push({ kind: "current", price: analysis.data.latest_price, label: "目前價" });
     }
@@ -207,7 +231,7 @@ function AnalysisResearchContent() {
       overlays.push({ kind: "stop_loss", price: riskPreview.stop, label: "風險試算停損" });
     }
     return overlays;
-  }, [sortedLevels, selectedLevel, selectedStop, riskPreview, analysis.data]);
+  }, [showLevels, sortedLevels, selectedLevel, selectedStop, riskPreview, analysis.data]);
   const klineChart = useMemo(() => ({
     inst_id: instrument,
     bar,
@@ -216,7 +240,7 @@ function AnalysisResearchContent() {
     overlays: chartOverlays,
   }), [instrument, bar, candles.data, chartOverlays]);
   return <>
-    <section className="panel"><form onSubmit={submit} className="analysis-form"><div className="field"><span>OKX 商品</span><InstrumentSelector instruments={catalog.data?.items ?? []} stale={catalog.data?.stale ?? true} value={draft ? [draft] : []} onChange={(next) => setDraft(next[0] ?? "")} eligibleInstruments={risk.data?.allowed_instruments} /><small>可研究所有快取 SWAP；不在 allowlist 的商品不可推廣為實盤策略。</small></div><label className="field"><span>時間週期</span><select value={bar} onChange={(event) => setBar(event.target.value)}>{bars.map((item) => <option key={item}>{item}</option>)}</select></label><button className="btn btn-primary" type="submit" disabled={!draft || !catalog.data || catalog.data.stale}><BarChart3 size={16} /> 分析</button></form></section>
+    <section className="panel"><form onSubmit={submit} className="analysis-form"><div className="field"><span>OKX 商品</span><InstrumentSelector instruments={catalog.data?.items ?? []} stale={catalog.data?.stale ?? true} value={draft ? [draft] : []} onChange={(next) => setDraft(next[0] ?? "")} eligibleInstruments={risk.data?.allowed_instruments} /><small>可研究所有快取 SWAP；不在 allowlist 的商品不可推廣為實盤策略。</small></div><label className="field"><span>時間週期</span><select value={bar} onChange={(event) => setBar(event.target.value)}>{bars.map((item) => <option key={item}>{item}</option>)}</select></label><div className="field"><span>圖表顯示項目</span><div className="chart-toggle-options"><label><input type="checkbox" checked={showLevels} onChange={(event) => setShowLevels(event.target.checked)} /> 支撐壓力層級</label><label><input type="checkbox" checked={showOI} onChange={(event) => setShowOI(event.target.checked)} /> 未平倉量子圖</label></div><small>避免圖表過於雜亂，可自行選擇要疊加或另開子圖的資料。</small></div><button className="btn btn-primary" type="submit" disabled={!draft || !catalog.data || catalog.data.stale}><BarChart3 size={16} /> 分析</button></form></section>
     {catalog.error && <div className="error-state"><AlertTriangle size={17} />商品快取無法使用；市場分析不接受未驗證的自由輸入。</div>}
     {analysis.error && <div className="error-state"><AlertTriangle size={17} />分析 API 無法連線；目前沒有可安全採用的證據。</div>}
     {analysis.isLoading && <div className="loading-state">正在取得 K 線並計算研究證據…</div>}
@@ -227,14 +251,37 @@ function AnalysisResearchContent() {
       <section className="analysis-metrics"><article className="panel"><Database size={20} /><small>可用 / 輸入 K 線</small><strong>{analysis.data.quality.usable_candles} / {analysis.data.quality.input_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>研究層級</small><strong>{sortedLevels.length}</strong></article><article className="panel"><ShieldAlert size={20} /><small>缺漏 / 重複</small><strong>{analysis.data.quality.missing_candles} / {analysis.data.quality.duplicate_candles}</strong></article><article className="panel"><BarChart3 size={20} /><small>ATR 波動</small><strong>{formatPrice(analysis.data.volatility_atr, analysis.data.price_precision)}</strong></article></section>
       <div className="analysis-chart-layout">
         <section className="panel analysis-chart-panel">
-          <div className="panel-heading"><div><h2><BarChart3 size={20} /> K 線與研究層級</h2><p>支撐（綠）／壓力（紅）依證據分數標示；圓圈大小反映證據分數；選取的層級以藍色標出；風險試算的進場與停損會即時疊圖顯示。</p></div></div>
-          {candles.error ? <div className="error-state">K 線圖不可用。</div> : !candles.data ? <div className="loading-state">正在繪製 K 線…</div> : <KlineChart chart={klineChart} pricePrecision={analysis.data.price_precision} showLegend={false} ariaLabel={`${instrument} 支撐壓力研究 K 線`} />}
+          <div className="panel-heading"><div><h2><BarChart3 size={20} /> K 線研究</h2><p>支撐（綠）／壓力（紅）依證據分數標示；圓圈大小反映證據分數；選取的層級以藍色標出；風險試算的進場與停損會即時疊圖顯示；上方可勾選要疊加或另開子圖的資料。</p></div></div>
+          {candles.error ? <div className="error-state">K 線圖不可用。</div> : !candles.data ? <div className="loading-state">正在繪製 K 線…</div> : <KlineChart chart={klineChart} pricePrecision={analysis.data.price_precision} showLegend={false} ariaLabel={`${instrument} K 線研究`} />}
         </section>
         <section className="panel analysis-levels-panel">
           <div className="panel-heading"><div><h2>層級證據</h2><p>選取結構失效層級作為停損錨點；失效、衝突或過期證據會進入人工檢查且不可推廣。</p></div></div>
           <div className="analysis-levels">{sortedLevels.map((level) => <ResearchLevelCard key={`${level.kind}-${level.price}`} level={level} selected={selectedStop === level.price} onSelect={() => setSelectedStop(selectedStop === level.price ? null : level.price)} pricePrecision={analysis.data?.price_precision} />)}{!sortedLevels.length && <div className="empty-state">目前資料沒有形成可顯示的研究層級。</div>}</div>
         </section>
       </div>
+      {showOI && (
+        <section className="panel macro-card">
+          <div className="panel-heading">
+            <div><h2><BarChart3 size={17} /> 未平倉量子圖</h2><p>OKX 未平倉歷史資料，僅供市場脈絡參考，非交易訊號，也不會自動觸發任何倉位操作。</p></div>
+            <div className="segmented" role="group" aria-label="未平倉時間週期">
+              {OI_PERIODS.map((option) => <button key={option.key} type="button" className={option.key === oiPeriod ? "selected" : ""} onClick={() => setOiPeriod(option.key)}>{option.label}</button>)}
+            </div>
+          </div>
+          {oiHistory.error && <div className="error-state">未平倉歷史資料無法取得。</div>}
+          {oiHistory.isLoading && <div className="loading-state">正在取得未平倉歷史資料…</div>}
+          {oiHistory.data?.unavailable_reason && <div className="empty-state"><AlertTriangle size={16} />{oiHistory.data.unavailable_reason}</div>}
+          {!oiHistory.isLoading && !oiHistory.data?.unavailable_reason && (latestOi ? <>
+            <div className="metric-grid pillar-metric-grid">
+              <div><small>最新未平倉量（USD）</small><strong>{compactUsd(latestOi.oi_usd)}</strong></div>
+              <div><small>最新未平倉量（結算貨幣）</small><strong>{compactNumber(latestOi.oi_ccy)}</strong></div>
+              <div><small>最新未平倉張數</small><strong>{compactNumber(latestOi.oi_contracts)}</strong></div>
+            </div>
+            {oiChartPoints.length > 1 ? <LineChart points={oiChartPoints} ariaLabel={`${instrument} open interest history`} valueFormat={compactUsd} /> : <p className="macro-hint">目前週期下資料點不足以繪製圖表，可嘗試切換時間週期。</p>}
+            <small className="macro-as-of"><Clock size={12} /> 最新資料時間：{fullDateTime(latestOi.observed_at)}</small>
+            <small className="macro-as-of">來源：OKX open-interest-history（範圍：{instrument}） · OKX 官方歷史資料，非 Maybech 自行累積。</small>
+          </> : <div className="empty-state">此商品目前沒有可用的未平倉歷史資料。</div>)}
+        </section>
+      )}
       <div className="analysis-boundary"><ShieldAlert size={18} /><div><strong>研究與實盤隔離</strong><p>這些標記不能直接送出訂單，也不會靜默建立平倉規則。實盤價格邏輯必須另行儲存為有版本保護的策略或邏輯部位規則。</p></div></div>
     </>}
     {analysis.data && <RiskCostAssumptions entryFeePct={entryFeePct} exitFeePct={exitFeePct} slippagePct={slippagePct} onEntryFee={setEntryFeePct} onExitFee={setExitFeePct} onSlippage={setSlippagePct} />}
