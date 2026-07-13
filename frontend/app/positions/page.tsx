@@ -21,6 +21,7 @@ import {
   deleteLogicalPositionCloseCondition,
   getLogicalPositionChart,
   getAccountSnapshot,
+  getEntryControl,
   getInstrumentLeverage,
   getLivePreflight,
   getRiskLimits,
@@ -94,6 +95,7 @@ function stale(timestamp?: string): boolean {
 
 function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }: { catalog: InstrumentMetadataResponse[]; catalogStale: boolean; allowedInstruments?: string[]; onCreated: (positionId: string) => Promise<unknown> }) {
   const preflight = useSWR("runtime-preflight", getLivePreflight);
+  const entries = useSWR("entry-control", getEntryControl, { refreshInterval: 10_000 });
   const [instrument, setInstrument] = useState("");
   const [side, setSide] = useState<"long" | "short">("long");
   const [sizeMode, setSizeMode] = useState<"coin" | "usdt" | "risk">("coin");
@@ -187,7 +189,7 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   const isSimulation = preflight.data?.execution_mode === "simulation";
   const isDemo = preflight.data?.execution_mode === "demo";
   const isLiveArmed = preflight.data?.execution_mode === "live_armed";
-  const liveArmedReady = isLiveArmed && Boolean(preflight.data?.armed) && Boolean(preflight.data?.entries_enabled);
+  const liveArmedReady = isLiveArmed && Boolean(preflight.data?.armed) && Boolean(entries.data?.entries_enabled) && Boolean(entries.data?.process_entry_enabled);
   const allowed = isSimulation || isDemo || liveArmedReady;
   // Risk mode's size was calculated against quote_risk's tick-aligned stop_price,
   // not necessarily the exact value typed — submitting the raw typed stop instead

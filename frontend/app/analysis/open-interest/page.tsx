@@ -30,7 +30,7 @@ const compactNumber = (value: number): string =>
 function readSessionValue(key: string, fallback: string, forceFallback = false) {
   if (forceFallback || typeof window === "undefined") return fallback;
   try {
-    return sessionStorage.getItem(key) ?? fallback;
+    return sessionStorage.getItem(key) || fallback;
   } catch {
     return fallback;
   }
@@ -88,7 +88,7 @@ function OpenInterestContent() {
 
   const catalog = useSWR("instrument-metadata", listInstruments);
   const historyQuery = useSWR(
-    ["open-interest-history", instrument, period],
+    instrument ? ["open-interest-history", instrument, period] : null,
     () => getOpenInterestHistory(instrument, { period, limit: HISTORY_LIMIT }),
     { refreshInterval: 60_000 },
   );
@@ -141,8 +141,9 @@ function OpenInterestContent() {
       </section>
 
       {catalog.error && <div className="error-state">商品快取無法使用；未平倉走勢不接受未驗證的自由輸入。</div>}
-      {historyQuery.error && <div className="error-state">未平倉歷史資料無法取得。</div>}
-      {historyQuery.isLoading && <div className="loading-state">正在取得未平倉歷史資料…</div>}
+      {!instrument && <div className="empty-state">先選擇 OKX 交易商品以顯示未平倉走勢。</div>}
+      {instrument && historyQuery.error && <div className="error-state">未平倉歷史資料無法取得。</div>}
+      {instrument && historyQuery.isLoading && <div className="loading-state">正在取得未平倉歷史資料…</div>}
 
       {historyQuery.data?.unavailable_reason && (
         <div className="empty-state">
@@ -151,7 +152,7 @@ function OpenInterestContent() {
         </div>
       )}
 
-      {!historyQuery.isLoading && !historyQuery.data?.unavailable_reason && (
+      {instrument && !historyQuery.isLoading && !historyQuery.data?.unavailable_reason && (
         <section className="panel macro-card">
           <div className="panel-heading">
             <h2>

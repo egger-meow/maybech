@@ -70,10 +70,16 @@ class FakeAccountApi:
         return {"code": "0", "data": [{"lever": "5"}]}
 
 
+class _FakeTransport:
+    def close(self):
+        pass
+
+
 class FakePublicApi:
     def __init__(self):
         self.kwargs = None
         self.request_args = None
+        self._transport = _FakeTransport()
 
     def get_instruments(self, **kwargs):
         self.kwargs = kwargs

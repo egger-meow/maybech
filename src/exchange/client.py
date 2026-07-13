@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 
+import httpx
 import okx.Account as Account
 import okx.MarketData as MarketData
 import okx.PublicData as PublicData
@@ -19,6 +20,22 @@ from okx.consts import CONTRACTS_OPEN_INTEREST_HISTORY, GET
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _force_ipv4(client: httpx.Client) -> httpx.Client:
+    """Rebind an okx-SDK httpx.Client to an IPv4-only transport.
+
+    The `python-okx` SDK builds its own `httpx.Client` internally and does
+    not expose a way to inject a transport, so this replaces the private
+    `_transport` it constructs right after init (before any request is
+    made). `local_address="0.0.0.0"` makes httpx/httpcore skip IPv6 entries
+    from getaddrinfo, which otherwise get picked under Windows' Happy
+    Eyeballs ordering — and OKX's IP whitelist only has our IPv4 address.
+    """
+    old_transport = client._transport  # noqa: SLF001 - SDK exposes no injection point
+    client._transport = httpx.HTTPTransport(local_address="0.0.0.0", http2=True)  # noqa: SLF001
+    old_transport.close()
+    return client
 
 # ---------------------------------------------------------------------------
 # Process-local safety flag set only after runtime live preflight.
@@ -128,14 +145,14 @@ class OKXClient:
         passphrase = settings.OKX_PASSPHRASE
         flag = settings.OKX_FLAG  # "0" live, "1" demo
 
-        self.account_api = Account.AccountAPI(
+        self.account_api = _force_ipv4(Account.AccountAPI(
             api_key, api_secret, passphrase, False, flag,
-        )
-        self.market_api = MarketData.MarketAPI(flag=flag)
-        self.public_api = PublicData.PublicAPI(flag=flag)
-        self.trade_api = Trade.TradeAPI(
+        ))
+        self.market_api = _force_ipv4(MarketData.MarketAPI(flag=flag))
+        self.public_api = _force_ipv4(PublicData.PublicAPI(flag=flag))
+        self.trade_api = _force_ipv4(Trade.TradeAPI(
             api_key, api_secret, passphrase, False, flag,
-        )
+        ))
 
         self.flag = flag
         logger.info(
@@ -278,7 +295,7 @@ class OKXClient:
         (contracts, base-currency, USD).
         """
         params = {"instId": inst_id, "period": period, "limit": limit}
-        production_public_api = PublicData.PublicAPI(flag="0")
+        production_public_api = _force_ipv4(PublicData.PublicAPI(flag="0"))
         resp = production_public_api._request_with_params(  # noqa: SLF001 - SDK has no public wrapper for this endpoint
             GET, CONTRACTS_OPEN_INTEREST_HISTORY, params
         )

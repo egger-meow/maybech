@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import json
 import queue
+import socket
 import threading
 import time
 from dataclasses import asdict, dataclass
@@ -166,6 +167,7 @@ class OKXPrivateOrderStream:
             close_timeout=5,
             ping_interval=None,
             max_queue=128,
+            family=socket.AF_INET,
         ) as websocket:
             self._socket = websocket
             await websocket.send(json.dumps(self._login_message(), separators=(",", ":")))
