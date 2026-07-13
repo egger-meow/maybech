@@ -27,6 +27,7 @@ from src.trading.logical_position_store import LogicalPositionStore
 from src.trading.position_reconciliation import PositionReconciler
 from src.trading.sqlite_schema import (
     applied_schema_versions,
+    assert_supported_schema,
     connect_database,
     configure_connection,
     initialize_schema,
@@ -57,17 +58,28 @@ CREATE TABLE IF NOT EXISTS entry_control (
 );
 """
 
-_SCHEMA_V3 = """
-ALTER TABLE account_risk_limits
-ADD COLUMN allowed_instruments_json TEXT NOT NULL DEFAULT '[]';
-"""
+# Guarded by a column check before ALTER: executescript commits mid-way, so a
+# crash after the ALTER but before the ledger row leaves the column present
+# with the version unrecorded — the retry must not fail on "duplicate column".
+_SCHEMA_V3_COLUMN = ("allowed_instruments_json", "TEXT NOT NULL DEFAULT '[]'")
 
 # '0' is deliberately invalid: a pre-v4 envelope stays readable but cannot
 # approve entries or pass preflight until the operator sets a real budget.
-_SCHEMA_V4 = """
-ALTER TABLE account_risk_limits
-ADD COLUMN max_stop_loss_equity_pct TEXT NOT NULL DEFAULT '0';
-"""
+_SCHEMA_V4_COLUMN = ("max_stop_loss_equity_pct", "TEXT NOT NULL DEFAULT '0'")
+
+
+def _add_limits_column_if_missing(
+    conn: sqlite3.Connection, column: tuple[str, str]
+) -> None:
+    name, definition = column
+    existing = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(account_risk_limits)").fetchall()
+    }
+    if name not in existing:
+        conn.execute(
+            f"ALTER TABLE account_risk_limits ADD COLUMN {name} {definition}"
+        )
 
 
 def _decimal(value: object, *, field: str, allow_zero: bool = False) -> Decimal:
@@ -158,6 +170,9 @@ class AccountRiskStore:
 
     def _init_db(self) -> None:
         with self._conn() as conn:
+            assert_supported_schema(
+                conn, component=_SCHEMA_COMPONENT, max_supported=_SCHEMA_VERSION
+            )
             initialize_schema(
                 conn,
                 schema_sql=_SCHEMA,
@@ -180,11 +195,11 @@ class AccountRiskStore:
                 )
             versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
             if 3 not in versions:
-                conn.executescript(_SCHEMA_V3)
+                _add_limits_column_if_missing(conn, _SCHEMA_V3_COLUMN)
                 record_schema_version(conn, component=_SCHEMA_COMPONENT, version=3)
             versions = applied_schema_versions(conn, component=_SCHEMA_COMPONENT)
             if 4 not in versions:
-                conn.executescript(_SCHEMA_V4)
+                _add_limits_column_if_missing(conn, _SCHEMA_V4_COLUMN)
                 record_schema_version(conn, component=_SCHEMA_COMPONENT, version=4)
 
     @contextmanager

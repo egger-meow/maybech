@@ -19,6 +19,7 @@ from src.config.settings import settings
 from src.trading.trade_store import TradeRecord
 from src.trading.sqlite_schema import (
     applied_schema_versions,
+    assert_supported_schema,
     connect_database,
     configure_connection,
     initialize_schema,
@@ -465,6 +466,9 @@ class LogicalPositionStore:
 
     def _init_db(self) -> None:
         with self._conn() as conn:
+            assert_supported_schema(
+                conn, component=_SCHEMA_COMPONENT, max_supported=_SCHEMA_VERSION
+            )
             initialize_schema(
                 conn,
                 schema_sql=_SCHEMA,

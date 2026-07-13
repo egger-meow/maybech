@@ -14,6 +14,7 @@ from uuid import uuid4
 from src.config.settings import settings
 from src.trading.sqlite_schema import (
     applied_schema_versions,
+    assert_supported_schema,
     connect_database,
     configure_connection,
     initialize_schema,
@@ -73,8 +74,11 @@ WHERE kind = 'momentum'
    OR json_extract(entry_signal_json, '$.type') = 'volume_price_gap';
 """
 
+# IF NOT EXISTS keeps the step idempotent: executescript commits mid-way, so a
+# crash after creating the table but before the ledger row records version 4
+# must not make the retry fail with "table already exists" on next startup.
 _SCHEMA_V4 = """
-CREATE TABLE strategy_pending_executions (
+CREATE TABLE IF NOT EXISTS strategy_pending_executions (
     correlation_id TEXT PRIMARY KEY,
     strategy_id     TEXT NOT NULL,
     inst_id         TEXT NOT NULL,
@@ -84,7 +88,8 @@ CREATE TABLE strategy_pending_executions (
     UNIQUE (strategy_id, inst_id),
     FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE
 );
-CREATE INDEX idx_strategy_pending_due ON strategy_pending_executions(due_at);
+CREATE INDEX IF NOT EXISTS idx_strategy_pending_due
+    ON strategy_pending_executions(due_at);
 """
 
 
@@ -280,6 +285,9 @@ class StrategyStore:
 
     def _init_db(self) -> None:
         with self._conn() as conn:
+            assert_supported_schema(
+                conn, component=_SCHEMA_COMPONENT, max_supported=_SCHEMA_VERSION
+            )
             initialize_schema(
                 conn,
                 schema_sql=_SCHEMA,

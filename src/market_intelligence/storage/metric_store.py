@@ -13,6 +13,7 @@ from src.config.settings import settings
 from src.market_intelligence.models import MetricObservation, ProviderSyncRun
 from src.trading.sqlite_schema import (
     applied_schema_versions,
+    assert_supported_schema,
     configure_connection,
     connect_database,
     initialize_schema,
@@ -61,6 +62,9 @@ class MetricStore:
         if not sqlite_read_only():
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
             with self._conn() as conn:
+                assert_supported_schema(
+                    conn, component=_SCHEMA_COMPONENT, max_supported=_SCHEMA_VERSION
+                )
                 initialize_schema(
                     conn,
                     schema_sql=_SCHEMA,

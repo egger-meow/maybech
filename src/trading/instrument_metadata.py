@@ -13,10 +13,12 @@ from typing import Any, Generator, Iterable
 
 from src.config.settings import settings
 from src.trading.instrument_constraints import InstrumentConstraints
-from src.trading.sqlite_schema import applied_schema_versions, connect_database, configure_connection, initialize_schema, record_schema_version, sqlite_read_only
+from src.trading.sqlite_schema import applied_schema_versions, assert_supported_schema, connect_database, configure_connection, initialize_schema, record_schema_version, sqlite_read_only
 
 _SCHEMA_COMPONENT = "instrument_metadata"
-_SCHEMA_VERSION = 1
+# Version 2 adds the `source` column; the fresh-database path still records
+# version 1 first and then applies the guarded column migration below.
+_SCHEMA_VERSION = 2
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS instrument_metadata (
     inst_id TEXT PRIMARY KEY, inst_type TEXT NOT NULL, state TEXT NOT NULL,
@@ -135,7 +137,10 @@ class InstrumentMetadataStore:
         if not sqlite_read_only():
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
             with self._conn() as conn:
-                initialize_schema(conn, schema_sql=_SCHEMA, component=_SCHEMA_COMPONENT, version=_SCHEMA_VERSION)
+                assert_supported_schema(
+                    conn, component=_SCHEMA_COMPONENT, max_supported=_SCHEMA_VERSION
+                )
+                initialize_schema(conn, schema_sql=_SCHEMA, component=_SCHEMA_COMPONENT, version=1)
                 columns = {
                     str(row["name"])
                     for row in conn.execute("PRAGMA table_info(instrument_metadata)")

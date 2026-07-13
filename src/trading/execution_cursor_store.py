@@ -12,6 +12,7 @@ from typing import Generator
 from src.config.settings import settings
 from src.trading.sqlite_schema import (
     applied_schema_versions,
+    assert_supported_schema,
     connect_database,
     configure_connection,
     initialize_schema,
@@ -53,6 +54,9 @@ class ExecutionCursorStore:
         if not sqlite_read_only():
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
             with self._conn() as conn:
+                assert_supported_schema(
+                    conn, component=_SCHEMA_COMPONENT, max_supported=_SCHEMA_VERSION
+                )
                 initialize_schema(
                     conn,
                     schema_sql=_SCHEMA,

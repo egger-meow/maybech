@@ -30,6 +30,29 @@ Live modes resolve to `MAYBECH_DB_PATH` (default `data/trades.db`). This keeps
 Demo state out of the Simulation/Live database even if an operator forgets to
 change a path when switching modes — see docs/deployment.md.
 
+## Startup Database Health Check
+
+`create_default_runner` classifies the database file (via
+`src/trading/sqlite_schema.py::check_database_file`) after resolving the path
+and before any store opens it:
+
+- **Missing or empty file** — a legitimate fresh start. It is logged loudly as
+  a warning because prior local state (positions, strategies, risk limits,
+  fill cursors) is gone; non-simulation preflight then refuses entries until
+  OKX exposure reconciles against the now-empty local state.
+- **Not a SQLite file, or fails `PRAGMA quick_check`** — startup raises
+  `DatabaseHealthError` and stops before touching anything. Maybech never
+  deletes or overwrites the file; the operator must restore a backup or move
+  the file aside. The check opens the database writable on purpose: a crash
+  can leave a WAL journal behind, and only a writable connection can run
+  SQLite's standard WAL recovery.
+
+Separately, every table-owning store refuses a database written by a newer
+build: if `schema_migrations` records a version above what the running code
+supports for that component, store construction raises
+`UnsupportedSchemaError` (`assert_supported_schema`) before applying any DDL,
+so older code can never mutate a newer database shape.
+
 ## Schema Management Rule
 
 SQLite schema changes must be versioned. New stores should use
@@ -37,6 +60,16 @@ SQLite schema changes must be versioned. New stores should use
 with a component name and monotonically increasing version. Do not rely only on
 scattered `CREATE TABLE IF NOT EXISTS` statements without recording which schema
 version was applied.
+
+Every migration step must also be **individually idempotent** — guarded
+`ALTER TABLE` (check `PRAGMA table_info` first), `CREATE TABLE/INDEX IF NOT
+EXISTS`, `INSERT OR IGNORE`, or naturally re-runnable updates. This is not
+optional: `sqlite3`'s `executescript` commits any pending transaction before
+running its script, so one `_init_db` pass is *not* atomic, and a crash
+between applying a step and recording its ledger row leaves the object
+present with the version unrecorded. The next launch re-runs that step and
+must succeed, not wedge on "duplicate column name" or "table already exists"
+(`tests/test_db_resilience.py` covers these recovery paths).
 
 The first versioned components are `trade_store` in `TradeStore`,
 `logical_positions` in `LogicalPositionStore`, `strategies` in
@@ -53,7 +86,8 @@ added the default-disabled entry-control singleton, version 3 the
 intentionally invalid `'0'` so migrated envelopes stay readable but cannot
 approve entries or pass preflight until the operator sets a real budget).
 `trade_store` and
-`execution_cursors` are at version 1. `instrument_metadata` is at version 1.
+`execution_cursors` are at version 1. `instrument_metadata` is at version 2
+(version 2 adds the `source` column).
 Strategy version 4 adds `execution_delay_seconds` and restart-safe
 `strategy_pending_executions`.
 Future changes should add explicit migration steps instead of editing existing

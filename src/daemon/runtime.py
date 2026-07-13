@@ -31,6 +31,7 @@ from src.trading.trade_store import TradeStore
 from src.trading.execution_allocation import ExecutionAllocationService
 from src.trading.account_risk import AccountRiskStore
 from src.trading.audit_event_store import AuditEventStore
+from src.trading.sqlite_schema import check_database_file
 from src.utils.logger import setup_logger
 
 
@@ -73,6 +74,30 @@ def create_default_runner(
         db_path_info["env_key"],
         db_path_info["existed_before_process"],
     )
+    # Fail closed on a corrupt or foreign file before any store opens it
+    # (check_database_file raises DatabaseHealthError with restore guidance
+    # and never deletes or overwrites the file). A missing/empty file is a
+    # legitimate fresh start — SQLite will create it — but it must be loud:
+    # if prior state existed, the operator is about to lose logical-position
+    # history, and non-simulation preflight will refuse entries until OKX
+    # exposure reconciles against the (now empty) local state anyway.
+    db_health = check_database_file(db_path_info["resolved_path"])
+    db_path_info = {**db_path_info, "health": db_health}
+    if db_health["status"] in {"missing", "empty"}:
+        logger.warning(
+            "Maybech database %s is %s — starting from a fresh database; "
+            "prior local state (positions, strategies, risk limits, fill "
+            "cursors) is not available and live state must reconcile "
+            "against OKX before entries are allowed",
+            db_path_info["resolved_path"],
+            db_health["status"],
+        )
+    else:
+        logger.info(
+            "Maybech database %s passed the startup integrity check (%d bytes)",
+            db_path_info["resolved_path"],
+            db_health["size_bytes"],
+        )
     runner = DaemonRunner()
     store = TradeStore()
     lease = RuntimeLease(db_path=store.db_path)
