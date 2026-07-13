@@ -25,6 +25,24 @@ class FailingNotifier(RecordingNotifier):
         return False
 
 
+class CooldownAwareNotifier(RecordingNotifier):
+    """Mimics EmailNotifier/LineBotNotifier's suppressed_by_cooldown signal."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.suppressed_by_cooldown = False
+        self._seen: set[tuple[str, ...]] = set()
+
+    def send(self, *parts: str) -> bool:
+        self.suppressed_by_cooldown = False
+        if parts in self._seen:
+            self.suppressed_by_cooldown = True
+            return False
+        self._seen.add(parts)
+        self.messages.append(parts)
+        return True
+
+
 def test_lifecycle_service_delivers_only_new_supported_audits(tmp_path):
     store = AuditEventStore(str(tmp_path / "trades.db"))
     store.create(
@@ -163,6 +181,66 @@ def test_quarantined_fill_notifies_once_across_retries_and_restart(tmp_path):
     assert len(line.messages) == 1
     assert len(restarted_line.messages) == 1
     assert "stop_loss price must be below entry" in restarted_line.messages[0][0]
+
+
+def test_stale_backlog_events_are_dropped_not_delivered(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    store = AuditEventStore(str(tmp_path / "trades.db"))
+    line = RecordingNotifier()
+    service = LifecycleNotificationService(
+        audit_store=store,
+        line=line,  # type: ignore[arg-type]
+        email=RecordingNotifier(),  # type: ignore[arg-type]
+        max_event_age_seconds=900,
+    )
+    service.setup()
+    old = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
+    store.create(
+        type="runtime.safety_failure",
+        source="account",
+        payload={"error": "OKX get_balance failed hours ago"},
+        created_at=old,
+    )
+    store.create(
+        type="strategy.enabled",
+        source="api",
+        payload={"strategy_id": "fresh"},
+    )
+
+    service.tick()
+
+    # The six-hour-old failure is history, not news — only the fresh event
+    # goes out, and the stale one doesn't stall the queue behind it.
+    assert len(line.messages) == 1
+    assert "策略已啟用" in line.messages[0][0]
+    assert store.pending_delivery_count("lifecycle_notifications") == 0
+
+
+def test_content_repeat_suppression_does_not_stall_backlog_or_count_as_failure(tmp_path):
+    store = AuditEventStore(str(tmp_path / "trades.db"))
+    line = CooldownAwareNotifier()
+    service = LifecycleNotificationService(
+        audit_store=store,
+        line=line,  # type: ignore[arg-type]
+        email=RecordingNotifier(),  # type: ignore[arg-type]
+        retry_base_seconds=0,
+    )
+    service.setup()
+    store.create(type="strategy.enabled", source="api", payload={"strategy_id": "a"})
+    store.create(type="strategy.enabled", source="api", payload={"strategy_id": "a"})
+    store.create(type="strategy.enabled", source="api", payload={"strategy_id": "b"})
+
+    service.tick()
+
+    # The exact-duplicate second event was skipped by the notifier's own
+    # content-repeat cooldown, but the distinct third event still went out —
+    # a suppressed duplicate must not stall everything behind it.
+    assert len(line.messages) == 2
+    assert store.pending_delivery_count("lifecycle_notifications") == 0
+    health = store.notification_delivery_health("lifecycle_notifications").get("line")
+    assert health is None or health.get("consecutive_failures", 0) == 0
+    assert health is None or health.get("next_retry_at", "") == ""
 
 
 def test_lifecycle_cursor_retries_failure_before_later_events(tmp_path):

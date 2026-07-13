@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from src.daemon.events import RuntimeEvent
@@ -168,6 +168,7 @@ class LifecycleNotificationService(DaemonService):
         email: EmailNotifier | None = None,
         retry_base_seconds: float = 5,
         retry_max_seconds: float = 900,
+        max_event_age_seconds: float = 900,
     ) -> None:
         super().__init__()
         self.audit_store = audit_store
@@ -175,6 +176,12 @@ class LifecycleNotificationService(DaemonService):
         self.email = email or EmailNotifier()
         self.retry_base_seconds = max(0, retry_base_seconds)
         self.retry_max_seconds = max(self.retry_base_seconds, retry_max_seconds)
+        # Operator alerts are only news while they're fresh: after a backlog
+        # stall (channel outage, backoff, process downtime), delivering
+        # hours-old events reads as live spam about problems that may already
+        # be fixed. Anything older than this at delivery time is dropped —
+        # the durable audit trail still has it; only the push is skipped.
+        self.max_event_age_seconds = max(0, max_event_age_seconds)
         self._unsubscribe: Callable[[], None] | None = None
 
     def setup(self) -> None:
@@ -192,6 +199,17 @@ class LifecycleNotificationService(DaemonService):
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+
+    def _is_stale(self, event: AuditEventRecord) -> bool:
+        """True when the event is too old to still be operator news."""
+        try:
+            created = datetime.fromisoformat(event.created_at)
+        except ValueError:
+            return False
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - created).total_seconds()
+        return age > self.max_event_age_seconds
 
     def _on_runtime_event(self, event: RuntimeEvent) -> None:
         if event.type == "service.error":
@@ -214,6 +232,8 @@ class LifecycleNotificationService(DaemonService):
         )
         if category is None:
             return True
+        if self._is_stale(event):
+            return True
         message = format_lifecycle_message(category, event_type, payload)
         acknowledged = self.audit_store.acknowledged_delivery_channels(
             self._consumer, event.id
@@ -232,6 +252,15 @@ class LifecycleNotificationService(DaemonService):
                 delivered = False
                 continue
             succeeded = notifier.send(*args)
+            if not succeeded and getattr(notifier, "suppressed_by_cooldown", False):
+                # A deliberate content-repeat/mute skip, not a transport failure:
+                # acknowledging it (without touching the retry-health backoff)
+                # lets the cursor move past it instead of stalling the whole
+                # backlog behind a duplicate the operator never wanted resent.
+                self.audit_store.acknowledge_delivery_channel(
+                    self._consumer, event.id, channel
+                )
+                continue
             self.audit_store.record_notification_delivery_attempt(
                 self._consumer,
                 channel,
