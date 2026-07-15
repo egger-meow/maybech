@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { AlertTriangle, Check, ChevronRight, CirclePlus, Power, Save, Trash2 } from "lucide-react";
@@ -18,11 +18,13 @@ import {
   disableStrategy,
   enableStrategy,
   getMarketOverview,
+  getRiskEnvelopeUsage,
   getRiskLimits,
   getLivePreflight,
   listPersistedStrategyDecisions,
   listInstruments,
   listStrategies,
+  quoteInstrumentRisk,
   quoteInstrumentSize,
   refreshInstruments,
   updateStrategy,
@@ -217,6 +219,116 @@ function SizeQuotePreview({ instrument, quantity, price, side }: { instrument: s
   return <small className="size-quote ready">送給 OKX 的數量：{quote.data.api_quantity_contracts} 口 · 以此市價估約 {quote.data.estimated_notional_usdt} USDT</small>;
 }
 
+// Mirrors materialize_position_rule's fixed_percent math (src/trading/position_rule_model.py)
+// so the sizing preview resolves the same stop price the backend will materialize at fill time.
+// For fixed_price / evidence_target / previous_swing_level styles the price is already concrete.
+function resolvedRulePrice(rule: CloseRule | undefined, side: "long" | "short", referencePrice: string): string {
+  if (!rule) return "";
+  const style = ruleStyle(rule);
+  const parameters = ruleParameters(rule);
+  if (style === "fixed_percent") {
+    const ref = Number(referencePrice);
+    const offset = Number(parameters.offset_pct ?? 0);
+    if (!(ref > 0) || !(offset > 0)) return "";
+    const favorable = rule.purpose === "take_profit";
+    const increase = (side === "long") === favorable;
+    return String(ref * (increase ? 1 + offset : 1 - offset));
+  }
+  const target = parameters.target_price ?? rule.expression.value;
+  return target !== null && target !== undefined && target !== "" ? String(target) : "";
+}
+
+function SizeEntryCard({
+  instrument,
+  side,
+  price,
+  stopPrice,
+  quantity,
+  onQuantityChange,
+  equityUsd,
+  exchangeConnected,
+  onRiskCandidateChange,
+}: {
+  instrument: string;
+  side: "long" | "short";
+  price: string;
+  stopPrice: string;
+  quantity: string;
+  onQuantityChange: (value: string) => void;
+  equityUsd: number | null;
+  exchangeConnected: boolean;
+  onRiskCandidateChange: (instrument: string, priceLossUsdt: number | null) => void;
+}) {
+  const [mode, setMode] = useState<"fixed" | "risk">("fixed");
+  const [lossMode, setLossMode] = useState<"pct" | "usdt">("pct");
+  const [lossPct, setLossPct] = useState("1");
+  const [lossUsdt, setLossUsdt] = useState("");
+  const canUsePct = exchangeConnected && equityUsd != null;
+  const allowedLossUsdt = lossMode === "pct" && canUsePct ? String((Number(lossPct) / 100) * (equityUsd ?? 0)) : lossUsdt;
+  const riskQuote = useSWR(
+    mode === "risk" && instrument && price && stopPrice && Number(allowedLossUsdt) > 0
+      ? ["strategy-risk-quote", instrument, price, stopPrice, allowedLossUsdt, side]
+      : null,
+    () => quoteInstrumentRisk(instrument, {
+      mode: "chart_anchored",
+      entry_price: price,
+      side,
+      allowed_loss_usdt: allowedLossUsdt,
+      stop_price: stopPrice,
+    }),
+  );
+  useEffect(() => {
+    if (mode !== "risk") { onRiskCandidateChange(instrument, null); return; }
+    if (riskQuote.data) {
+      onQuantityChange(riskQuote.data.display_quantity);
+      onRiskCandidateChange(instrument, Number(riskQuote.data.price_loss_usdt));
+    } else {
+      onRiskCandidateChange(instrument, null);
+    }
+    // Only the resolved quote (or leaving risk mode) should re-sync the parent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, riskQuote.data, instrument]);
+  useEffect(
+    () => () => onRiskCandidateChange(instrument, null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [instrument],
+  );
+
+  return (
+    <div className="size-entry-card">
+      <strong>{instrument}</strong>
+      <div className="size-mode-toggle">
+        <button type="button" className={mode === "fixed" ? "selected" : ""} onClick={() => setMode("fixed")}>固定幣量</button>
+        <button type="button" className={mode === "risk" ? "selected" : ""} onClick={() => setMode("risk")}>依停損反推</button>
+      </div>
+      {mode === "fixed" ? (
+        <label><small>想開幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={quantity} onChange={(event) => onQuantityChange(event.target.value)} /></label>
+      ) : (
+        <>
+          {!stopPrice && <div className="error-state">此策略尚未設定有效停損價，無法反推幣量。請先設定停損規則。</div>}
+          <div className="size-mode-toggle">
+            <button type="button" className={lossMode === "pct" ? "selected" : ""} disabled={!canUsePct} onClick={() => setLossMode("pct")}>% 資金</button>
+            <button type="button" className={lossMode === "usdt" ? "selected" : ""} onClick={() => setLossMode("usdt")}>USDT</button>
+          </div>
+          {!canUsePct && <small>{exchangeConnected ? "尚無帳戶權益資料。" : "Simulation 無交易所連線，無法取得權益。"}請改用 USDT 金額。</small>}
+          {lossMode === "pct" ? (
+            <label><small>願意輸的資金（% 總權益）</small><span className="input-with-suffix"><input type="number" min="0" step="0.01" value={lossPct} onChange={(event) => setLossPct(event.target.value)} disabled={!canUsePct} /><small>%</small></span>{canUsePct && Number(lossPct) > 0 && <small className="conversion-hint">≈ {((Number(lossPct) / 100) * (equityUsd ?? 0)).toFixed(2)} USDT</small>}</label>
+          ) : (
+            <label><small>願意輸的資金（USDT）</small><input type="number" min="0" step="any" value={lossUsdt} onChange={(event) => setLossUsdt(event.target.value)} /></label>
+          )}
+          {riskQuote.error && <div className="error-state">目前風險預算與停損距離無法安全換算成合法 lot size 部位。</div>}
+          {riskQuote.data && <div className="risk-sizing-result">
+            <div><small>反推幣量</small><strong>{riskQuote.data.display_quantity} {riskQuote.data.display_currency}</strong></div>
+            <div><small>停損距離</small><strong>{(Number(riskQuote.data.stop_distance_pct) * 100).toFixed(2)}%</strong></div>
+          </div>}
+        </>
+      )}
+      <div className="size-reference-price"><small>估算市價（自動）</small><strong>{price ? `${price} USDT` : "等待市場價格"}</strong></div>
+      <SizeQuotePreview instrument={instrument} quantity={quantity} price={price} side={side} />
+    </div>
+  );
+}
+
 function TypedCloseRuleEditor({ rule, side, onChange, analysisSymbols = [] }: { rule: CloseRule; side: "long" | "short"; onChange: (rule: CloseRule) => void; analysisSymbols?: string[] }) {
   const style = ruleStyle(rule);
   const parameters = ruleParameters(rule);
@@ -351,13 +463,22 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
   const [newSignal, setNewSignal] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const marketOverview = useSWR("strategy-sizing-market-overview", () => getMarketOverview({ instType: "SWAP" }), { refreshInterval: 15_000 });
+  const preflight = useSWR("strategy-editor-preflight", getLivePreflight);
+  const exchangeConnected = preflight.data?.execution_mode === "demo" || preflight.data?.execution_mode === "live_armed" || preflight.data?.execution_mode === "live_safe";
+  const envelopeUsage = useSWR(exchangeConnected ? "risk-envelope-usage" : null, getRiskEnvelopeUsage, { refreshInterval: 15_000 });
+  const [riskCandidates, setRiskCandidates] = useState<Record<string, number | null>>({});
+  const setRiskCandidate = (instrument: string, priceLossUsdt: number | null) => setRiskCandidates((current) => (current[instrument] === priceLossUsdt ? current : { ...current, [instrument]: priceLossUsdt }));
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => { setDraft((current) => ({ ...current, [key]: value })); setDirty(true); setError(""); };
   const instruments = draft.instruments;
   const livePrices = Object.fromEntries((marketOverview.data?.items ?? []).map((item) => [item.inst_id, item.last_price]));
   const sizingPrice = (instrument: string): string => livePrices[instrument] || draft.referencePrices[instrument] || "";
+  const stopLossRule = draft.closeRules.find((rule) => rule.purpose === "stop_loss" && rule.enabled);
   const outsideAllowlist = allowedInstruments
     ? instruments.filter((item) => !allowedInstruments.includes(item))
     : [];
+  const candidateWorstCaseLossUsd = instruments.reduce((total, instrument) => total + (riskCandidates[instrument] ?? 0), 0);
+  const projectedWorstCaseLossUsd = (envelopeUsage.data?.existing_worst_case_loss_usd ?? 0) + candidateWorstCaseLossUsd;
+  const overEnvelopeBudget = Boolean(envelopeUsage.data) && candidateWorstCaseLossUsd > 0 && projectedWorstCaseLossUsd > (envelopeUsage.data?.loss_budget_usd ?? Infinity);
 
   const save = async () => {
     if (mutationRef.current) return;
@@ -368,6 +489,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       if (!instruments.length) throw new Error("至少需要一個交易商品。");
       if (strategy && !strategy.updated_at) throw new Error("策略版本時間缺失，無法安全儲存。請重新整理。");
       if (outsideAllowlist.length) throw new Error(`商品超出帳戶風險 allowlist：${outsideAllowlist.join("、")}`);
+      if (overEnvelopeBudget) throw new Error(`此策略的停損風險（預估 ${projectedWorstCaseLossUsd.toFixed(2)} USDT）加上既有部位後，會超出風險信封預算（${(envelopeUsage.data?.loss_budget_usd ?? 0).toFixed(2)} USDT）。請調高停損距離、降低反推的資金比例，或先至風險上限頁調整。`);
       const maxEntrySlippagePct = Number(draft.slippagePercent) / 100;
       if (!Number.isFinite(maxEntrySlippagePct) || maxEntrySlippagePct <= 0 || maxEntrySlippagePct > 0.05) throw new Error("metadata.max_entry_slippage_pct must be greater than 0 and at most 0.05");
       const executionDelaySeconds = Number(draft.executionDelaySeconds);
@@ -450,7 +572,28 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
         <div className="field full"><span>交易商品</span><InstrumentSelector instruments={catalog} stale={catalogStale} multiple value={draft.instruments} onChange={(value) => set("instruments", value)} eligibleInstruments={allowedInstruments} />{allowedInstruments ? <small>顯示所有可交易 SWAP；選項會標示是否位於帳戶 allowlist（目前允許 {allowedInstruments.length} 個）。</small> : <div className="inline-warning">帳戶風險 allowlist 尚未建立；策略可先儲存為停用，但實盤不能通過 preflight。</div>}<AnimatePresence>{outsideAllowlist.length > 0 && <motion.div key="outside-allowlist" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}>目前策略超出帳戶 allowlist：{outsideAllowlist.join("、")}。請移除商品或先至「風險上限」調整邊界。</motion.div>}</AnimatePresence></div>
         <label className="field"><span>最大進場滑價</span><span className="input-with-suffix"><input type="number" min="0.0001" max="5" step="0.1" value={draft.slippagePercent} onChange={(event) => set("slippagePercent", event.target.value)} /><small>%</small></span></label>
         <label className="field"><span>訊號成立後執行延遲</span><span className="input-with-suffix"><input type="number" min="0" max="86400" step="1" value={draft.executionDelaySeconds} onChange={(event) => set("executionDelaySeconds", event.target.value)} /><small>秒</small></span><small>{Number(draft.executionDelaySeconds) > 0 ? "到期後會重新驗證訊號與風險；失效即取消。" : "0 秒＝停用延遲，沿用立即執行。"}</small></label>
-        <div className="field full"><span>每個商品想開的固定幣量</span><small>你只需要輸入幣量。系統用目前市價換算 OKX 合約口數；策略觸發時仍用當下行情與滑價設定送單。</small><div className="contract-size-grid">{instruments.map((instrument) => { const price = sizingPrice(instrument); return <div className="size-entry-card" key={instrument}><strong>{instrument}</strong><label><small>想開幣量（{instrument.split("-")[0]}）</small><input type="number" min="0" step="any" value={draft.displayQuantities[instrument] ?? ""} onChange={(event) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: event.target.value })} /></label><div className="size-reference-price"><small>估算市價（自動）</small><strong>{price ? `${price} USDT` : "等待市場價格"}</strong></div><SizeQuotePreview instrument={instrument} quantity={draft.displayQuantities[instrument] ?? ""} price={price} side={draft.side} /></div>; })}</div></div>
+        <div className="field full">
+          <span>每個商品想開的幣量</span>
+          <small>固定幣量：直接輸入幣量，系統用目前市價換算 OKX 合約口數。依停損反推：輸入願意在停損時損失的資金（% 權益或 USDT），系統依下方停損距離反推幣量。策略觸發時仍用當下行情與滑價設定送單。</small>
+          <div className="contract-size-grid">{instruments.map((instrument) => {
+            const price = sizingPrice(instrument);
+            const stopPrice = resolvedRulePrice(stopLossRule, draft.side, price);
+            return <SizeEntryCard
+              key={instrument}
+              instrument={instrument}
+              side={draft.side}
+              price={price}
+              stopPrice={stopPrice}
+              quantity={draft.displayQuantities[instrument] ?? ""}
+              onQuantityChange={(value) => set("displayQuantities", { ...draft.displayQuantities, [instrument]: value })}
+              equityUsd={envelopeUsage.data?.equity_usd ?? null}
+              exchangeConnected={exchangeConnected}
+              onRiskCandidateChange={setRiskCandidate}
+            />;
+          })}</div>
+          {!exchangeConnected && <small>Simulation 無交易所連線，無法即時檢查風險信封使用量；「依停損反推」仍可用 USDT 金額，但不會顯示信封警告。</small>}
+          <AnimatePresence>{overEnvelopeBudget && <motion.div key="envelope-over-budget" className="error-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2, ease: "easeOut" }}><AlertTriangle size={15} /> 此策略的停損風險（預估 {projectedWorstCaseLossUsd.toFixed(2)} USDT，含既有部位 {(envelopeUsage.data?.existing_worst_case_loss_usd ?? 0).toFixed(2)} USDT）會超出風險信封預算（{(envelopeUsage.data?.loss_budget_usd ?? 0).toFixed(2)} USDT）。無法儲存，請調整停損距離或降低反推的資金比例。</motion.div>}</AnimatePresence>
+        </div>
         <div className="full"><ExpressionEditor value={draft.entrySignal} onChange={(value) => set("entrySignal", value)} label="主要進場訊號" analysisSymbols={draft.instruments} /></div>
       </div>
 
@@ -480,7 +623,7 @@ function StrategyEditor({ strategy, onSaved, catalog, catalogStale, allowedInstr
       <div className="form-actions">
         <span className={dirty ? "dirty-note" : "saved-note"}>{dirty ? "有尚未儲存的變更" : <><Check size={15} /> 已儲存</>}</span>
         {strategy && <button type="button" className={strategy.enabled ? "btn btn-outline" : "btn btn-danger"} disabled={busy || dirty || (!strategy.enabled && outsideAllowlist.length > 0)} onClick={toggle}><Power size={15} /> {strategy.enabled ? "停用策略" : "啟用策略"}</button>}
-        <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={save}><Save size={16} /> {busy ? "儲存中…" : "儲存策略"}</button>
+        <button type="button" className="btn btn-primary" disabled={busy || !dirty || overEnvelopeBudget} onClick={save}><Save size={16} /> {busy ? "儲存中…" : "儲存策略"}</button>
       </div>
 
       {strategy && <>

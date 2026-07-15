@@ -3,6 +3,7 @@ const DEFAULT_API_TOKEN = process.env.NEXT_PUBLIC_MAYBECH_API_TOKEN?.trim() ?? "
 
 import type {
   AccountSnapshotResponse,
+  AccountRiskEnvelopeUsageResponse,
   AccountRiskLimitsResponse,
   AccountRiskLimitsUpdate,
   EntryControlResponse,
@@ -81,6 +82,7 @@ import type {
 
 export type {
   AccountSnapshotResponse as AccountSnapshot,
+  AccountRiskEnvelopeUsageResponse,
   AccountRiskLimitsResponse,
   AccountRiskLimitsUpdate,
   EntryControlResponse,
@@ -285,6 +287,9 @@ export const sendNotificationTest = (
 
 export const getRiskLimits = (): Promise<AccountRiskLimitsResponse> =>
   fetcher<AccountRiskLimitsResponse>("/risk/limits");
+
+export const getRiskEnvelopeUsage = (): Promise<AccountRiskEnvelopeUsageResponse> =>
+  fetcher<AccountRiskEnvelopeUsageResponse>("/risk/envelope-usage");
 
 export const updateRiskLimits = (
   payload: AccountRiskLimitsUpdate,

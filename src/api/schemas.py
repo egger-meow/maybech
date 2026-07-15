@@ -134,6 +134,14 @@ class AccountRiskLimitsResponse(BaseModel):
     updated_at: str
 
 
+class AccountRiskEnvelopeUsageResponse(BaseModel):
+    equity_usd: float
+    existing_worst_case_loss_usd: float
+    loss_budget_usd: float
+    max_stop_loss_equity_pct: float
+    degraded: bool
+
+
 class InstrumentMetadataResponse(BaseModel):
     inst_id: str
     inst_type: str

@@ -10,6 +10,14 @@ export type AccountExposureReconciliationResponse = {
   "checked_at": string;
 };
 
+export type AccountRiskEnvelopeUsageResponse = {
+  "equity_usd": number;
+  "existing_worst_case_loss_usd": number;
+  "loss_budget_usd": number;
+  "max_stop_loss_equity_pct": number;
+  "degraded": boolean;
+};
+
 export type AccountRiskLimitsResponse = {
   "enabled": boolean;
   "max_order_notional_usd": number;
@@ -1161,6 +1169,7 @@ export type ValidationError = {
 
 export type ApiSchemas = {
   "AccountExposureReconciliationResponse": AccountExposureReconciliationResponse;
+  "AccountRiskEnvelopeUsageResponse": AccountRiskEnvelopeUsageResponse;
   "AccountRiskLimitsResponse": AccountRiskLimitsResponse;
   "AccountRiskLimitsUpdate": AccountRiskLimitsUpdate;
   "AccountSnapshotResponse": AccountSnapshotResponse;

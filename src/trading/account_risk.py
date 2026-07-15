@@ -374,6 +374,25 @@ class EntryRiskBlocked(RuntimeError):
 
 
 @dataclass(frozen=True)
+class EnvelopeUsagePreview:
+    """Advisory, read-only snapshot of current envelope usage — see
+    `AccountRiskGuard.preview_envelope_usage`. Never the entry gate itself."""
+
+    equity_usd: Decimal
+    existing_worst_case_loss_usd: Decimal
+    loss_budget_usd: Decimal
+    max_stop_loss_equity_pct: Decimal
+    degraded: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        for key, value in list(payload.items()):
+            if isinstance(value, Decimal):
+                payload[key] = float(value)
+        return payload
+
+
+@dataclass(frozen=True)
 class EntryRiskApproval:
     approval_id: str
     inst_id: str
@@ -556,73 +575,148 @@ class AccountRiskGuard:
             remaining = position.remaining_quantity or position.opened_quantity or 0.0
             if remaining <= 0:
                 continue
-            protection = self.position_store.get_protection(position.id)
-            if protection is None:
-                raise EntryRiskBlocked(
-                    f"logical position {position.id} has no owned exchange protection"
-                )
-            if protection.status != "active":
-                raise EntryRiskBlocked(
-                    f"logical position {position.id} protection is {protection.status}"
-                )
-            try:
-                quantity_matches = Decimal(str(protection.quantity)) == Decimal(
-                    str(remaining)
-                )
-            except (InvalidOperation, ValueError):
-                quantity_matches = False
-            if not quantity_matches:
-                raise EntryRiskBlocked(
-                    "logical position "
-                    f"{position.id} protection quantity does not match remaining quantity"
-                )
-            pending = pending_by_instrument.get(position.inst_id)
-            if pending is None:
-                pending = self._pending_protections(position.inst_id)
-                pending_by_instrument[position.inst_id] = pending
-            matches = [
-                order
-                for order in pending
-                if str(order.get("algoId") or "") == protection.algo_id
-                and str(order.get("algoClOrdId") or "")
-                == protection.algo_client_order_id
-            ]
-            expected_side = "sell" if position.side == "long" else "buy"
-            active = len(matches) == 1 and self._protection_matches(
-                matches[0],
-                position=position,
-                expected_side=expected_side,
-                proof={
-                    "quantity": protection.quantity,
-                    "stop_loss": protection.stop_loss,
-                    "kind": protection.kind,
-                },
-            )
-            if not active:
-                raise EntryRiskBlocked(
-                    f"exchange protection is not active for logical position {position.id}"
-                )
-            mark = mark_prices.get(position.inst_id)
-            if mark is None:
-                raise EntryRiskBlocked(
-                    f"OKX reported no mark price for {position.inst_id}; "
-                    "cannot bound the all-stop loss"
-                )
-            stop = _decimal(protection.stop_loss, field="protection stop_loss")
-            quantity = _decimal(remaining, field="remaining quantity")
-            unit_contract_value = _decimal(
-                self._instrument(position.inst_id).get("ctVal"), field="ctVal"
-            )
-            signed_distance = (
-                mark - stop if position.side == "long" else stop - mark
-            )
-            # A stop already past the mark (about to trigger, or locking in
-            # profit) contributes no further loss — but never a credit that
-            # could offset another unit's risk.
-            worst_case_loss += (
-                max(Decimal("0"), signed_distance) * quantity * unit_contract_value
+            worst_case_loss += self._position_worst_case_loss(
+                position,
+                remaining=remaining,
+                mark_prices=mark_prices,
+                pending_by_instrument=pending_by_instrument,
             )
         return worst_case_loss
+
+    def _sum_worst_case_loss_lenient(
+        self,
+        positions: list[Any],
+        *,
+        mark_prices: dict[str, Decimal],
+    ) -> tuple[Decimal, bool]:
+        """Best-effort variant of `_verify_owned_protection` for advisory,
+        read-only previews (see `preview_envelope_usage`): a position whose
+        exchange protection cannot be verified is excluded from the sum and
+        flagged via the returned `degraded` bool instead of raising. This
+        must never be used to gate an actual entry — only `approve_entry`
+        (via `_verify_owned_protection`) is the authoritative, fail-closed
+        check."""
+        pending_by_instrument: dict[str, list[dict[str, Any]]] = {}
+        worst_case_loss = Decimal("0")
+        degraded = False
+        for position in positions:
+            remaining = position.remaining_quantity or position.opened_quantity or 0.0
+            if remaining <= 0:
+                continue
+            try:
+                worst_case_loss += self._position_worst_case_loss(
+                    position,
+                    remaining=remaining,
+                    mark_prices=mark_prices,
+                    pending_by_instrument=pending_by_instrument,
+                )
+            except EntryRiskBlocked:
+                degraded = True
+        return worst_case_loss, degraded
+
+    def _position_worst_case_loss(
+        self,
+        position: Any,
+        *,
+        remaining: object,
+        mark_prices: dict[str, Decimal],
+        pending_by_instrument: dict[str, list[dict[str, Any]]],
+    ) -> Decimal:
+        """Verify one open unit's exchange stop and return its worst-case
+        loss in USD (mark price to stop trigger). Raises `EntryRiskBlocked`
+        if the unit's exchange-side protection cannot be verified."""
+        protection = self.position_store.get_protection(position.id)
+        if protection is None:
+            raise EntryRiskBlocked(
+                f"logical position {position.id} has no owned exchange protection"
+            )
+        if protection.status != "active":
+            raise EntryRiskBlocked(
+                f"logical position {position.id} protection is {protection.status}"
+            )
+        try:
+            quantity_matches = Decimal(str(protection.quantity)) == Decimal(
+                str(remaining)
+            )
+        except (InvalidOperation, ValueError):
+            quantity_matches = False
+        if not quantity_matches:
+            raise EntryRiskBlocked(
+                "logical position "
+                f"{position.id} protection quantity does not match remaining quantity"
+            )
+        pending = pending_by_instrument.get(position.inst_id)
+        if pending is None:
+            pending = self._pending_protections(position.inst_id)
+            pending_by_instrument[position.inst_id] = pending
+        matches = [
+            order
+            for order in pending
+            if str(order.get("algoId") or "") == protection.algo_id
+            and str(order.get("algoClOrdId") or "") == protection.algo_client_order_id
+        ]
+        expected_side = "sell" if position.side == "long" else "buy"
+        active = len(matches) == 1 and self._protection_matches(
+            matches[0],
+            position=position,
+            expected_side=expected_side,
+            proof={
+                "quantity": protection.quantity,
+                "stop_loss": protection.stop_loss,
+                "kind": protection.kind,
+            },
+        )
+        if not active:
+            raise EntryRiskBlocked(
+                f"exchange protection is not active for logical position {position.id}"
+            )
+        mark = mark_prices.get(position.inst_id)
+        if mark is None:
+            raise EntryRiskBlocked(
+                f"OKX reported no mark price for {position.inst_id}; "
+                "cannot bound the all-stop loss"
+            )
+        stop = _decimal(protection.stop_loss, field="protection stop_loss")
+        quantity = _decimal(remaining, field="remaining quantity")
+        unit_contract_value = _decimal(
+            self._instrument(position.inst_id).get("ctVal"), field="ctVal"
+        )
+        signed_distance = mark - stop if position.side == "long" else stop - mark
+        # A stop already past the mark (about to trigger, or locking in
+        # profit) contributes no further loss — but never a credit that
+        # could offset another unit's risk.
+        return max(Decimal("0"), signed_distance) * quantity * unit_contract_value
+
+    def preview_envelope_usage(self) -> "EnvelopeUsagePreview":
+        """Best-effort, read-only preview of current envelope usage for UI
+        display (e.g. a strategy editor sizing a new candidate before save).
+
+        Unlike `approve_entry`, this never raises for a position whose
+        exchange protection can't be verified — it excludes that position
+        from the loss sum and reports `degraded=True` instead, so it stays
+        safe to call outside of order submission. It still requires live
+        OKX connectivity (equity and mark prices only exist there); callers
+        in Simulation should treat a raised `EntryRiskBlocked` as
+        "unavailable", not as a hard failure.
+        """
+        limits = self.store.get()
+        if limits is None:
+            raise EntryRiskBlocked("account risk limits are not configured")
+        equity = self._account_equity()
+        exchange_positions = self.client.get_positions(inst_type="SWAP")
+        logical_positions = self.position_store.list_active()
+        existing_worst_case_loss, degraded = self._sum_worst_case_loss_lenient(
+            logical_positions,
+            mark_prices=self._mark_prices(exchange_positions),
+        )
+        loss_budget = equity * limits.max_stop_loss_equity_pct / Decimal("100")
+        return EnvelopeUsagePreview(
+            equity_usd=equity,
+            existing_worst_case_loss_usd=existing_worst_case_loss,
+            loss_budget_usd=loss_budget,
+            max_stop_loss_equity_pct=limits.max_stop_loss_equity_pct,
+            degraded=degraded,
+        )
 
     def _account_equity(self) -> Decimal:
         rows = self.client.get_balance()

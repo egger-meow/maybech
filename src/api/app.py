@@ -40,7 +40,12 @@ from src.notifications.line_bot import LineBotNotifier
 from src.api.line_webhook import LineWebhookHandler
 from src.version import __version__
 
-from src.trading.account_risk import AccountRiskLimits, AccountRiskStore
+from src.trading.account_risk import (
+    AccountRiskGuard,
+    AccountRiskLimits,
+    AccountRiskStore,
+    EntryRiskBlocked,
+)
 from src.trading.audit_event_store import AuditEventRecord, AuditEventStore
 from src.trading.execution_allocation import (
     ConfirmedExecutionFill,
@@ -78,6 +83,7 @@ from src.trading.strategy_store import SignalExpressionRecord, StrategyRecord, S
 from src.trading.trade_store import TradeRecord, TradeStore
 from src.api.schemas import (
     AccountExposureReconciliationResponse,
+    AccountRiskEnvelopeUsageResponse,
     AccountRiskLimitsResponse,
     AccountRiskLimitsUpdate,
     AccountSnapshotResponse,
@@ -1240,6 +1246,32 @@ def create_app(
                 connection=connection,
             )
         return AccountRiskLimitsResponse(**saved.to_dict())
+
+    @app.get(
+        "/risk/envelope-usage",
+        response_model=AccountRiskEnvelopeUsageResponse,
+    )
+    def get_risk_envelope_usage() -> AccountRiskEnvelopeUsageResponse:
+        """Advisory, read-only preview of current all-stop-loss envelope
+        usage (equity, existing worst-case loss, remaining budget). This is
+        for UI sizing previews only — it is never the entry gate itself,
+        which stays `AccountRiskGuard.approve_entry` at order submission
+        time. Requires live OKX connectivity (equity/mark prices), so it is
+        unavailable in Simulation.
+        """
+        store = AccountRiskStore()
+        limits = store.get()
+        if limits is None:
+            raise HTTPException(
+                status_code=404, detail="Account risk limits are not configured"
+            )
+        client = exchange_client()
+        guard = AccountRiskGuard(client, store)
+        try:
+            preview = guard.preview_envelope_usage()
+        except EntryRiskBlocked as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return AccountRiskEnvelopeUsageResponse(**preview.to_dict())
 
     @app.get("/instruments", response_model=InstrumentMetadataListResponse)
     def list_instruments() -> InstrumentMetadataListResponse:

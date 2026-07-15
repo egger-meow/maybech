@@ -59,6 +59,39 @@
         "title": "AccountExposureReconciliationResponse",
         "type": "object"
       },
+      "AccountRiskEnvelopeUsageResponse": {
+        "properties": {
+          "degraded": {
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "equity_usd": {
+            "title": "Equity Usd",
+            "type": "number"
+          },
+          "existing_worst_case_loss_usd": {
+            "title": "Existing Worst Case Loss Usd",
+            "type": "number"
+          },
+          "loss_budget_usd": {
+            "title": "Loss Budget Usd",
+            "type": "number"
+          },
+          "max_stop_loss_equity_pct": {
+            "title": "Max Stop Loss Equity Pct",
+            "type": "number"
+          }
+        },
+        "required": [
+          "equity_usd",
+          "existing_worst_case_loss_usd",
+          "loss_budget_usd",
+          "max_stop_loss_equity_pct",
+          "degraded"
+        ],
+        "title": "AccountRiskEnvelopeUsageResponse",
+        "type": "object"
+      },
       "AccountRiskLimitsResponse": {
         "properties": {
           "allowed_instruments": {
@@ -9111,6 +9144,25 @@
           }
         },
         "summary": "Kill Entries"
+      }
+    },
+    "/risk/envelope-usage": {
+      "get": {
+        "description": "Advisory, read-only preview of current all-stop-loss envelope\nusage (equity, existing worst-case loss, remaining budget). This is\nfor UI sizing previews only \u2014 it is never the entry gate itself,\nwhich stays `AccountRiskGuard.approve_entry` at order submission\ntime. Requires live OKX connectivity (equity/mark prices), so it is\nunavailable in Simulation.",
+        "operationId": "get_risk_envelope_usage_risk_envelope_usage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountRiskEnvelopeUsageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Risk Envelope Usage"
       }
     },
     "/risk/limits": {

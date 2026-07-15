@@ -102,6 +102,8 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   const [quantity, setQuantity] = useState("");
   const [usdtAmount, setUsdtAmount] = useState("");
   const [allowedLossUsdt, setAllowedLossUsdt] = useState("100");
+  const [lossInputMode, setLossInputMode] = useState<"usdt" | "pct">("usdt");
+  const [lossPct, setLossPct] = useState("1");
   const [entryPrice, setEntryPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
@@ -111,6 +113,14 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   const effectiveQuantity = sizeMode === "usdt"
     ? (usdtAmount && entryPriceNumber > 0 ? String(Number(usdtAmount) / entryPriceNumber) : "")
     : quantity;
+  const exchangeConnected = preflight.data?.execution_mode === "demo" || preflight.data?.execution_mode === "live_armed" || preflight.data?.execution_mode === "live_safe";
+  const accountSnapshot = useSWR(exchangeConnected ? "account-snapshot" : null, getAccountSnapshot, { refreshInterval: 15_000 });
+  const accountSummary = object(accountSnapshot.data?.summary);
+  const totalEquityUsdt = typeof accountSummary.total_equity === "number" ? accountSummary.total_equity : null;
+  const canUseLossPct = exchangeConnected && totalEquityUsdt != null;
+  const effectiveAllowedLossUsdt = lossInputMode === "pct" && canUseLossPct
+    ? String((Number(lossPct) / 100) * (totalEquityUsdt ?? 0))
+    : allowedLossUsdt;
   const quote = useSWR(
     sizeMode !== "risk" && instrument && effectiveQuantity && entryPrice ? ["manual-size-quote", instrument, effectiveQuantity, entryPrice, side] : null,
     () => quoteInstrumentSize(instrument, { display_quantity: effectiveQuantity, entry_price: entryPrice, side, rule_price: stopLoss || null }),
@@ -120,20 +130,19 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   // instead of a second, parallel sizing calculation: pick a stop, derive the
   // max size an allowed-loss budget affords at that stop distance.
   const riskQuote = useSWR(
-    sizeMode === "risk" && instrument && entryPrice && stopLoss && allowedLossUsdt
-      ? ["manual-risk-quote", instrument, entryPrice, stopLoss, allowedLossUsdt, side]
+    sizeMode === "risk" && instrument && entryPrice && stopLoss && Number(effectiveAllowedLossUsdt) > 0
+      ? ["manual-risk-quote", instrument, entryPrice, stopLoss, effectiveAllowedLossUsdt, side]
       : null,
     () => quoteInstrumentRisk(instrument, {
       mode: "chart_anchored",
       entry_price: entryPrice,
       side,
-      allowed_loss_usdt: allowedLossUsdt,
+      allowed_loss_usdt: effectiveAllowedLossUsdt,
       stop_price: stopLoss,
     }),
   );
   const resolvedQuote = sizeMode === "risk" ? riskQuote.data : quote.data;
   const resolvedQuoteError = sizeMode === "risk" ? riskQuote.error : quote.error;
-  const exchangeConnected = preflight.data?.execution_mode === "demo" || preflight.data?.execution_mode === "live_armed" || preflight.data?.execution_mode === "live_safe";
   const leverage = useSWR(
     instrument && exchangeConnected ? ["instrument-leverage", instrument] : null,
     () => getInstrumentLeverage(instrument, { mgnMode: "cross" }),
@@ -142,8 +151,6 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
   const marginUsdt = resolvedQuote && leverageValue ? Number(resolvedQuote.estimated_notional_usdt) / leverageValue : null;
   const estimatedLossUsdt = resolvedQuote?.estimated_pnl_usdt != null ? Math.abs(Number(resolvedQuote.estimated_pnl_usdt)) : null;
   const marginShortfall = marginUsdt != null && estimatedLossUsdt != null && estimatedLossUsdt > marginUsdt;
-  const accountSnapshot = useSWR(exchangeConnected ? "account-snapshot" : null, getAccountSnapshot, { refreshInterval: 15_000 });
-  const accountSummary = object(accountSnapshot.data?.summary);
   const freeMarginUsdt = typeof accountSummary.available_equity === "number" ? accountSummary.available_equity : null;
   const accountMarginShortfall = freeMarginUsdt != null && estimatedLossUsdt != null && estimatedLossUsdt > freeMarginUsdt;
   const instrumentMetadata = catalog.find((item) => item.inst_id === instrument);
@@ -280,11 +287,21 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
           </label>
         )}
         {sizeMode === "risk" && (
-          <label className="field">
-            <span>可接受損失（USDT）</span>
-            <input type="number" min="0" step="any" value={allowedLossUsdt} onChange={(event) => setAllowedLossUsdt(event.target.value)} />
+          <div className="field">
+            <span>可接受損失</span>
+            <div className="size-mode-toggle">
+              <button type="button" className={lossInputMode === "usdt" ? "selected" : ""} onClick={() => setLossInputMode("usdt")}>USDT</button>
+              <button type="button" className={lossInputMode === "pct" ? "selected" : ""} disabled={!canUseLossPct} onClick={() => setLossInputMode("pct")}>% 總權益</button>
+            </div>
+            {lossInputMode === "usdt" ? (
+              <input type="number" min="0" step="any" value={allowedLossUsdt} onChange={(event) => setAllowedLossUsdt(event.target.value)} />
+            ) : (
+              <span className="input-with-suffix"><input type="number" min="0" step="0.01" value={lossPct} onChange={(event) => setLossPct(event.target.value)} disabled={!canUseLossPct} /><small>%</small></span>
+            )}
+            {!canUseLossPct && <small>{exchangeConnected ? "尚無帳戶權益資料，請改用 USDT。" : "Simulation 無交易所連線，無法取得權益，請改用 USDT。"}</small>}
+            {lossInputMode === "pct" && canUseLossPct && <small className="conversion-hint">≈ {number(Number(effectiveAllowedLossUsdt), 2)} USDT（總權益 {number(totalEquityUsdt ?? 0, 2)} USDT）</small>}
             <small className="conversion-hint">依下方保護停損價的距離，反推風險預算內的最大部位（與 分析 頁相同引擎）。</small>
-          </label>
+          </div>
         )}
         <label className="field"><span>進場限價（預填目前價）</span><input type="number" min="0" step="any" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} /></label>
         <label className="field"><span>保護停損價（必填）</span><input type="number" min="0" step="any" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /></label>

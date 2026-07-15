@@ -363,6 +363,29 @@ def test_entry_approval_rechecks_owned_stop_on_okx(tmp_path):
     assert approval.inst_id == "ETH-USDT-SWAP"
 
 
+def test_preview_envelope_usage_matches_verified_sum(tmp_path):
+    preview = AccountRiskGuard(RiskClient(), _store(tmp_path)).preview_envelope_usage()
+
+    assert preview.equity_usd == Decimal("1000")
+    assert preview.max_stop_loss_equity_pct == Decimal("10")
+    assert preview.loss_budget_usd == Decimal("100")
+    assert preview.existing_worst_case_loss_usd == Decimal("0.1")
+    assert preview.degraded is False
+
+
+def test_preview_envelope_usage_degrades_instead_of_raising_on_unverifiable_protection(tmp_path):
+    client = RiskClient()
+    # No matching pending algo order on OKX for the stored protection, so
+    # the strict path (approve_entry) would raise "protection is not
+    # active" — the preview must instead exclude this unit and flag it.
+    client.pending_algos = []
+    preview = AccountRiskGuard(client, _store(tmp_path)).preview_envelope_usage()
+
+    assert preview.equity_usd == Decimal("1000")
+    assert preview.existing_worst_case_loss_usd == Decimal("0")
+    assert preview.degraded is True
+
+
 def test_entry_approval_rejects_protection_quantity_stale_from_logical_unit(tmp_path):
     client = RiskClient()
     client.positions = [
