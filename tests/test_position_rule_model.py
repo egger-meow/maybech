@@ -315,3 +315,89 @@ def test_previous_swing_level_refuses_direct_materialization():
         materialize_position_rule(
             template, entry_price=100, inst_id="ETH-USDT-SWAP", side="long"
         )
+
+
+def _impulse_origin_parameters(**overrides):
+    return {
+        "bar": "1H", "kind": "bullish", "nth": 1,
+        "min_volume_multiple": 2.0, "min_body_ratio": 0.6,
+        "min_body_vs_baseline_multiple": 1.5, "buffer_pct": 0.002,
+        **overrides,
+    }
+
+
+def test_impulse_origin_normalizes_without_requiring_a_resolved_price():
+    metadata = normalize_position_rule(
+        purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "self", "value": 0},
+        enabled=True,
+        metadata={"rule_definition": {
+            "style": "impulse_origin",
+            "parameters": _impulse_origin_parameters(),
+        }},
+    )
+
+    definition = metadata["rule_definition"]
+    assert definition["style"] == "impulse_origin"
+    assert definition["parameters"]["bar"] == "1H"
+    assert definition["parameters"]["kind"] == "bullish"
+    assert definition["parameters"]["nth"] == 1
+    assert definition["parameters"]["min_volume_multiple"] == "2.0"
+    assert definition["parameters"]["min_body_ratio"] == "0.6"
+    assert definition["parameters"]["min_body_vs_baseline_multiple"] == "1.5"
+    assert definition["parameters"]["buffer_pct"] == "0.002"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"kind": "up"}, "kind must be bullish or bearish"),
+        ({"nth": 0}, "nth must be at least 1"),
+        ({"min_volume_multiple": 1}, "min_volume_multiple must be greater than 1"),
+        ({"min_volume_multiple": 51}, "min_volume_multiple must be greater than 1"),
+        ({"min_body_ratio": 1.5}, "min_body_ratio must be between 0 and 1"),
+        ({"min_body_vs_baseline_multiple": -1}, "min_body_vs_baseline_multiple must be between 0 and 50"),
+        ({"buffer_pct": -0.1}, "buffer_pct must be between 0 and 0.5"),
+        ({"bar": ""}, "bar is required"),
+    ],
+)
+def test_impulse_origin_rejects_invalid_parameters(overrides, expected):
+    with pytest.raises(ValueError, match=expected):
+        normalize_position_rule(
+            purpose="stop_loss",
+            expression={"type": "price_below", "symbol": "self", "value": 0},
+            enabled=True,
+            metadata={"rule_definition": {
+                "style": "impulse_origin",
+                "parameters": _impulse_origin_parameters(**overrides),
+            }},
+        )
+
+
+def test_impulse_origin_rejects_purposes_other_than_stop_loss():
+    with pytest.raises(ValueError, match="only valid for stop_loss"):
+        normalize_position_rule(
+            purpose="take_profit",
+            expression={"type": "price_above", "symbol": "self", "value": 0},
+            enabled=True,
+            metadata={"rule_definition": {
+                "style": "impulse_origin",
+                "parameters": _impulse_origin_parameters(),
+            }},
+        )
+
+
+def test_impulse_origin_refuses_direct_materialization():
+    template = normalize_default_rules({"close_conditions": [{
+        "purpose": "stop_loss", "enabled": True,
+        "expression": {"type": "price_below", "symbol": "self", "value": 0},
+        "metadata": {"rule_definition": {
+            "style": "impulse_origin",
+            "parameters": _impulse_origin_parameters(),
+        }},
+    }]})["close_conditions"][0]
+
+    with pytest.raises(ValueError, match="must be resolved to a concrete price"):
+        materialize_position_rule(
+            template, entry_price=100, inst_id="ETH-USDT-SWAP", side="long"
+        )

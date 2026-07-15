@@ -22,6 +22,8 @@ import type {
   InstrumentRiskQuoteResponse,
   SwingStopQuoteRequest,
   SwingStopQuoteResponse,
+  ImpulseOriginQuoteRequest,
+  ImpulseOriginQuoteResponse,
   StrategyRiskStopPromotionCommand,
   PositionRiskStopPromotionCommand,
   LogicalPositionCloseConditionCreateCommand,
@@ -104,6 +106,8 @@ export type {
   InstrumentRiskQuoteResponse,
   SwingStopQuoteRequest,
   SwingStopQuoteResponse,
+  ImpulseOriginQuoteRequest,
+  ImpulseOriginQuoteResponse,
   StrategyRiskStopPromotionCommand,
   PositionRiskStopPromotionCommand,
   LogicalPositionUnitResponse as LogicalPositionUnit,
@@ -367,6 +371,15 @@ export const quoteSwingStopLevel = (
 ): Promise<SwingStopQuoteResponse> =>
   postData<SwingStopQuoteResponse>(
     `/instruments/${encodeURIComponent(instId)}/swing-stop-quote`,
+    payload,
+  );
+
+export const quoteImpulseOrigin = (
+  instId: string,
+  payload: ImpulseOriginQuoteRequest,
+): Promise<ImpulseOriginQuoteResponse> =>
+  postData<ImpulseOriginQuoteResponse>(
+    `/instruments/${encodeURIComponent(instId)}/impulse-origin-quote`,
     payload,
   );
 

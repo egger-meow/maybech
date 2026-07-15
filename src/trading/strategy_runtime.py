@@ -7,6 +7,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from src.market.impulse_origin import find_impulse_origin
 from src.market.support_resistance import find_swing_level
 from src.trading.signal_engine import SignalExpressionEngine
 from src.trading.strategy_store import StrategyRecord, StrategyStore
@@ -121,43 +122,60 @@ def resolve_dynamic_rule_templates(
     inst_id: str,
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Rewrite any `previous_swing_level` template to a concrete `fixed_price`
-    template before `materialize_position_rule` runs (which stays pure — no
-    candle I/O). This is the only place a previous_swing_level rule's price
-    is resolved; every later materialization (confirmed-fill re-basis, etc.)
-    sees the already-concrete `fixed_price` template this rewrote it to.
+    """Rewrite any dynamically-resolved template (`previous_swing_level`,
+    `impulse_origin`) to a concrete `fixed_price` template before
+    `materialize_position_rule` runs (which stays pure — no candle I/O).
+    This is the only place such a rule's price is resolved; every later
+    materialization (confirmed-fill re-basis, etc.) sees the already-concrete
+    `fixed_price` template this rewrote it to.
 
-    With a live `client`, this resolves a fresh swing level from current
-    candles — call this only once, at the point a new position's close
-    conditions are prepared, so each entry gets an independently fresh level
-    without ever mutating the strategy's reusable default_rules template.
-    Without a client (save-time validation / dry preview with no exchange
-    connection), it falls back to whatever placeholder price is already on
-    the raw trigger — the same degraded-but-non-blocking behavior every
-    other style already gets when materialized with a dummy entry_price.
+    With a live `client`, this resolves a fresh level from current candles —
+    call this only once, at the point a new position's close conditions are
+    prepared, so each entry gets an independently fresh level without ever
+    mutating the strategy's reusable default_rules template. Without a
+    client (save-time validation / dry preview with no exchange connection),
+    it falls back to whatever placeholder price is already on the raw
+    trigger — the same degraded-but-non-blocking behavior every other style
+    already gets when materialized with a dummy entry_price.
     """
     resolved: list[dict[str, Any]] = []
     for condition in conditions:
         item = deepcopy(condition)
         metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
         definition = metadata.get("rule_definition") if isinstance(metadata.get("rule_definition"), dict) else {}
-        if definition.get("style") != "previous_swing_level":
+        style = definition.get("style")
+        if style not in {"previous_swing_level", "impulse_origin"}:
             resolved.append(item)
             continue
         parameters = definition.get("parameters") or {}
         if client is not None:
-            swing = find_swing_level(
-                client,
-                inst_id,
-                bar=str(parameters.get("bar")),
-                kind=str(parameters.get("kind")),
-                nth=int(parameters.get("nth", 1)),
-                min_score=float(parameters.get("min_score", 0)),
-                buffer_pct=float(parameters.get("buffer_pct", 0)),
-                now=now,
-            )
-            target_price = swing["price"]
-            evidence = swing["evidence"]
+            if style == "previous_swing_level":
+                resolution = find_swing_level(
+                    client,
+                    inst_id,
+                    bar=str(parameters.get("bar")),
+                    kind=str(parameters.get("kind")),
+                    nth=int(parameters.get("nth", 1)),
+                    min_score=float(parameters.get("min_score", 0)),
+                    buffer_pct=float(parameters.get("buffer_pct", 0)),
+                    now=now,
+                )
+            else:
+                resolution = find_impulse_origin(
+                    client,
+                    inst_id,
+                    bar=str(parameters.get("bar")),
+                    kind=str(parameters.get("kind")),
+                    nth=int(parameters.get("nth", 1)),
+                    min_volume_multiple=float(parameters.get("min_volume_multiple", 2.0)),
+                    min_body_ratio=float(parameters.get("min_body_ratio", 0.6)),
+                    min_body_vs_baseline_multiple=float(
+                        parameters.get("min_body_vs_baseline_multiple", 1.5)
+                    ),
+                    buffer_pct=float(parameters.get("buffer_pct", 0)),
+                )
+            target_price = resolution["price"]
+            evidence = resolution["evidence"]
         else:
             trigger = definition.get("trigger") or item.get("expression") or {}
             target_price = trigger.get("value")
@@ -250,6 +268,7 @@ def validate_strategy_for_execution(
     engine = SignalExpressionEngine()
     errors: list[str] = []
     expression = compose_entry_expression(strategy, store)
+    entry_expression = expression
     if not expression:
         errors.append("strategy must have an entry signal expression")
     else:
@@ -281,6 +300,19 @@ def validate_strategy_for_execution(
     enabled_conditions = [item for item in conditions if item.get("enabled", True)]
     if not enabled_conditions:
         errors.append("default_rules.close_conditions must include an enabled condition")
+    uses_impulse_origin = any(
+        (
+            condition.get("metadata", {}).get("rule_definition", {})
+            if isinstance(condition.get("metadata"), dict)
+            else {}
+        ).get("style") == "impulse_origin"
+        for condition in enabled_conditions
+    )
+    if uses_impulse_origin and not _expression_contains_signal_type(entry_expression, "volume_multiple"):
+        errors.append(
+            "default_rules.close_conditions: impulse_origin (起漲點) stop style requires the "
+            "strategy's entry signal to include a volume_multiple (volume burst) condition"
+        )
     for index, condition in enumerate(conditions):
         expression = condition.get("expression")
         if not isinstance(expression, dict):
@@ -324,3 +356,14 @@ def validate_strategy_for_execution(
             except (KeyError, TypeError, ValueError) as exc:
                 errors.append(str(exc))
     return errors
+
+
+def _expression_contains_signal_type(expression: Any, signal_type: str) -> bool:
+    if not isinstance(expression, dict):
+        return False
+    if "op" in expression:
+        return any(
+            _expression_contains_signal_type(condition, signal_type)
+            for condition in expression.get("conditions") or []
+        )
+    return expression.get("type") == signal_type

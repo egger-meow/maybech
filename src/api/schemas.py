@@ -254,6 +254,23 @@ class SwingStopQuoteResponse(BaseModel):
     evidence: dict[str, Any]
 
 
+class ImpulseOriginQuoteRequest(BaseModel):
+    bar: str = Field(min_length=1, max_length=16)
+    kind: Literal["bullish", "bearish"]
+    nth: int = Field(ge=1, le=50)
+    min_volume_multiple: float = Field(gt=1, le=50)
+    min_body_ratio: float = Field(ge=0, le=1)
+    min_body_vs_baseline_multiple: float = Field(ge=0, le=50)
+    buffer_pct: float = Field(ge=0, le=0.5)
+
+
+class ImpulseOriginQuoteResponse(BaseModel):
+    inst_id: str
+    price: float
+    raw_origin_price: float
+    evidence: dict[str, Any]
+
+
 class StrategyRiskStopPromotionCommand(InstrumentRiskQuoteRequest):
     confirm: Literal[True]
     expected_updated_at: str = Field(min_length=1)

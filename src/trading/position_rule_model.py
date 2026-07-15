@@ -30,6 +30,7 @@ RULE_STYLES = {
     "fixed_price",
     "evidence_target",
     "previous_swing_level",
+    "impulse_origin",
     "signal_triggered",
     "break_even_threshold",
     "trailing_threshold",
@@ -40,6 +41,14 @@ RULE_STYLES = {
 # resolve_dynamic_rule_templates, which resolves a concrete price shortly
 # before materialize_position_rule is called).
 PREVIOUS_SWING_LEVEL_PARAMETERS = {"bar", "kind", "nth", "min_score", "buffer_pct"}
+
+# impulse_origin parameters, same deferred-resolution contract as
+# previous_swing_level (see resolve_dynamic_rule_templates).
+IMPULSE_ORIGIN_PARAMETERS = {
+    "bar", "kind", "nth",
+    "min_volume_multiple", "min_body_ratio", "min_body_vs_baseline_multiple",
+    "buffer_pct",
+}
 
 
 def normalize_position_rule(
@@ -102,6 +111,10 @@ def normalize_position_rule(
         if purpose not in {"stop_loss", "take_profit"}:
             raise ValueError("previous_swing_level is only valid for stop_loss or take_profit")
         parameters = _normalize_previous_swing_level_parameters(parameters)
+    if style == "impulse_origin":
+        if purpose != "stop_loss":
+            raise ValueError("impulse_origin is only valid for stop_loss")
+        parameters = _normalize_impulse_origin_parameters(parameters)
     definition = {
         "schema_version": RULE_SCHEMA_VERSION,
         "purpose": purpose,
@@ -329,6 +342,11 @@ def materialize_position_rule(
             "previous_swing_level rules must be resolved to a concrete price "
             "before materialization (see resolve_dynamic_rule_templates)"
         )
+    elif style == "impulse_origin":
+        raise ValueError(
+            "impulse_origin rules must be resolved to a concrete price "
+            "before materialization (see resolve_dynamic_rule_templates)"
+        )
 
     materialized_definition = {
         **source_definition,
@@ -516,6 +534,59 @@ def _normalize_previous_swing_level_parameters(parameters: dict[str, Any]) -> di
     result["kind"] = kind
     result["nth"] = nth
     result["min_score"] = str(min_score)
+    result["buffer_pct"] = str(buffer_pct)
+    return result
+
+
+def _normalize_impulse_origin_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    result = deepcopy(parameters)
+    missing = IMPULSE_ORIGIN_PARAMETERS - result.keys()
+    if missing:
+        raise ValueError(
+            f"impulse_origin requires parameters: {', '.join(sorted(missing))}"
+        )
+    bar = str(result.get("bar") or "")
+    if not bar:
+        raise ValueError("impulse_origin bar is required")
+    kind = str(result.get("kind") or "")
+    if kind not in {"bullish", "bearish"}:
+        raise ValueError("impulse_origin kind must be bullish or bearish")
+    try:
+        nth = int(result.get("nth"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("impulse_origin nth must be an integer") from exc
+    if nth < 1:
+        raise ValueError("impulse_origin nth must be at least 1")
+    try:
+        min_volume_multiple = Decimal(str(result.get("min_volume_multiple")))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("impulse_origin min_volume_multiple is invalid") from exc
+    if not min_volume_multiple.is_finite() or min_volume_multiple <= 1 or min_volume_multiple > 50:
+        raise ValueError("impulse_origin min_volume_multiple must be greater than 1 and at most 50")
+    try:
+        min_body_ratio = Decimal(str(result.get("min_body_ratio")))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("impulse_origin min_body_ratio is invalid") from exc
+    if not min_body_ratio.is_finite() or min_body_ratio < 0 or min_body_ratio > 1:
+        raise ValueError("impulse_origin min_body_ratio must be between 0 and 1")
+    try:
+        min_body_vs_baseline_multiple = Decimal(str(result.get("min_body_vs_baseline_multiple")))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("impulse_origin min_body_vs_baseline_multiple is invalid") from exc
+    if not min_body_vs_baseline_multiple.is_finite() or min_body_vs_baseline_multiple < 0 or min_body_vs_baseline_multiple > 50:
+        raise ValueError("impulse_origin min_body_vs_baseline_multiple must be between 0 and 50")
+    try:
+        buffer_pct = Decimal(str(result.get("buffer_pct")))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("impulse_origin buffer_pct is invalid") from exc
+    if not buffer_pct.is_finite() or buffer_pct < 0 or buffer_pct > Decimal("0.5"):
+        raise ValueError("impulse_origin buffer_pct must be between 0 and 0.5")
+    result["bar"] = bar
+    result["kind"] = kind
+    result["nth"] = nth
+    result["min_volume_multiple"] = str(min_volume_multiple)
+    result["min_body_ratio"] = str(min_body_ratio)
+    result["min_body_vs_baseline_multiple"] = str(min_body_vs_baseline_multiple)
     result["buffer_pct"] = str(buffer_pct)
     return result
 

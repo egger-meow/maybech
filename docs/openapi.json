@@ -1343,6 +1343,94 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "ImpulseOriginQuoteRequest": {
+        "properties": {
+          "bar": {
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Bar",
+            "type": "string"
+          },
+          "buffer_pct": {
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Buffer Pct",
+            "type": "number"
+          },
+          "kind": {
+            "enum": [
+              "bullish",
+              "bearish"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "min_body_ratio": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min Body Ratio",
+            "type": "number"
+          },
+          "min_body_vs_baseline_multiple": {
+            "maximum": 50.0,
+            "minimum": 0.0,
+            "title": "Min Body Vs Baseline Multiple",
+            "type": "number"
+          },
+          "min_volume_multiple": {
+            "exclusiveMinimum": 1.0,
+            "maximum": 50.0,
+            "title": "Min Volume Multiple",
+            "type": "number"
+          },
+          "nth": {
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Nth",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bar",
+          "kind",
+          "nth",
+          "min_volume_multiple",
+          "min_body_ratio",
+          "min_body_vs_baseline_multiple",
+          "buffer_pct"
+        ],
+        "title": "ImpulseOriginQuoteRequest",
+        "type": "object"
+      },
+      "ImpulseOriginQuoteResponse": {
+        "properties": {
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "raw_origin_price": {
+            "title": "Raw Origin Price",
+            "type": "number"
+          }
+        },
+        "required": [
+          "inst_id",
+          "price",
+          "raw_origin_price",
+          "evidence"
+        ],
+        "title": "ImpulseOriginQuoteResponse",
+        "type": "object"
+      },
       "InstrumentContractQuoteRequest": {
         "properties": {
           "api_quantity_contracts": {
@@ -7437,6 +7525,56 @@
           }
         },
         "summary": "Quote Instrument Contracts"
+      }
+    },
+    "/instruments/{inst_id}/impulse-origin-quote": {
+      "post": {
+        "description": "Preview a \u8d77\u6f32\u9ede/\u8d77\u8dcc\u9ede (impulse origin) stop price.\n\nRead-only, same advisory contract as `swing-stop-quote`: the real\nper-entry resolution happens fresh each time a strategy's\n`impulse_origin` default rule fires (see\n`strategy_runtime.resolve_dynamic_rule_templates`), so this preview\nmay differ by the time an entry actually resolves.",
+        "operationId": "quote_impulse_origin_instruments__inst_id__impulse_origin_quote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inst_id",
+            "required": true,
+            "schema": {
+              "title": "Inst Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImpulseOriginQuoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpulseOriginQuoteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quote Impulse Origin"
       }
     },
     "/instruments/{inst_id}/leverage": {

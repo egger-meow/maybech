@@ -34,6 +34,7 @@ import {
   quoteInstrumentSize,
   quoteInstrumentContracts,
   quoteInstrumentRisk,
+  quoteImpulseOrigin,
   quoteSwingStopLevel,
   refreshInstruments,
   updateLogicalPositionCloseCondition,
@@ -134,6 +135,60 @@ function SwingStopPicker({ instrument, onApply }: { instrument: string; onApply:
       <label className="field"><span>最低信心分數</span><span className="input-with-suffix"><input type="number" min="0" max="100" step="1" value={minScorePct} onChange={(event) => { setMinScorePct(event.target.value); setPreview(null); }} /><small>%</small></span></label>
       <label className="field"><span>緩衝距離</span><span className="input-with-suffix"><input type="number" min="0" max="50" step="0.01" value={bufferPct} onChange={(event) => { setBufferPct(event.target.value); setPreview(null); }} /><small>%</small></span></label>
       {preview && <small className="conversion-hint">解析價位 {number(preview.price, 4)}（原始前{kind === "support" ? "低" : "高"} {number(preview.rawPivotPrice, 4)}）</small>}
+      {error && <div className="error-state">{error}</div>}
+      <div className="form-actions">
+        <button type="button" className="btn btn-outline" disabled={busy} onClick={resolve}>{busy ? "計算中…" : "預覽"}</button>
+        {preview && <button type="button" className="btn btn-primary" onClick={() => { onApply(preview.price); setOpen(false); setPreview(null); }}>套用此停損價</button>}
+        <button type="button" className="btn btn-outline" onClick={() => { setOpen(false); setPreview(null); setError(""); }}>取消</button>
+      </div>
+    </div>
+  );
+}
+
+// One-shot lookup, same contract as SwingStopPicker: resolves a concrete
+// stop price right now from the current volume-burst/long-body candle,
+// rather than persisting a re-resolving strategy rule. `side` fixes the
+// search direction — a long stop anchors to where the last up-burst
+// started, a short stop to where the last down-burst started.
+function ImpulseOriginPicker({ instrument, side, onApply }: { instrument: string; side: "long" | "short"; onApply: (price: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [bar, setBar] = useState("5m");
+  const [nth, setNth] = useState("1");
+  const [minVolumeMultiple, setMinVolumeMultiple] = useState("2");
+  const [minBodyRatioPct, setMinBodyRatioPct] = useState("60");
+  const [minBodyVsBaselineMultiple, setMinBodyVsBaselineMultiple] = useState("1.5");
+  const [bufferPct, setBufferPct] = useState("0.2");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [preview, setPreview] = useState<{ price: number; rawOriginPrice: number } | null>(null);
+  const kind = side === "long" ? "bullish" : "bearish";
+  if (!open) {
+    return <button type="button" className="btn btn-outline" disabled={!instrument} onClick={() => setOpen(true)}>用起漲點計算停損</button>;
+  }
+  const resolve = async () => {
+    setBusy(true); setError(""); setPreview(null);
+    try {
+      const quote = await quoteImpulseOrigin(instrument, {
+        bar,
+        kind,
+        nth: Math.max(1, Math.round(Number(nth) || 1)),
+        min_volume_multiple: Math.max(1.01, Number(minVolumeMultiple) || 2),
+        min_body_ratio: Math.min(1, Math.max(0, Number(minBodyRatioPct) / 100)),
+        min_body_vs_baseline_multiple: Math.max(0, Number(minBodyVsBaselineMultiple) || 0),
+        buffer_pct: Math.min(0.5, Math.max(0, Number(bufferPct) / 100)),
+      });
+      setPreview({ price: quote.price, rawOriginPrice: quote.raw_origin_price });
+    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="swing-stop-picker">
+      <label className="field"><span>時間框架</span><select value={bar} onChange={(event) => { setBar(event.target.value); setPreview(null); }}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1H">1H</option></select></label>
+      <label className="field"><span>第幾個{kind === "bullish" ? "起漲點" : "起跌點"}</span><input type="number" min="1" max="50" step="1" value={nth} onChange={(event) => { setNth(event.target.value); setPreview(null); }} /></label>
+      <label className="field"><span>最低爆量倍數</span><span className="input-with-suffix"><input type="number" min="1.01" max="50" step="0.1" value={minVolumeMultiple} onChange={(event) => { setMinVolumeMultiple(event.target.value); setPreview(null); }} /><small>x</small></span></label>
+      <label className="field"><span>最低實體比例</span><span className="input-with-suffix"><input type="number" min="0" max="100" step="1" value={minBodyRatioPct} onChange={(event) => { setMinBodyRatioPct(event.target.value); setPreview(null); }} /><small>%</small></span></label>
+      <label className="field"><span>相對前段實體倍數</span><span className="input-with-suffix"><input type="number" min="0" max="50" step="0.1" value={minBodyVsBaselineMultiple} onChange={(event) => { setMinBodyVsBaselineMultiple(event.target.value); setPreview(null); }} /><small>x</small></span></label>
+      <label className="field"><span>緩衝距離</span><span className="input-with-suffix"><input type="number" min="0" max="50" step="0.01" value={bufferPct} onChange={(event) => { setBufferPct(event.target.value); setPreview(null); }} /><small>%</small></span></label>
+      {preview && <small className="conversion-hint">解析價位 {number(preview.price, 4)}（原始開盤 {number(preview.rawOriginPrice, 4)}）</small>}
       {error && <div className="error-state">{error}</div>}
       <div className="form-actions">
         <button type="button" className="btn btn-outline" disabled={busy} onClick={resolve}>{busy ? "計算中…" : "預覽"}</button>
@@ -355,7 +410,7 @@ function ManualOpenForm({ catalog, catalogStale, allowedInstruments, onCreated }
           </div>
         )}
         <label className="field"><span>進場限價（預填目前價）</span><input type="number" min="0" step="any" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} /></label>
-        <div className="field"><span>保護停損價（必填）</span><input type="number" min="0" step="any" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /><SwingStopPicker instrument={instrument} onApply={(price) => setStopLoss(String(price))} /></div>
+        <div className="field"><span>保護停損價（必填）</span><input type="number" min="0" step="any" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /><SwingStopPicker instrument={instrument} onApply={(price) => setStopLoss(String(price))} /><ImpulseOriginPicker instrument={instrument} side={side} onApply={(price) => setStopLoss(String(price))} /></div>
         <label className="field"><span>停利價（選填）</span><input type="number" min="0" step="any" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} /></label>
       </div>
       {sizeMode === "risk" && riskQuote.data && <div className="risk-sizing-result">
@@ -495,7 +550,7 @@ function RuleEditor({ position, condition, onSaved, onCancel, tickSize }: { posi
       </div>
       {typedPurpose ? <div className="typed-rule-grid">
         <label className="field"><span>計算方式</span><select value={style === "fixed_percent" ? "fixed_percent" : "fixed_price"} onChange={(event) => { setStyle(event.target.value); setDirty(true); }}><option value="fixed_percent">依確認進場價百分比</option><option value="fixed_price">固定價格</option></select></label>
-        {style === "fixed_percent" ? <label className="field"><span>{purpose === "stop_loss" ? "停損距離" : "獲利目標"}</span><span className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={offsetPct} onChange={(event) => { setOffsetPct(event.target.value); setDirty(true); }} /><small>%</small></span></label> : <div className="field"><span>{purpose === "stop_loss" ? "停損價" : "停利價"}</span><input type="number" min="0" step={tickSize ?? "any"} value={targetPrice} onChange={(event) => { setTargetPrice(event.target.value); setDirty(true); }} /><SwingStopPicker instrument={position.inst_id} onApply={(price) => { setTargetPrice(String(price)); setDirty(true); }} /></div>}
+        {style === "fixed_percent" ? <label className="field"><span>{purpose === "stop_loss" ? "停損距離" : "獲利目標"}</span><span className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={offsetPct} onChange={(event) => { setOffsetPct(event.target.value); setDirty(true); }} /><small>%</small></span></label> : <div className="field"><span>{purpose === "stop_loss" ? "停損價" : "停利價"}</span><input type="number" min="0" step={tickSize ?? "any"} value={targetPrice} onChange={(event) => { setTargetPrice(event.target.value); setDirty(true); }} /><SwingStopPicker instrument={position.inst_id} onApply={(price) => { setTargetPrice(String(price)); setDirty(true); }} />{purpose === "stop_loss" && <ImpulseOriginPicker instrument={position.inst_id} side={position.side as "long" | "short"} onApply={(price) => { setTargetPrice(String(price)); setDirty(true); }} />}</div>}
         {purpose === "take_profit" && <label className="check-field"><input type="checkbox" checked={reduceOnly} onChange={(event) => { setReduceOnly(event.target.checked); setDirty(true); }} /> 只減倉並保留剩餘部位</label>}
         {purpose === "take_profit" && reduceOnly && <label className="field"><span>減倉比例</span><span className="input-with-suffix"><input type="number" min="0.01" max="99.99" step="1" value={reducePct} onChange={(event) => { setReducePct(event.target.value); setDirty(true); }} /><small>%</small></span></label>}
         <div className="inline-warning">相對百分比以此邏輯部位的確認進場均價計算；受保護停損會先完成交易所修改確認，再更新型別化規則 metadata。</div>

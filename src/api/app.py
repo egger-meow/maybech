@@ -30,6 +30,7 @@ from src.market.macro_overview import (
     fetch_prices,
 )
 from src.market.open_interest_history import DEFAULT_PERIOD, VALID_PERIODS, fetch_open_interest_history
+from src.market.impulse_origin import find_impulse_origin
 from src.market.support_resistance import SupportResistanceService, find_swing_level
 from src.market_intelligence.service import MarketIntelligenceService
 from src.daemon.events import RuntimeEvent
@@ -106,6 +107,8 @@ from src.api.schemas import (
     InstrumentRiskQuoteResponse,
     SwingStopQuoteRequest,
     SwingStopQuoteResponse,
+    ImpulseOriginQuoteRequest,
+    ImpulseOriginQuoteResponse,
     StrategyRiskStopPromotionCommand,
     PositionRiskStopPromotionCommand,
     LivePreflightResponse,
@@ -1488,6 +1491,43 @@ def create_app(
             inst_id=inst_id,
             price=result["price"],
             raw_pivot_price=result["raw_pivot_price"],
+            evidence=result["evidence"],
+        )
+
+    @app.post(
+        "/instruments/{inst_id}/impulse-origin-quote",
+        response_model=ImpulseOriginQuoteResponse,
+    )
+    def quote_impulse_origin(
+        inst_id: str,
+        payload: ImpulseOriginQuoteRequest,
+    ) -> ImpulseOriginQuoteResponse:
+        """Preview a 起漲點/起跌點 (impulse origin) stop price.
+
+        Read-only, same advisory contract as `swing-stop-quote`: the real
+        per-entry resolution happens fresh each time a strategy's
+        `impulse_origin` default rule fires (see
+        `strategy_runtime.resolve_dynamic_rule_templates`), so this preview
+        may differ by the time an entry actually resolves.
+        """
+        try:
+            result = find_impulse_origin(
+                market_client(),
+                inst_id,
+                bar=payload.bar,
+                kind=payload.kind,
+                nth=payload.nth,
+                min_volume_multiple=payload.min_volume_multiple,
+                min_body_ratio=payload.min_body_ratio,
+                min_body_vs_baseline_multiple=payload.min_body_vs_baseline_multiple,
+                buffer_pct=payload.buffer_pct,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return ImpulseOriginQuoteResponse(
+            inst_id=inst_id,
+            price=result["price"],
+            raw_origin_price=result["raw_origin_price"],
             evidence=result["evidence"],
         )
 

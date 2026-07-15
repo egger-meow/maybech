@@ -24,6 +24,7 @@ import {
   listPersistedStrategyDecisions,
   listInstruments,
   listStrategies,
+  quoteImpulseOrigin,
   quoteInstrumentRisk,
   quoteInstrumentSize,
   quoteSwingStopLevel,
@@ -372,6 +373,59 @@ function SwingLevelPreview({
   </small>;
 }
 
+// Read-only preview only: the real, executable stop_loss price for an
+// impulse_origin rule is resolved fresh at each future entry by the backend
+// (resolve_dynamic_rule_templates), not frozen to whatever this preview showed.
+function ImpulseOriginPreview({
+  instrument,
+  bar,
+  kind,
+  nth,
+  minVolumeMultiple,
+  minBodyRatio,
+  minBodyVsBaselineMultiple,
+  bufferPct,
+  onResolved,
+}: {
+  instrument: string;
+  bar: string;
+  kind: "bullish" | "bearish";
+  nth: number;
+  minVolumeMultiple: number;
+  minBodyRatio: number;
+  minBodyVsBaselineMultiple: number;
+  bufferPct: number;
+  onResolved: (price: number) => void;
+}) {
+  const quote = useSWR(
+    instrument && bar && nth > 0
+      ? ["impulse-origin-quote", instrument, bar, kind, nth, minVolumeMultiple, minBodyRatio, minBodyVsBaselineMultiple, bufferPct]
+      : null,
+    () => quoteImpulseOrigin(instrument, {
+      bar, kind, nth,
+      min_volume_multiple: minVolumeMultiple,
+      min_body_ratio: minBodyRatio,
+      min_body_vs_baseline_multiple: minBodyVsBaselineMultiple,
+      buffer_pct: bufferPct,
+    }),
+  );
+  useEffect(() => {
+    if (quote.data) onResolved(quote.data.price);
+    // Only a freshly resolved quote should push a price update upstream.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quote.data]);
+  if (!instrument) return <small className="size-quote pending">請先選擇交易商品以預覽起漲點價位。</small>;
+  if (quote.error) return <small className="size-quote blocked">{errorMessage(quote.error)}</small>;
+  if (!quote.data) return <small className="size-quote pending">正在計算起漲點…</small>;
+  const evidence = object(quote.data.evidence);
+  return <small className="size-quote ready">
+    以 {instrument} 預覽：解析價位 {quote.data.price.toFixed(4)}（原始開盤 {quote.data.raw_origin_price.toFixed(4)}，
+    第 {String(evidence.nth)} 個{kind === "bullish" ? "爆量長紅K" : "爆量長黑K"}，
+    量能倍數 {Number(evidence.volume_ratio ?? 0).toFixed(2)}x，實體比例 {(Number(evidence.body_ratio ?? 0) * 100).toFixed(0)}%，
+    相對前段實體 {Number(evidence.body_vs_baseline_multiple ?? 0).toFixed(2)}x）
+  </small>;
+}
+
 function TypedCloseRuleEditor({ rule, side, onChange, analysisSymbols = [] }: { rule: CloseRule; side: "long" | "short"; onChange: (rule: CloseRule) => void; analysisSymbols?: string[] }) {
   const style = ruleStyle(rule);
   const parameters = ruleParameters(rule);
@@ -379,6 +433,7 @@ function TypedCloseRuleEditor({ rule, side, onChange, analysisSymbols = [] }: { 
   const action = object(definition.action);
   const setParameters = (next: Record<string, unknown>, nextAction?: Record<string, unknown>) => onChange(withTypedRule(rule, style, next, nextAction ?? action));
   const defaultSwingKind = (rule.purpose === "stop_loss") === (side === "long") ? "support" : "resistance";
+  const defaultImpulseKind = side === "long" ? "bullish" : "bearish";
   const setStyle = (nextStyle: string) => {
     if (nextStyle === "fixed_percent") onChange(withTypedRule({ ...rule, expression: priceExpression(rule.purpose, side, 1) }, nextStyle, { offset_pct: String(parameters.offset_pct ?? (rule.purpose === "stop_loss" ? "0.01" : "0.02")) }, action));
     else if (nextStyle === "previous_swing_level") onChange(withTypedRule({ ...rule, expression: priceExpression(rule.purpose, side, 1) }, nextStyle, {
@@ -386,6 +441,15 @@ function TypedCloseRuleEditor({ rule, side, onChange, analysisSymbols = [] }: { 
       kind: String(parameters.kind ?? defaultSwingKind),
       nth: String(parameters.nth ?? "1"),
       min_score: String(parameters.min_score ?? "0.5"),
+      buffer_pct: String(parameters.buffer_pct ?? "0.002"),
+    }, action));
+    else if (nextStyle === "impulse_origin") onChange(withTypedRule({ ...rule, expression: priceExpression(rule.purpose, side, 1) }, nextStyle, {
+      bar: String(parameters.bar ?? "5m"),
+      kind: defaultImpulseKind,
+      nth: String(parameters.nth ?? "1"),
+      min_volume_multiple: String(parameters.min_volume_multiple ?? "2"),
+      min_body_ratio: String(parameters.min_body_ratio ?? "0.6"),
+      min_body_vs_baseline_multiple: String(parameters.min_body_vs_baseline_multiple ?? "1.5"),
       buffer_pct: String(parameters.buffer_pct ?? "0.002"),
     }, action));
     else onChange(withTypedRule(rule, nextStyle, { target_price: String(parameters.target_price ?? rule.expression.value ?? "") }, action));
@@ -397,8 +461,14 @@ function TypedCloseRuleEditor({ rule, side, onChange, analysisSymbols = [] }: { 
     const swingNth = Math.max(1, Math.round(Number(parameters.nth ?? 1)) || 1);
     const swingMinScore = Number(parameters.min_score ?? 0.5);
     const swingBufferPct = Number(parameters.buffer_pct ?? 0.002);
+    const impulseKind = defaultImpulseKind;
+    const impulseNth = Math.max(1, Math.round(Number(parameters.nth ?? 1)) || 1);
+    const impulseMinVolumeMultiple = Number(parameters.min_volume_multiple ?? 2);
+    const impulseMinBodyRatio = Number(parameters.min_body_ratio ?? 0.6);
+    const impulseMinBodyVsBaseline = Number(parameters.min_body_vs_baseline_multiple ?? 1.5);
+    const impulseBufferPct = Number(parameters.buffer_pct ?? 0.002);
     return <div className="typed-rule-grid">
-      <label className="field"><span>計算方式</span><select value={style === "fixed_percent" || style === "previous_swing_level" ? style : "fixed_price"} onChange={(event) => setStyle(event.target.value)}><option value="fixed_percent">依進場價百分比</option><option value="fixed_price">固定價格</option><option value="previous_swing_level">前高/前低（自動）</option></select></label>
+      <label className="field"><span>計算方式</span><select value={style === "fixed_percent" || style === "previous_swing_level" || style === "impulse_origin" ? style : "fixed_price"} onChange={(event) => setStyle(event.target.value)}><option value="fixed_percent">依進場價百分比</option><option value="fixed_price">固定價格</option><option value="previous_swing_level">前高/前低（自動）</option>{rule.purpose === "stop_loss" && <option value="impulse_origin">起漲點（爆量長K，僅停損）</option>}</select></label>
       {style === "fixed_percent" ? <label className="field"><span>{rule.purpose === "stop_loss" ? "停損距離" : "獲利目標"}</span><span className="input-with-suffix"><input type="number" min="0.0001" max="100" step="0.01" value={String(Number(parameters.offset_pct ?? 0) * 100)} onChange={(event) => setParameters({ ...parameters, offset_pct: String(Number(event.target.value) / 100) })} /><small>%</small></span></label>
       : style === "previous_swing_level" ? <>
         <label className="field"><span>時間框架</span><select value={String(parameters.bar ?? "1H")} onChange={(event) => setParameters({ ...parameters, bar: event.target.value })}><option value="5m">5m</option><option value="15m">15m</option><option value="1H">1H</option><option value="4H">4H</option><option value="1D">1D</option></select></label>
@@ -408,6 +478,16 @@ function TypedCloseRuleEditor({ rule, side, onChange, analysisSymbols = [] }: { 
         <label className="field"><span>緩衝距離</span><span className="input-with-suffix"><input type="number" min="0" max="50" step="0.01" value={String(swingBufferPct * 100)} onChange={(event) => setParameters({ ...parameters, buffer_pct: String(Math.min(0.5, Math.max(0, Number(event.target.value) / 100))) })} /><small>%</small></span></label>
         {analysisSymbols[0] && <SwingLevelPreview instrument={analysisSymbols[0]} bar={String(parameters.bar ?? "1H")} kind={swingKind} nth={swingNth} minScore={swingMinScore} bufferPct={swingBufferPct} onResolved={(resolvedPrice) => onChange(withTypedRule({ ...rule, expression: priceExpression(rule.purpose, side, resolvedPrice) }, "previous_swing_level", parameters, action))} />}
         <div className="inline-warning">每次新進場都會用當下 K 線重新計算前高/前低；此處預覽僅供參考，實際套用時每個商品各自計算。</div>
+      </>
+      : style === "impulse_origin" ? <>
+        <label className="field"><span>時間框架</span><select value={String(parameters.bar ?? "5m")} onChange={(event) => setParameters({ ...parameters, bar: event.target.value })}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1H">1H</option></select></label>
+        <label className="field"><span>第幾個{impulseKind === "bullish" ? "起漲點" : "起跌點"}</span><input type="number" min="1" max="50" step="1" value={String(impulseNth)} onChange={(event) => setParameters({ ...parameters, nth: String(Math.max(1, Math.round(Number(event.target.value) || 1))) })} /></label>
+        <label className="field"><span>最低爆量倍數</span><span className="input-with-suffix"><input type="number" min="1.01" max="50" step="0.1" value={String(impulseMinVolumeMultiple)} onChange={(event) => setParameters({ ...parameters, min_volume_multiple: event.target.value })} /><small>x</small></span></label>
+        <label className="field"><span>最低實體比例</span><span className="input-with-suffix"><input type="number" min="0" max="100" step="1" value={String(Math.round(impulseMinBodyRatio * 100))} onChange={(event) => setParameters({ ...parameters, min_body_ratio: String(Math.min(1, Math.max(0, Number(event.target.value) / 100))) })} /><small>%</small></span></label>
+        <label className="field"><span>相對前段實體倍數</span><span className="input-with-suffix"><input type="number" min="0" max="50" step="0.1" value={String(impulseMinBodyVsBaseline)} onChange={(event) => setParameters({ ...parameters, min_body_vs_baseline_multiple: event.target.value })} /><small>x</small></span></label>
+        <label className="field"><span>緩衝距離</span><span className="input-with-suffix"><input type="number" min="0" max="50" step="0.01" value={String(impulseBufferPct * 100)} onChange={(event) => setParameters({ ...parameters, buffer_pct: String(Math.min(0.5, Math.max(0, Number(event.target.value) / 100))) })} /><small>%</small></span></label>
+        {analysisSymbols[0] && <ImpulseOriginPreview instrument={analysisSymbols[0]} bar={String(parameters.bar ?? "5m")} kind={impulseKind} nth={impulseNth} minVolumeMultiple={impulseMinVolumeMultiple} minBodyRatio={impulseMinBodyRatio} minBodyVsBaselineMultiple={impulseMinBodyVsBaseline} bufferPct={impulseBufferPct} onResolved={(resolvedPrice) => onChange(withTypedRule({ ...rule, expression: priceExpression(rule.purpose, side, resolvedPrice) }, "impulse_origin", parameters, action))} />}
+        <div className="inline-warning">起漲點 = 爆量長K的開盤價（也就是前一根量縮K收盤的位置）；每次新進場都會重新計算。此規則要求策略的進場訊號包含「爆量」（volume_multiple）條件，否則儲存時會被擋下。</div>
       </>
       : <label className="field"><span>{rule.purpose === "stop_loss" ? "停損價" : "停利價"}</span><input type="number" min="0" step="any" value={price} onChange={(event) => { const value = event.target.value; onChange(withTypedRule({ ...rule, expression: priceExpression(rule.purpose, side, Number(value)) }, "fixed_price", { ...parameters, target_price: value }, action)); }} /></label>}
       {rule.purpose === "take_profit" && <label className="check-field"><input type="checkbox" checked={staged} onChange={(event) => onChange(withTypedRule(rule, style, parameters, event.target.checked ? { type: "reduce_position", quantity_fraction: 0.5, quantity_basis: "initial" } : { type: "close_position" }))} /> 分段減倉，保留剩餘部位續跑</label>}

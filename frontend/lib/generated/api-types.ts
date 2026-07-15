@@ -240,6 +240,23 @@ export type HealthResponse = {
   "running": boolean;
 };
 
+export type ImpulseOriginQuoteRequest = {
+  "bar": string;
+  "kind": "bullish" | "bearish";
+  "nth": number;
+  "min_volume_multiple": number;
+  "min_body_ratio": number;
+  "min_body_vs_baseline_multiple": number;
+  "buffer_pct": number;
+};
+
+export type ImpulseOriginQuoteResponse = {
+  "inst_id": string;
+  "price": number;
+  "raw_origin_price": number;
+  "evidence": Record<string, unknown>;
+};
+
 export type InstrumentContractQuoteRequest = {
   "api_quantity_contracts": string;
   "entry_price": string;
@@ -1205,6 +1222,8 @@ export type ApiSchemas = {
   "GlobalMarketOverviewResponse": GlobalMarketOverviewResponse;
   "HTTPValidationError": HTTPValidationError;
   "HealthResponse": HealthResponse;
+  "ImpulseOriginQuoteRequest": ImpulseOriginQuoteRequest;
+  "ImpulseOriginQuoteResponse": ImpulseOriginQuoteResponse;
   "InstrumentContractQuoteRequest": InstrumentContractQuoteRequest;
   "InstrumentLeverageResponse": InstrumentLeverageResponse;
   "InstrumentMetadataListResponse": InstrumentMetadataListResponse;

@@ -215,3 +215,133 @@ def test_exchange_protection_prices_resolves_previous_swing_level_with_client(tm
     assert stop != 42
     assert 0 < stop < 200
     assert validate_strategy_for_execution(strategy, store) == []
+
+
+def _impulse_client():
+    now = datetime(2026, 7, 2, 12, tzinfo=timezone.utc)
+    rows = []
+    price = 100.0
+    for index in range(80):
+        if index == 60:
+            open_price = price
+            close = price * 1.05
+            volume = 50.0
+        else:
+            open_price = price
+            close = price * (1.001 if index % 2 == 0 else 0.999)
+            volume = 10.0
+        rows.append({
+            "timestamp": now - timedelta(minutes=80 - index),
+            "open": open_price, "high": max(open_price, close) + 0.1,
+            "low": min(open_price, close) - 0.1, "close": close, "volume": volume,
+        })
+        price = close
+    frame = pd.DataFrame(rows)
+
+    class Client:
+        def get_candles(self, *, inst_id, bar, limit):
+            del inst_id, bar
+            tail = frame.tail(int(limit))
+            return [
+                [
+                    str(int(row.timestamp.timestamp() * 1000)),
+                    str(row.open), str(row.high), str(row.low), str(row.close),
+                    str(row.volume), str(row.volume), str(row.volume), "1",
+                ]
+                for row in tail.itertuples()
+            ]
+    return Client()
+
+
+def _impulse_origin_condition():
+    return {
+        "purpose": "stop_loss", "enabled": True,
+        "expression": {"type": "price_below", "symbol": "self", "value": 42},
+        "metadata": {"rule_definition": {
+            "style": "impulse_origin", "action": {"type": "close_position"},
+            "parameters": {
+                "bar": "1m", "kind": "bullish", "nth": 1,
+                "min_volume_multiple": 2.0, "min_body_ratio": 0.6,
+                "min_body_vs_baseline_multiple": 1.5, "buffer_pct": 0.0,
+            },
+            "evidence": {},
+        }},
+    }
+
+
+def test_resolve_dynamic_rule_templates_falls_back_to_placeholder_for_impulse_origin_without_client():
+    resolved = resolve_dynamic_rule_templates(
+        [_impulse_origin_condition()], client=None, inst_id="ETH-USDT-SWAP",
+    )
+
+    definition = resolved[0]["metadata"]["rule_definition"]
+    assert definition["style"] == "fixed_price"
+    assert definition["parameters"]["target_price"] == 42
+
+
+def test_resolve_dynamic_rule_templates_resolves_a_fresh_impulse_origin_price_with_client():
+    resolved = resolve_dynamic_rule_templates(
+        [_impulse_origin_condition()], client=_impulse_client(), inst_id="ETH-USDT-SWAP",
+    )
+
+    definition = resolved[0]["metadata"]["rule_definition"]
+    assert definition["style"] == "fixed_price"
+    assert definition["parameters"]["target_price"] != 42
+    assert definition["evidence"]["source"] == "impulse_origin"
+
+
+def test_exchange_protection_prices_resolves_impulse_origin_with_client(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    strategy = _strategy(store)
+    strategy = store.update(
+        strategy.id,
+        entry_signal={
+            "op": "and",
+            "conditions": [
+                {"type": "price_above", "symbol": "self", "value": 100},
+                {"type": "volume_multiple", "symbol": "self", "timeframe": "1m", "multiplier": 3},
+            ],
+        },
+        default_rules={"close_conditions": [_impulse_origin_condition()]},
+    )
+
+    stop, _ = exchange_protection_prices(
+        strategy, store, "ETH-USDT-SWAP", entry_price=200, client=_impulse_client(),
+    )
+
+    assert stop != 42
+    assert 0 < stop < 200
+    assert validate_strategy_for_execution(strategy, store) == []
+
+
+def test_validate_strategy_for_execution_blocks_impulse_origin_without_volume_burst_entry_signal(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    strategy = _strategy(store)
+    strategy = store.update(
+        strategy.id,
+        default_rules={"close_conditions": [_impulse_origin_condition()]},
+    )
+
+    errors = validate_strategy_for_execution(strategy, store)
+
+    assert any("volume_multiple" in error for error in errors)
+
+
+def test_validate_strategy_for_execution_allows_impulse_origin_with_volume_burst_entry_signal(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    strategy = _strategy(store)
+    strategy = store.update(
+        strategy.id,
+        entry_signal={
+            "op": "and",
+            "conditions": [
+                {"type": "price_above", "symbol": "self", "value": 100},
+                {"type": "volume_multiple", "symbol": "self", "timeframe": "1m", "multiplier": 3},
+            ],
+        },
+        default_rules={"close_conditions": [_impulse_origin_condition()]},
+    )
+
+    errors = validate_strategy_for_execution(strategy, store)
+
+    assert not any("volume_multiple" in error for error in errors)
