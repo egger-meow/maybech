@@ -236,3 +236,82 @@ def test_trailing_rule_materializes_activation_and_separates_stop_from_take_prof
             expression={"type": "price_above", "symbol": "self", "value": 103},
             metadata={"rule_definition": {"style": "trailing_threshold", "action": {"type": "close_position"}, "parameters": {"trailing_kind": "stop", "activation_profit_pct": .03, "distance_pct": .02, "timeframe": "1m"}}},
         )
+
+
+def _previous_swing_level_parameters(**overrides):
+    return {
+        "bar": "1H", "kind": "support", "nth": 1, "min_score": 0.5, "buffer_pct": 0.002,
+        **overrides,
+    }
+
+
+def test_previous_swing_level_normalizes_without_requiring_a_resolved_price():
+    metadata = normalize_position_rule(
+        purpose="stop_loss",
+        expression={"type": "price_below", "symbol": "self", "value": 0},
+        enabled=True,
+        metadata={"rule_definition": {
+            "style": "previous_swing_level",
+            "parameters": _previous_swing_level_parameters(),
+        }},
+    )
+
+    definition = metadata["rule_definition"]
+    assert definition["style"] == "previous_swing_level"
+    assert definition["parameters"]["bar"] == "1H"
+    assert definition["parameters"]["kind"] == "support"
+    assert definition["parameters"]["nth"] == 1
+    assert definition["parameters"]["min_score"] == "0.5"
+    assert definition["parameters"]["buffer_pct"] == "0.002"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"kind": "up"}, "kind must be support or resistance"),
+        ({"nth": 0}, "nth must be at least 1"),
+        ({"min_score": 1.5}, "min_score must be between 0 and 1"),
+        ({"buffer_pct": -0.1}, "buffer_pct must be between 0 and 0.5"),
+        ({"bar": ""}, "bar is required"),
+    ],
+)
+def test_previous_swing_level_rejects_invalid_parameters(overrides, expected):
+    with pytest.raises(ValueError, match=expected):
+        normalize_position_rule(
+            purpose="stop_loss",
+            expression={"type": "price_below", "symbol": "self", "value": 0},
+            enabled=True,
+            metadata={"rule_definition": {
+                "style": "previous_swing_level",
+                "parameters": _previous_swing_level_parameters(**overrides),
+            }},
+        )
+
+
+def test_previous_swing_level_rejects_purposes_other_than_stop_loss_or_take_profit():
+    with pytest.raises(ValueError, match="only valid for stop_loss or take_profit"):
+        normalize_position_rule(
+            purpose="exit",
+            expression={"type": "price_below", "symbol": "self", "value": 0},
+            enabled=True,
+            metadata={"rule_definition": {
+                "style": "previous_swing_level",
+                "parameters": _previous_swing_level_parameters(),
+            }},
+        )
+
+
+def test_previous_swing_level_refuses_direct_materialization():
+    template = normalize_default_rules({"close_conditions": [{
+        "purpose": "stop_loss", "enabled": True,
+        "expression": {"type": "price_below", "symbol": "self", "value": 0},
+        "metadata": {"rule_definition": {
+            "style": "previous_swing_level",
+            "parameters": _previous_swing_level_parameters(),
+        }},
+    }]})["close_conditions"][0]
+
+    with pytest.raises(ValueError, match="must be resolved to a concrete price"):
+        materialize_position_rule(
+            template, entry_price=100, inst_id="ETH-USDT-SWAP", side="long"
+        )

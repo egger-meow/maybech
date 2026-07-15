@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from src.market.support_resistance import find_swing_level
 from src.trading.signal_engine import SignalExpressionEngine
 from src.trading.strategy_store import StrategyRecord, StrategyStore
 from src.trading.position_rule_model import materialize_position_rule
@@ -112,6 +114,65 @@ def close_condition_specs(
     return conditions
 
 
+def resolve_dynamic_rule_templates(
+    conditions: list[dict[str, Any]],
+    *,
+    client: object | None,
+    inst_id: str,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Rewrite any `previous_swing_level` template to a concrete `fixed_price`
+    template before `materialize_position_rule` runs (which stays pure — no
+    candle I/O). This is the only place a previous_swing_level rule's price
+    is resolved; every later materialization (confirmed-fill re-basis, etc.)
+    sees the already-concrete `fixed_price` template this rewrote it to.
+
+    With a live `client`, this resolves a fresh swing level from current
+    candles — call this only once, at the point a new position's close
+    conditions are prepared, so each entry gets an independently fresh level
+    without ever mutating the strategy's reusable default_rules template.
+    Without a client (save-time validation / dry preview with no exchange
+    connection), it falls back to whatever placeholder price is already on
+    the raw trigger — the same degraded-but-non-blocking behavior every
+    other style already gets when materialized with a dummy entry_price.
+    """
+    resolved: list[dict[str, Any]] = []
+    for condition in conditions:
+        item = deepcopy(condition)
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        definition = metadata.get("rule_definition") if isinstance(metadata.get("rule_definition"), dict) else {}
+        if definition.get("style") != "previous_swing_level":
+            resolved.append(item)
+            continue
+        parameters = definition.get("parameters") or {}
+        if client is not None:
+            swing = find_swing_level(
+                client,
+                inst_id,
+                bar=str(parameters.get("bar")),
+                kind=str(parameters.get("kind")),
+                nth=int(parameters.get("nth", 1)),
+                min_score=float(parameters.get("min_score", 0)),
+                buffer_pct=float(parameters.get("buffer_pct", 0)),
+                now=now,
+            )
+            target_price = swing["price"]
+            evidence = swing["evidence"]
+        else:
+            trigger = definition.get("trigger") or item.get("expression") or {}
+            target_price = trigger.get("value")
+            evidence = definition.get("evidence") or {}
+        metadata["rule_definition"] = {
+            **definition,
+            "style": "fixed_price",
+            "parameters": {**parameters, "target_price": target_price},
+            "evidence": evidence,
+        }
+        item["metadata"] = metadata
+        resolved.append(item)
+    return resolved
+
+
 def materialized_close_condition_specs(
     strategy: StrategyRecord,
     store: StrategyStore,
@@ -119,7 +180,11 @@ def materialized_close_condition_specs(
     inst_id: str,
     entry_price: object,
     basis: str,
+    client: object | None = None,
 ) -> list[dict[str, Any]]:
+    specs = resolve_dynamic_rule_templates(
+        close_condition_specs(strategy, store), client=client, inst_id=inst_id,
+    )
     return [
         materialize_position_rule(
             spec,
@@ -128,7 +193,7 @@ def materialized_close_condition_specs(
             side=position_side(strategy),
             basis=basis,
         )
-        for spec in close_condition_specs(strategy, store)
+        for spec in specs
     ]
 
 
@@ -138,6 +203,7 @@ def exchange_protection_prices(
     inst_id: str,
     entry_price: object | None = None,
     materialization_basis: str = "provisional_order_price",
+    client: object | None = None,
 ) -> tuple[float, float | None]:
     side = position_side(strategy)
     stop_type = "price_below" if side == "long" else "price_above"
@@ -152,6 +218,7 @@ def exchange_protection_prices(
             inst_id=inst_id,
             entry_price=entry_price,
             basis=materialization_basis,
+            client=client,
         )
     for spec in specs:
         if not spec.get("enabled", True):

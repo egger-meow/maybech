@@ -1096,6 +1096,21 @@ export type SupportResistanceLevelResponse = {
   "evidence"?: Record<string, unknown>;
 };
 
+export type SwingStopQuoteRequest = {
+  "bar": string;
+  "kind": "support" | "resistance";
+  "nth": number;
+  "min_score": number;
+  "buffer_pct": number;
+};
+
+export type SwingStopQuoteResponse = {
+  "inst_id": string;
+  "price": number;
+  "raw_pivot_price": number;
+  "evidence": Record<string, unknown>;
+};
+
 export type TradeDetailResponse = {
   "id": string;
   "short_id"?: string;
@@ -1277,6 +1292,8 @@ export type ApiSchemas = {
   "StrategyUpdate": StrategyUpdate;
   "SupportResistanceAnalysisResponse": SupportResistanceAnalysisResponse;
   "SupportResistanceLevelResponse": SupportResistanceLevelResponse;
+  "SwingStopQuoteRequest": SwingStopQuoteRequest;
+  "SwingStopQuoteResponse": SwingStopQuoteResponse;
   "TradeDetailResponse": TradeDetailResponse;
   "TradeResponse": TradeResponse;
   "TradeRuleAttach": TradeRuleAttach;

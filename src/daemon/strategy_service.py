@@ -291,6 +291,7 @@ class StrategyService(DaemonService):
                 self.strategy_store,
                 pair,
                 entry_price=provisional_price,
+                client=self.client,
             )
             check_risk(
                 inst_id=pair,
@@ -581,6 +582,7 @@ class StrategyService(DaemonService):
                 self.strategy_store,
                 pair,
                 entry_price=order_price,
+                client=self.client,
             )
             risk_approval = self.executor.approve_entry(
                 inst_id=pair,
@@ -770,6 +772,7 @@ class StrategyService(DaemonService):
             inst_id=pair,
             entry_price=rule_entry_price,
             basis="provisional_order_price",
+            client=self.client,
         )):
             created = self.position_store.create_close_condition(
                 position_id=position.id,

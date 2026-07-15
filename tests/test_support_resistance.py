@@ -1,12 +1,17 @@
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.app import create_app
 from src.data.candles import CandleManager
 from src.daemon.service import DaemonRunner
-from src.market.support_resistance import SupportResistanceService, analyze_candles
+from src.market.support_resistance import (
+    SupportResistanceService,
+    analyze_candles,
+    find_swing_level,
+)
 
 
 NOW = datetime(2026, 7, 2, 12, tzinfo=timezone.utc)
@@ -227,3 +232,90 @@ def test_api_exposes_typed_support_resistance_analysis(monkeypatch):
     assert body["eligible_as_live_rule"] is False
     assert body["tick_size"] == "0.1"
     assert body["price_precision"] == 1
+
+
+def _client_for(frame: pd.DataFrame):
+    class Client:
+        def get_candles(self, *, inst_id, bar, limit):
+            del inst_id, bar
+            rows = frame.tail(int(limit))
+            return [
+                [
+                    str(int(row.timestamp.timestamp() * 1000)),
+                    str(row.open), str(row.high), str(row.low), str(row.close),
+                    str(row.volume), str(row.volume), str(row.volume), "1",
+                ]
+                for row in rows.itertuples()
+            ]
+    return Client()
+
+
+def test_find_swing_level_resolves_most_recent_qualifying_pivot_by_default():
+    result = find_swing_level(
+        _client_for(_long_candles(100)),
+        "ETH-USDT-SWAP",
+        bar="1m",
+        kind="support",
+        now=NOW,
+    )
+
+    assert result["price"] == result["raw_pivot_price"]
+    assert result["evidence"]["kind"] == "support"
+    assert result["evidence"]["nth"] == 1
+    assert result["evidence"]["source"] == "previous_swing_level"
+
+
+def test_find_swing_level_applies_buffer_away_from_price_by_direction():
+    client = _client_for(_long_candles(100))
+
+    support = find_swing_level(client, "ETH-USDT-SWAP", bar="1m", kind="support", buffer_pct=0.01, now=NOW)
+    assert support["price"] == pytest.approx(support["raw_pivot_price"] * 0.99)
+
+    resistance = find_swing_level(client, "ETH-USDT-SWAP", bar="1m", kind="resistance", buffer_pct=0.01, now=NOW)
+    assert resistance["price"] == pytest.approx(resistance["raw_pivot_price"] * 1.01)
+
+
+def test_find_swing_level_raises_when_fewer_than_nth_qualifying_levels_exist():
+    with pytest.raises(ValueError, match="only .* qualifying"):
+        find_swing_level(
+            _client_for(_long_candles(100)),
+            "ETH-USDT-SWAP",
+            bar="1m",
+            kind="support",
+            nth=50,
+            now=NOW,
+        )
+
+
+def test_find_swing_level_raises_when_min_score_excludes_every_level():
+    with pytest.raises(ValueError, match="only 0 qualifying"):
+        find_swing_level(
+            _client_for(_long_candles(100)),
+            "ETH-USDT-SWAP",
+            bar="1m",
+            kind="support",
+            min_score=1.1 - 0.1,  # unreachably high but still <= 1.0
+            now=NOW,
+        )
+
+
+def test_find_swing_level_raises_on_unavailable_candle_data():
+    class EmptyClient:
+        def get_candles(self, *, inst_id, bar, limit):
+            del inst_id, bar, limit
+            return []
+
+    with pytest.raises(ValueError, match="candle data unavailable"):
+        find_swing_level(EmptyClient(), "ETH-USDT-SWAP", bar="1m", kind="support", now=NOW)
+
+
+def test_find_swing_level_rejects_invalid_parameters():
+    client = _client_for(_long_candles(100))
+    with pytest.raises(ValueError, match="kind"):
+        find_swing_level(client, "ETH-USDT-SWAP", bar="1m", kind="up", now=NOW)
+    with pytest.raises(ValueError, match="nth"):
+        find_swing_level(client, "ETH-USDT-SWAP", bar="1m", kind="support", nth=0, now=NOW)
+    with pytest.raises(ValueError, match="min_score"):
+        find_swing_level(client, "ETH-USDT-SWAP", bar="1m", kind="support", min_score=1.5, now=NOW)
+    with pytest.raises(ValueError, match="buffer_pct"):
+        find_swing_level(client, "ETH-USDT-SWAP", bar="1m", kind="support", buffer_pct=-0.1, now=NOW)

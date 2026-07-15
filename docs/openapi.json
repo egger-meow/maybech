@@ -6441,6 +6441,80 @@
         "title": "SupportResistanceLevelResponse",
         "type": "object"
       },
+      "SwingStopQuoteRequest": {
+        "properties": {
+          "bar": {
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Bar",
+            "type": "string"
+          },
+          "buffer_pct": {
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Buffer Pct",
+            "type": "number"
+          },
+          "kind": {
+            "enum": [
+              "support",
+              "resistance"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "min_score": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min Score",
+            "type": "number"
+          },
+          "nth": {
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Nth",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bar",
+          "kind",
+          "nth",
+          "min_score",
+          "buffer_pct"
+        ],
+        "title": "SwingStopQuoteRequest",
+        "type": "object"
+      },
+      "SwingStopQuoteResponse": {
+        "properties": {
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "inst_id": {
+            "title": "Inst Id",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "raw_pivot_price": {
+            "title": "Raw Pivot Price",
+            "type": "number"
+          }
+        },
+        "required": [
+          "inst_id",
+          "price",
+          "raw_pivot_price",
+          "evidence"
+        ],
+        "title": "SwingStopQuoteResponse",
+        "type": "object"
+      },
       "TradeDetailResponse": {
         "description": "Trade with its attached active rules.",
         "properties": {
@@ -7515,6 +7589,56 @@
           }
         },
         "summary": "Quote Instrument Size"
+      }
+    },
+    "/instruments/{inst_id}/swing-stop-quote": {
+      "post": {
+        "description": "Preview a previous-swing-high/low (\u524d\u9ad8/\u524d\u4f4e) stop price.\n\nRead-only, used both to resolve a concrete stop for a manual/position\nstop edit and to preview what a strategy's `previous_swing_level`\ndefault rule would currently resolve to \u2014 the real per-entry\nresolution happens fresh each time (see\n`strategy_runtime.resolve_dynamic_rule_templates`), so this preview\nis advisory only and may differ by the time an entry actually fires.",
+        "operationId": "quote_swing_stop_level_instruments__inst_id__swing_stop_quote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inst_id",
+            "required": true,
+            "schema": {
+              "title": "Inst Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwingStopQuoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwingStopQuoteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quote Swing Stop Level"
       }
     },
     "/market/analysis/support-resistance": {

@@ -169,6 +169,80 @@ class SupportResistanceService:
             return result
 
 
+def find_swing_level(
+    client: object,
+    inst_id: str,
+    *,
+    bar: str,
+    kind: str,
+    nth: int = 1,
+    min_score: float = 0.0,
+    buffer_pct: float = 0.0,
+    limit: int = 200,
+    pivot_window: int = 2,
+    now: datetime | None = None,
+) -> dict:
+    """Resolve the nth most-recent qualifying support/resistance pivot (see
+    `analyze_candles`) into a concrete stop price, offset by `buffer_pct`.
+
+    Unlike `SupportResistanceService.analyze` (research-only, TTL-cached for
+    a polling UI), this is a one-shot lookup meant to be materialized into an
+    actual stop-loss/take-profit trigger — `nth=1` is the most recent
+    qualifying level, not the highest-scoring one. Raises `ValueError` if
+    candle data is unavailable or fewer than `nth` qualifying levels exist.
+    """
+    if kind not in {"support", "resistance"}:
+        raise ValueError("kind must be 'support' or 'resistance'")
+    if nth < 1:
+        raise ValueError("nth must be at least 1")
+    if not (0.0 <= min_score <= 1.0):
+        raise ValueError("min_score must be between 0 and 1")
+    if buffer_pct < 0:
+        raise ValueError("buffer_pct must be non-negative")
+
+    frame = CandleManager(client).fetch(inst_id, bar=bar, limit=limit)
+    analysis = analyze_candles(
+        frame, inst_id=inst_id, bar=bar, now=now, pivot_window=pivot_window
+    )
+    if analysis["status"] == "unavailable":
+        raise ValueError(
+            f"candle data unavailable for {inst_id} {bar}: "
+            f"{'; '.join(analysis['errors']) or 'unknown error'}"
+        )
+    candidates = [
+        level
+        for level in analysis["levels"]
+        if level["kind"] == kind
+        and level["state"] == "active"
+        and level["score"] >= min_score
+    ]
+    candidates.sort(key=lambda level: level["evidence"]["recency_seconds"])
+    if len(candidates) < nth:
+        raise ValueError(
+            f"only {len(candidates)} qualifying active {kind} level(s) found for "
+            f"{inst_id} {bar} at min_score={min_score}; requested nth={nth}"
+        )
+    selected = candidates[nth - 1]
+    raw_price = float(selected["price"])
+    price = raw_price * (1 - buffer_pct) if kind == "support" else raw_price * (1 + buffer_pct)
+    return {
+        "price": price,
+        "raw_pivot_price": raw_price,
+        "evidence": {
+            "source": "previous_swing_level",
+            "bar": bar,
+            "kind": kind,
+            "nth": nth,
+            "min_score": min_score,
+            "buffer_pct": buffer_pct,
+            "score": selected["score"],
+            "touches": selected["touches"],
+            "latest_touch_at": selected["latest_touch_at"],
+            "qualifying_candidates": len(candidates),
+        },
+    }
+
+
 def analyze_candles(
     frame: pd.DataFrame,
     *,

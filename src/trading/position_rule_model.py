@@ -29,11 +29,17 @@ RULE_STYLES = {
     "fixed_percent",
     "fixed_price",
     "evidence_target",
+    "previous_swing_level",
     "signal_triggered",
     "break_even_threshold",
     "trailing_threshold",
     "manual_review",
 }
+
+# previous_swing_level parameters, validated for presence (not price — see
+# resolve_dynamic_rule_templates, which resolves a concrete price shortly
+# before materialize_position_rule is called).
+PREVIOUS_SWING_LEVEL_PARAMETERS = {"bar", "kind", "nth", "min_score", "buffer_pct"}
 
 
 def normalize_position_rule(
@@ -92,6 +98,10 @@ def normalize_position_rule(
         raise ValueError("position rule parameters must be an object")
     if purpose == "trailing":
         parameters = _normalize_trailing_parameters(parameters, action_type)
+    if style == "previous_swing_level":
+        if purpose not in {"stop_loss", "take_profit"}:
+            raise ValueError("previous_swing_level is only valid for stop_loss or take_profit")
+        parameters = _normalize_previous_swing_level_parameters(parameters)
     definition = {
         "schema_version": RULE_SCHEMA_VERSION,
         "purpose": purpose,
@@ -314,6 +324,11 @@ def materialize_position_rule(
                 raise ValueError("absolute price rule requires a valid value") from exc
             if basis != "validation_reference":
                 _validate_price_side(purpose, normalized_side, entry, absolute_price)
+    elif style == "previous_swing_level":
+        raise ValueError(
+            "previous_swing_level rules must be resolved to a concrete price "
+            "before materialization (see resolve_dynamic_rule_templates)"
+        )
 
     materialized_definition = {
         **source_definition,
@@ -463,6 +478,45 @@ def _normalize_trailing_parameters(
         raise ValueError("trailing stale_after_seconds must be between 5 and 3600")
     result["timeframe"] = timeframe
     result["stale_after_seconds"] = stale_after
+    return result
+
+
+def _normalize_previous_swing_level_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    result = deepcopy(parameters)
+    missing = PREVIOUS_SWING_LEVEL_PARAMETERS - result.keys()
+    if missing:
+        raise ValueError(
+            f"previous_swing_level requires parameters: {', '.join(sorted(missing))}"
+        )
+    bar = str(result.get("bar") or "")
+    if not bar:
+        raise ValueError("previous_swing_level bar is required")
+    kind = str(result.get("kind") or "")
+    if kind not in {"support", "resistance"}:
+        raise ValueError("previous_swing_level kind must be support or resistance")
+    try:
+        nth = int(result.get("nth"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("previous_swing_level nth must be an integer") from exc
+    if nth < 1:
+        raise ValueError("previous_swing_level nth must be at least 1")
+    try:
+        min_score = Decimal(str(result.get("min_score")))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("previous_swing_level min_score is invalid") from exc
+    if not min_score.is_finite() or min_score < 0 or min_score > 1:
+        raise ValueError("previous_swing_level min_score must be between 0 and 1")
+    try:
+        buffer_pct = Decimal(str(result.get("buffer_pct")))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("previous_swing_level buffer_pct is invalid") from exc
+    if not buffer_pct.is_finite() or buffer_pct < 0 or buffer_pct > Decimal("0.5"):
+        raise ValueError("previous_swing_level buffer_pct must be between 0 and 0.5")
+    result["bar"] = bar
+    result["kind"] = kind
+    result["nth"] = nth
+    result["min_score"] = str(min_score)
+    result["buffer_pct"] = str(buffer_pct)
     return result
 
 

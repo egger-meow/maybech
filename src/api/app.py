@@ -30,7 +30,7 @@ from src.market.macro_overview import (
     fetch_prices,
 )
 from src.market.open_interest_history import DEFAULT_PERIOD, VALID_PERIODS, fetch_open_interest_history
-from src.market.support_resistance import SupportResistanceService
+from src.market.support_resistance import SupportResistanceService, find_swing_level
 from src.market_intelligence.service import MarketIntelligenceService
 from src.daemon.events import RuntimeEvent
 from src.daemon.service import DaemonRunner
@@ -104,6 +104,8 @@ from src.api.schemas import (
     InstrumentSizeQuoteResponse,
     InstrumentRiskQuoteRequest,
     InstrumentRiskQuoteResponse,
+    SwingStopQuoteRequest,
+    SwingStopQuoteResponse,
     StrategyRiskStopPromotionCommand,
     PositionRiskStopPromotionCommand,
     LivePreflightResponse,
@@ -1452,6 +1454,42 @@ def create_app(
     ) -> InstrumentRiskQuoteResponse:
         quote = build_risk_quote(inst_id, payload)
         return InstrumentRiskQuoteResponse(**quote.to_dict())
+
+    @app.post(
+        "/instruments/{inst_id}/swing-stop-quote",
+        response_model=SwingStopQuoteResponse,
+    )
+    def quote_swing_stop_level(
+        inst_id: str,
+        payload: SwingStopQuoteRequest,
+    ) -> SwingStopQuoteResponse:
+        """Preview a previous-swing-high/low (前高/前低) stop price.
+
+        Read-only, used both to resolve a concrete stop for a manual/position
+        stop edit and to preview what a strategy's `previous_swing_level`
+        default rule would currently resolve to — the real per-entry
+        resolution happens fresh each time (see
+        `strategy_runtime.resolve_dynamic_rule_templates`), so this preview
+        is advisory only and may differ by the time an entry actually fires.
+        """
+        try:
+            result = find_swing_level(
+                market_client(),
+                inst_id,
+                bar=payload.bar,
+                kind=payload.kind,
+                nth=payload.nth,
+                min_score=payload.min_score,
+                buffer_pct=payload.buffer_pct,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return SwingStopQuoteResponse(
+            inst_id=inst_id,
+            price=result["price"],
+            raw_pivot_price=result["raw_pivot_price"],
+            evidence=result["evidence"],
+        )
 
     @app.get("/risk/entries", response_model=EntryControlResponse)
     def get_entry_control() -> EntryControlResponse:

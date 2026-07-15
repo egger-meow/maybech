@@ -239,6 +239,21 @@ class InstrumentRiskQuoteResponse(InstrumentSizeQuoteResponse):
     evidence: dict[str, Any]
 
 
+class SwingStopQuoteRequest(BaseModel):
+    bar: str = Field(min_length=1, max_length=16)
+    kind: Literal["support", "resistance"]
+    nth: int = Field(ge=1, le=50)
+    min_score: float = Field(ge=0, le=1)
+    buffer_pct: float = Field(ge=0, le=0.5)
+
+
+class SwingStopQuoteResponse(BaseModel):
+    inst_id: str
+    price: float
+    raw_pivot_price: float
+    evidence: dict[str, Any]
+
+
 class StrategyRiskStopPromotionCommand(InstrumentRiskQuoteRequest):
     confirm: Literal[True]
     expected_updated_at: str = Field(min_length=1)

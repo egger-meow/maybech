@@ -1,8 +1,13 @@
+from datetime import datetime, timedelta, timezone
+
+import pandas as pd
+
 from src.trading.strategy_runtime import (
     close_condition_specs,
     compose_entry_expression,
     entry_limit_price,
     exchange_protection_prices,
+    resolve_dynamic_rule_templates,
     resolve_self_symbol,
     validate_strategy_for_execution,
 )
@@ -117,4 +122,96 @@ def test_strategy_runtime_materializes_relative_stop_but_keeps_staged_target_sof
 
     assert stop == 95
     assert attached_target is None
+
+
+def _swing_client():
+    now = datetime(2026, 7, 2, 12, tzinfo=timezone.utc)
+    rows = []
+    for index in range(100):
+        close = 100 + (index % 10 if (index // 10) % 2 == 0 else 10 - index % 10)
+        rows.append({
+            "timestamp": now - timedelta(minutes=100 - index),
+            "open": close - .25, "high": close + 1, "low": close - 1, "close": close,
+            "volume": 10 + index % 7,
+        })
+    frame = pd.DataFrame(rows)
+
+    class Client:
+        def get_candles(self, *, inst_id, bar, limit):
+            del inst_id, bar
+            tail = frame.tail(int(limit))
+            return [
+                [
+                    str(int(row.timestamp.timestamp() * 1000)),
+                    str(row.open), str(row.high), str(row.low), str(row.close),
+                    str(row.volume), str(row.volume), str(row.volume), "1",
+                ]
+                for row in tail.itertuples()
+            ]
+    return Client()
+
+
+def _previous_swing_level_condition():
+    return {
+        "purpose": "stop_loss", "enabled": True,
+        "expression": {"type": "price_below", "symbol": "self", "value": 42},
+        "metadata": {"rule_definition": {
+            "style": "previous_swing_level", "action": {"type": "close_position"},
+            "parameters": {"bar": "1H", "kind": "support", "nth": 1, "min_score": 0.0, "buffer_pct": 0.0},
+            "evidence": {},
+        }},
+    }
+
+
+def test_resolve_dynamic_rule_templates_falls_back_to_placeholder_without_client():
+    resolved = resolve_dynamic_rule_templates(
+        [_previous_swing_level_condition()], client=None, inst_id="ETH-USDT-SWAP",
+    )
+
+    definition = resolved[0]["metadata"]["rule_definition"]
+    assert definition["style"] == "fixed_price"
+    assert definition["parameters"]["target_price"] == 42
+
+
+def test_resolve_dynamic_rule_templates_resolves_a_fresh_price_with_client():
+    resolved = resolve_dynamic_rule_templates(
+        [_previous_swing_level_condition()],
+        client=_swing_client(),
+        inst_id="ETH-USDT-SWAP",
+        now=datetime(2026, 7, 2, 12, tzinfo=timezone.utc),
+    )
+
+    definition = resolved[0]["metadata"]["rule_definition"]
+    assert definition["style"] == "fixed_price"
+    assert definition["parameters"]["target_price"] != 42
+    assert definition["evidence"]["source"] == "previous_swing_level"
+
+
+def test_exchange_protection_prices_falls_back_to_placeholder_without_client(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    strategy = _strategy(store)
+    strategy = store.update(
+        strategy.id,
+        default_rules={"close_conditions": [_previous_swing_level_condition()]},
+    )
+
+    stop, _ = exchange_protection_prices(strategy, store, "ETH-USDT-SWAP", entry_price=100)
+
+    assert stop == 42
+
+
+def test_exchange_protection_prices_resolves_previous_swing_level_with_client(tmp_path):
+    store = StrategyStore(str(tmp_path / "strategies.db"))
+    strategy = _strategy(store)
+    strategy = store.update(
+        strategy.id,
+        default_rules={"close_conditions": [_previous_swing_level_condition()]},
+    )
+
+    stop, _ = exchange_protection_prices(
+        strategy, store, "ETH-USDT-SWAP", entry_price=200, client=_swing_client(),
+    )
+
+    assert stop != 42
+    assert 0 < stop < 200
     assert validate_strategy_for_execution(strategy, store) == []
